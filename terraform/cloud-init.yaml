@@ -1,0 +1,301 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+
+packages:
+  - curl
+  - htop
+
+write_files:
+  - path: /root/bootstrap.sh
+    permissions: "0755"
+    owner: root:root
+    content: |
+      #!/bin/bash
+      set -eu
+
+      export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+
+      wait_for_k8s() {
+        for i in $(seq 1 60); do
+          if kubectl get nodes >/dev/null 2>&1; then
+            return 0
+          fi
+          sleep 5
+        done
+        exit 1
+      }
+
+      wait_for_deploy() {
+        ns="$1"
+        name="$2"
+        kubectl -n "$ns" rollout status deploy/"$name" --timeout=300s
+      }
+
+      wait_for_crd() {
+        crd="$1"
+        for i in $(seq 1 60); do
+          if kubectl get crd "$crd" >/dev/null 2>&1; then
+            return 0
+          fi
+          sleep 5
+        done
+        exit 1
+      }
+
+      wait_for_k8s
+
+      if ! command -v helm >/dev/null 2>&1; then
+        curl -fsSL https://get.helm.sh/helm-v3.15.3-linux-amd64.tar.gz -o /tmp/helm.tar.gz
+        tar -xzf /tmp/helm.tar.gz -C /tmp
+        mv /tmp/linux-amd64/helm /usr/local/bin/helm
+        chmod +x /usr/local/bin/helm
+      fi
+
+      helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx || true
+      helm repo add jetstack https://charts.jetstack.io || true
+      helm repo add prometheus-community https://prometheus-community.github.io/helm-charts || true
+      helm repo update
+
+      helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+        --namespace infra \
+        --create-namespace \
+        --set controller.publishService.enabled=true
+
+      helm upgrade --install cert-manager jetstack/cert-manager \
+        --namespace cert-manager \
+        --create-namespace \
+        --set installCRDs=true
+
+      wait_for_deploy infra ingress-nginx-controller
+      wait_for_deploy cert-manager cert-manager
+      wait_for_deploy cert-manager cert-manager-webhook
+
+      wait_for_crd "certificates.cert-manager.io"
+      wait_for_crd "clusterissuers.cert-manager.io"
+
+      cat >/root/cluster-issuer.yaml <<'EOF'
+      apiVersion: cert-manager.io/v1
+      kind: ClusterIssuer
+      metadata:
+        name: letsencrypt-http
+      spec:
+        acme:
+          email: ${acme_email}
+          server: https://acme-v02.api.letsencrypt.org/directory
+          privateKeySecretRef:
+            name: letsencrypt-http-private-key
+          solvers:
+          - http01:
+              ingress:
+                class: nginx
+      EOF
+
+      kubectl apply -f /root/cluster-issuer.yaml
+
+      helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
+        --namespace monitoring \
+        --create-namespace
+
+      wait_for_deploy monitoring monitoring-grafana
+      wait_for_deploy monitoring monitoring-kube-prometheus-operator
+
+      cat >/root/kimai.yaml <<'EOF'
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: apps-tools
+      ---
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: kimai-mariadb-pvc
+        namespace: apps-tools
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 5Gi
+      ---
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: kimai-mariadb
+        namespace: apps-tools
+        labels:
+          app: kimai-mariadb
+      spec:
+        replicas: 1
+        selector:
+          matchLabels:
+            app: kimai-mariadb
+        template:
+          metadata:
+            labels:
+              app: kimai-mariadb
+          spec:
+            containers:
+              - name: mariadb
+                image: mariadb:11
+                env:
+                  - name: MYSQL_ROOT_PASSWORD
+                    value: "rootpass"
+                  - name: MYSQL_DATABASE
+                    value: "kimai"
+                  - name: MYSQL_USER
+                    value: "kimai"
+                  - name: MYSQL_PASSWORD
+                    value: "kimai_pass"
+                ports:
+                  - containerPort: 3306
+                volumeMounts:
+                  - name: mariadb-data
+                    mountPath: /var/lib/mysql
+            volumes:
+              - name: mariadb-data
+                persistentVolumeClaim:
+                  claimName: kimai-mariadb-pvc
+      ---
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: kimai-mariadb
+        namespace: apps-tools
+      spec:
+        selector:
+          app: kimai-mariadb
+        ports:
+          - port: 3306
+            targetPort: 3306
+      ---
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: kimai
+        namespace: apps-tools
+        labels:
+          app: kimai
+      spec:
+        replicas: 1
+        selector:
+          matchLabels:
+            app: kimai
+        template:
+          metadata:
+            labels:
+              app: kimai
+          spec:
+            containers:
+              - name: kimai
+                image: kimai/kimai2:apache
+                ports:
+                  - containerPort: 8001
+                env:
+                  - name: DATABASE_URL
+                    value: "mysql://kimai:kimai_pass@kimai-mariadb:3306/kimai"
+                volumeMounts:
+                  - name: kimai-var
+                    mountPath: /opt/kimai/var
+            volumes:
+              - name: kimai-var
+                emptyDir: {}
+      ---
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: kimai-service
+        namespace: apps-tools
+      spec:
+        selector:
+          app: kimai
+        ports:
+          - port: 80
+            targetPort: 8001
+      ---
+      apiVersion: cert-manager.io/v1
+      kind: Certificate
+      metadata:
+        name: kimai-cert
+        namespace: apps-tools
+      spec:
+        secretName: kimai-tls
+        dnsNames:
+          - ${kimai_domain}
+        issuerRef:
+          name: letsencrypt-http
+          kind: ClusterIssuer
+      ---
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: kimai-ingress
+        namespace: apps-tools
+      spec:
+        ingressClassName: nginx
+        tls:
+          - hosts:
+              - ${kimai_domain}
+            secretName: kimai-tls
+        rules:
+          - host: ${kimai_domain}
+            http:
+              paths:
+                - path: /
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: kimai-service
+                      port:
+                        number: 80
+      EOF
+
+      kubectl apply -f /root/kimai.yaml
+
+      cat >/root/monitoring-grafana.yaml <<'EOF'
+      apiVersion: cert-manager.io/v1
+      kind: Certificate
+      metadata:
+        name: grafana-cert
+        namespace: monitoring
+      spec:
+        secretName: grafana-tls
+        dnsNames:
+          - ${monitoring_domain}
+        issuerRef:
+          name: letsencrypt-http
+          kind: ClusterIssuer
+      ---
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: grafana-ingress
+        namespace: monitoring
+      spec:
+        ingressClassName: nginx
+        tls:
+          - hosts:
+              - ${monitoring_domain}
+            secretName: grafana-tls
+        rules:
+          - host: ${monitoring_domain}
+            http:
+              paths:
+                - path: /
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: monitoring-grafana
+                      port:
+                        number: 80
+      EOF
+
+      kubectl apply -f /root/monitoring-grafana.yaml
+
+      wait_for_deploy apps-tools kimai
+
+runcmd:
+  - curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--disable traefik" sh -
+  - echo 'alias k=kubectl' >> /root/.bashrc
+  - echo 'export KUBECONFIG=/etc/rancher/k3s/k3s.yaml' >> /root/.bashrc
+  - bash /root/bootstrap.sh
