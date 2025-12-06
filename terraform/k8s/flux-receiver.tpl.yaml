@@ -70,7 +70,7 @@ spec:
     - host: ${FLUX_HOOK_DOMAIN}
       http:
         paths:
-          - path: /_flux/hook
+          - path: /hook
             pathType: Prefix
             backend:
               service:
