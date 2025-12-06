@@ -152,6 +152,7 @@ write_files:
           substitute:
             KIMAI_DOMAIN: ${kimai_domain}
             MONITORING_DOMAIN: ${monitoring_domain}
+            FLUX_HOOK_DOMAIN: ${flux_hook_domain}
       EOF
 
       cat >/root/flux-receiver.yaml <<'EOF'
