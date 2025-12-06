@@ -40,6 +40,10 @@ resource "scaleway_instance_server" "k3s_node_1" {
   name  = "devsh-k3s-${var.env_name}-node-1"
   type  = "DEV1-M"
   image = "ubuntu_jammy"
+  root_volume {
+    size_in_gb = 40
+    volume_type = "l_ssd"
+  }
 
   ip_id             = scaleway_instance_ip.public_ip.id
   security_group_id = scaleway_instance_security_group.web_sg.id
