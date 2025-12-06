@@ -52,4 +52,8 @@ resource "scaleway_instance_server" "k3s_node_1" {
     "kimai-node",
     var.env_name,
   ]
+
+  lifecycle {
+    ignore_changes = [cloud_init]
+  }
 }

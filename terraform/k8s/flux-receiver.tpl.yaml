@@ -1,0 +1,62 @@
+apiVersion: notification.toolkit.fluxcd.io/v1
+kind: Receiver
+metadata:
+  name: github-receiver
+  namespace: flux-system
+spec:
+  type: github
+  events:
+    - push
+  secretRef:
+    name: github-webhook-token
+  resources:
+    - kind: GitRepository
+      name: terralinfra
+      namespace: flux-system
+  suspend: false
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: github-webhook-token
+  namespace: flux-system
+type: Opaque
+stringData:
+  token: ${github_webhook_secret}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: flux-receiver
+  namespace: flux-system
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 80
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/instance: flux-system
+    app.kubernetes.io/name: notification-controller
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: flux-receiver
+  namespace: flux-system
+  annotations:
+    kubernetes.io/ingress.class: nginx
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: ${flux_hook_domain}
+      http:
+        paths:
+          - path: /_flux/hook
+            pathType: Prefix
+            backend:
+              service:
+                name: flux-receiver
+                port:
+                  number: 80

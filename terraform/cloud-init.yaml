@@ -5,6 +5,9 @@ package_upgrade: true
 packages:
   - curl
   - htop
+  - git
+  - gettext-base
+  - ca-certificates
 
 write_files:
   - path: /root/bootstrap.sh
@@ -100,199 +103,115 @@ write_files:
       wait_for_deploy monitoring monitoring-grafana
       wait_for_deploy monitoring monitoring-kube-prometheus-operator
 
-      cat >/root/kimai.yaml <<'EOF'
-      apiVersion: v1
-      kind: Namespace
+      if ! command -v flux >/dev/null 2>&1; then
+        curl -s https://fluxcd.io/install.sh | bash
+      fi
+
+      flux install --components-extra=image-reflector-controller,image-automation-controller
+
+      kubectl -n flux-system delete secret git-credentials || true
+      kubectl -n flux-system create secret generic git-credentials \
+        --from-literal=username=git \
+        --from-literal=password='${config_pat_token}'
+
+      kubectl -n flux-system delete secret github-webhook-token || true
+      kubectl -n flux-system create secret generic github-webhook-token \
+        --from-literal=token='${github_webhook_secret}'
+
+      cat >/root/flux-source.yaml <<'EOF'
+      apiVersion: source.toolkit.fluxcd.io/v1
+      kind: GitRepository
       metadata:
-        name: apps-tools
-      ---
-      apiVersion: v1
-      kind: PersistentVolumeClaim
-      metadata:
-        name: kimai-mariadb-pvc
-        namespace: apps-tools
+        name: terralinfra
+        namespace: flux-system
       spec:
-        accessModes:
-          - ReadWriteOnce
+        interval: 2m
+        url: ${config_repo_url}
+        ref:
+          branch: ${config_repo_branch}
+        secretRef:
+          name: git-credentials
+      EOF
+
+      cat >/root/flux-kustomization.yaml <<'EOF'
+      apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      metadata:
+        name: apps
+        namespace: flux-system
+      spec:
+        interval: 2m
+        prune: true
+        path: ./${config_repo_path}
+        sourceRef:
+          kind: GitRepository
+          name: terralinfra
+          namespace: flux-system
+        timeout: 2m
+        postBuild:
+          substitute:
+            KIMAI_DOMAIN: ${kimai_domain}
+            MONITORING_DOMAIN: ${monitoring_domain}
+      EOF
+
+      cat >/root/flux-receiver.yaml <<'EOF'
+      apiVersion: notification.toolkit.fluxcd.io/v1
+      kind: Receiver
+      metadata:
+        name: github-receiver
+        namespace: flux-system
+      spec:
+        type: github
+        events:
+          - push
+        secretRef:
+          name: github-webhook-token
         resources:
-          requests:
-            storage: 5Gi
-      ---
-      apiVersion: apps/v1
-      kind: Deployment
-      metadata:
-        name: kimai-mariadb
-        namespace: apps-tools
-        labels:
-          app: kimai-mariadb
-      spec:
-        replicas: 1
-        selector:
-          matchLabels:
-            app: kimai-mariadb
-        template:
-          metadata:
-            labels:
-              app: kimai-mariadb
-          spec:
-            containers:
-              - name: mariadb
-                image: mariadb:11
-                env:
-                  - name: MYSQL_ROOT_PASSWORD
-                    value: "rootpass"
-                  - name: MYSQL_DATABASE
-                    value: "kimai"
-                  - name: MYSQL_USER
-                    value: "kimai"
-                  - name: MYSQL_PASSWORD
-                    value: "kimai_pass"
-                ports:
-                  - containerPort: 3306
-                volumeMounts:
-                  - name: mariadb-data
-                    mountPath: /var/lib/mysql
-            volumes:
-              - name: mariadb-data
-                persistentVolumeClaim:
-                  claimName: kimai-mariadb-pvc
+          - kind: GitRepository
+            name: terralinfra
+            namespace: flux-system
       ---
       apiVersion: v1
       kind: Service
       metadata:
-        name: kimai-mariadb
-        namespace: apps-tools
+        name: flux-receiver
+        namespace: flux-system
       spec:
-        selector:
-          app: kimai-mariadb
-        ports:
-          - port: 3306
-            targetPort: 3306
-      ---
-      apiVersion: apps/v1
-      kind: Deployment
-      metadata:
-        name: kimai
-        namespace: apps-tools
-        labels:
-          app: kimai
-      spec:
-        replicas: 1
-        selector:
-          matchLabels:
-            app: kimai
-        template:
-          metadata:
-            labels:
-              app: kimai
-          spec:
-            containers:
-              - name: kimai
-                image: kimai/kimai2:apache
-                ports:
-                  - containerPort: 8001
-                env:
-                  - name: DATABASE_URL
-                    value: "mysql://kimai:kimai_pass@kimai-mariadb:3306/kimai"
-                volumeMounts:
-                  - name: kimai-var
-                    mountPath: /opt/kimai/var
-            volumes:
-              - name: kimai-var
-                emptyDir: {}
-      ---
-      apiVersion: v1
-      kind: Service
-      metadata:
-        name: kimai-service
-        namespace: apps-tools
-      spec:
-        selector:
-          app: kimai
+        type: ClusterIP
         ports:
           - port: 80
-            targetPort: 8001
-      ---
-      apiVersion: cert-manager.io/v1
-      kind: Certificate
-      metadata:
-        name: kimai-cert
-        namespace: apps-tools
-      spec:
-        secretName: kimai-tls
-        dnsNames:
-          - ${kimai_domain}
-        issuerRef:
-          name: letsencrypt-http
-          kind: ClusterIssuer
+            targetPort: 80
+            protocol: TCP
+            name: http
+        selector:
+          app.kubernetes.io/instance: flux-system
+          app.kubernetes.io/name: notification-controller
       ---
       apiVersion: networking.k8s.io/v1
       kind: Ingress
       metadata:
-        name: kimai-ingress
-        namespace: apps-tools
+        name: flux-receiver
+        namespace: flux-system
+        annotations:
+          kubernetes.io/ingress.class: nginx
       spec:
         ingressClassName: nginx
-        tls:
-          - hosts:
-              - ${kimai_domain}
-            secretName: kimai-tls
         rules:
-          - host: ${kimai_domain}
+          - host: ${flux_hook_domain}
             http:
               paths:
-                - path: /
+                - path: /_flux/hook
                   pathType: Prefix
                   backend:
                     service:
-                      name: kimai-service
+                      name: flux-receiver
                       port:
                         number: 80
       EOF
 
-      kubectl apply -f /root/kimai.yaml
-
-      cat >/root/monitoring-grafana.yaml <<'EOF'
-      apiVersion: cert-manager.io/v1
-      kind: Certificate
-      metadata:
-        name: grafana-cert
-        namespace: monitoring
-      spec:
-        secretName: grafana-tls
-        dnsNames:
-          - ${monitoring_domain}
-        issuerRef:
-          name: letsencrypt-http
-          kind: ClusterIssuer
-      ---
-      apiVersion: networking.k8s.io/v1
-      kind: Ingress
-      metadata:
-        name: grafana-ingress
-        namespace: monitoring
-      spec:
-        ingressClassName: nginx
-        tls:
-          - hosts:
-              - ${monitoring_domain}
-            secretName: grafana-tls
-        rules:
-          - host: ${monitoring_domain}
-            http:
-              paths:
-                - path: /
-                  pathType: Prefix
-                  backend:
-                    service:
-                      name: monitoring-grafana
-                      port:
-                        number: 80
-      EOF
-
-      kubectl apply -f /root/monitoring-grafana.yaml
-
-      wait_for_deploy apps-tools kimai
+      kubectl apply -f /root/flux-source.yaml
+      kubectl apply -f /root/flux-kustomization.yaml
+      kubectl apply -f /root/flux-receiver.yaml
 
 runcmd:
   - curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--disable traefik" sh -
