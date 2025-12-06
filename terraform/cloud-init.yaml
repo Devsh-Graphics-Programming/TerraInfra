@@ -153,6 +153,7 @@ write_files:
             KIMAI_DOMAIN: ${kimai_domain}
             MONITORING_DOMAIN: ${monitoring_domain}
             FLUX_HOOK_DOMAIN: ${flux_hook_domain}
+            GITHUB_WEBHOOK_SECRET: ${github_webhook_secret}
       EOF
 
       cat >/root/flux-receiver.yaml <<'EOF'
@@ -181,12 +182,12 @@ write_files:
         type: ClusterIP
         ports:
           - port: 80
-            targetPort: 80
+            targetPort: 9292
             protocol: TCP
             name: http
         selector:
-          app.kubernetes.io/instance: flux-system
-          app.kubernetes.io/name: notification-controller
+          app: notification-controller
+          app.kubernetes.io/component: notification-controller
       ---
       apiVersion: networking.k8s.io/v1
       kind: Ingress
