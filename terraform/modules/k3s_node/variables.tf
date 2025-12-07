@@ -31,7 +31,7 @@ variable "config_repo_url" {
 variable "config_repo_branch" {
   type        = string
   description = "Branch to track in the config repo"
-  default     = "main"
+  default     = "master"
 }
 
 variable "config_repo_path" {

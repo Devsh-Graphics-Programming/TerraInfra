@@ -32,7 +32,7 @@ terraform apply `
   -var "monitoring_domain=$env:MONITORING_DOMAIN" `
   -var "acme_email=$env:ACME_EMAIL" `
   -var "config_repo_url=https://github.com/Devsh-Graphics-Programming/TerraInfra.git" `
-  -var "config_repo_branch=main" `
+  -var "config_repo_branch=master" `
   -var "config_repo_path=terraform/k8s" `
   -var "github_persistent_terra_infra_ro_pat=$env:GITHUB_PERSISTENT_TERRA_INFRA_RO_PAT" `
   -var "github_bootstrap_terra_infra_webhook_pat=$env:GITHUB_BOOTSTRAP_TERRA_INFRA_WEBHOOK_PAT" `
