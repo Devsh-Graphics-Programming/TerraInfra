@@ -35,9 +35,10 @@ module "k3s_node_prod" {
     monitoring_domain = var.monitoring_domain
     config_repo_url   = var.config_repo_url
     config_repo_branch = var.config_repo_branch
-    config_repo_path  = var.config_repo_path
-    github_persistent_terra_infra_ro_pat  = var.github_persistent_terra_infra_ro_pat
-    github_bootstrap_terra_infra_webhook_pat = var.github_bootstrap_terra_infra_webhook_pat
-    flux_hook_domain  = var.flux_hook_domain
+  config_repo_path  = var.config_repo_path
+  github_persistent_terra_infra_ro_pat  = var.github_persistent_terra_infra_ro_pat
+  github_bootstrap_terra_infra_webhook_pat = var.github_bootstrap_terra_infra_webhook_pat
+  flux_hook_domain  = var.flux_hook_domain
+  path_root         = path.root
   })
 }
