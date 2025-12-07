@@ -1,10 +1,11 @@
 # TerraInfra Quick Ops Guide
 
 ## Prereqs
-- Terraform ≥ 1.5
+- Terraform >= 1.5
 - Scaleway creds (`SCW_ACCESS_KEY`, `SCW_SECRET_KEY`, `SCW_DEFAULT_PROJECT_ID`)
 - GitHub fine-grained PAT (read-only to this repo)
 - Domains pointing to the cluster IP (A records)
+- Python3 on the node (installed by cloud-init)
 
 ## .env (terraform/.env)
 Do not commit. Example:
@@ -31,7 +32,7 @@ terraform apply `
   -var "monitoring_domain=$env:MONITORING_DOMAIN" `
   -var "acme_email=$env:ACME_EMAIL" `
   -var "config_repo_url=https://github.com/Devsh-Graphics-Programming/TerraInfra.git" `
-  -var "config_repo_branch=master" `
+  -var "config_repo_branch=main" `
   -var "config_repo_path=terraform/k8s" `
   -var "github_persistent_terra_infra_ro_pat=$env:GITHUB_PERSISTENT_TERRA_INFRA_RO_PAT" `
   -var "github_bootstrap_terra_infra_webhook_pat=$env:GITHUB_BOOTSTRAP_TERRA_INFRA_WEBHOOK_PAT" `
@@ -46,19 +47,22 @@ Set A records to the cluster IP (e.g. `212.47.251.150`):
 - `flux-hook.prod.devsh.eu`
 
 ## GitHub Webhook
-Repo TerraInfra > Settings > Webhooks:
-- Get path (after receiver Ready): `kubectl -n flux-system get receiver github-receiver -o jsonpath='{.status.webhookPath}'`
-- Payload URL: `https://flux-hook.prod.devsh.eu<status.webhookPath>` (example: `https://flux-hook.prod.devsh.eu/hook/xxxxxxxx...`)
+Bootstrap (Python) auto-creates the webhook when `GITHUB_BOOTSTRAP_TERRA_INFRA_WEBHOOK_PAT` is set:
+- Deletes any existing hooks whose URL contains `FLUX_HOOK_DOMAIN`.
+- Creates a new hook pointing to the receiver path, with a fresh secret stored in `flux-system/github-webhook-token`.
+If you need to inspect manually:
+- Path (after receiver Ready): `kubectl -n flux-system get receiver github-receiver -o jsonpath='{.status.webhookPath}'`
+- Payload URL example: `https://flux-hook.prod.devsh.eu/hook/...`
 - Content type: `application/json`
-- Secret: value from `.env` `GITHUB_WEBHOOK_SECRET`
+- Secret: decoded `token` from `flux-system/github-webhook-token`
 - Events: push (ping allowed)
-- Path stays the same as long as receiver name/namespace and secret value do not change.
 
 ## After boot
 On the node:
 ```
 cloud-init status --long
 tail -f /var/log/cloud-init-output.log   # wait until you see all flux components ready and "Cloud-init ... finished ..."
+tail -f /var/log/bootstrap.log           # live Python bootstrap output
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 kubectl get nodes
 flux get kustomizations -A
@@ -69,7 +73,7 @@ kubectl get ingress -A
 ```
 
 ## Iterating services
-- Edit `terraform/k8s/*.tpl.yaml`, commit/push to `master`.
+- Edit `terraform/k8s/*.tpl.yaml`, commit/push to `main`.
 - Flux (2m polling + webhook) applies changes and rolls out pods.
 - Check: `flux get kustomizations -A` and `kubectl get deploy/ingress -A`.
 
@@ -81,4 +85,4 @@ kubectl get ingress -A
 - No flux pods yet: watch `/var/log/cloud-init-output.log` until install finished.
 - Kustomization not Ready: `kubectl -n flux-system describe kustomization apps`.
 - Webhook: check GitHub deliveries and `kubectl -n flux-system logs deploy/notification-controller`.
-- Disk pressure/evictions: clean images or move DB to dedicated persistent storage. 
+- Disk pressure/evictions: clean images or move DB to dedicated persistent storage.
