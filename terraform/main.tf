@@ -25,9 +25,9 @@ module "k3s_node_prod" {
   config_repo_url   = var.config_repo_url
   config_repo_branch = var.config_repo_branch
   config_repo_path  = var.config_repo_path
-  config_pat_token  = var.config_pat_token
+  github_persistent_terra_infra_ro_pat  = var.github_persistent_terra_infra_ro_pat
+  github_bootstrap_terra_infra_webhook_pat = var.github_bootstrap_terra_infra_webhook_pat
   flux_hook_domain  = var.flux_hook_domain
-  github_webhook_secret = var.github_webhook_secret
 
   cloud_init = templatefile("${path.root}/cloud-init.yaml", {
     acme_email        = var.acme_email
@@ -36,8 +36,8 @@ module "k3s_node_prod" {
     config_repo_url   = var.config_repo_url
     config_repo_branch = var.config_repo_branch
     config_repo_path  = var.config_repo_path
-    config_pat_token  = var.config_pat_token
+    github_persistent_terra_infra_ro_pat  = var.github_persistent_terra_infra_ro_pat
+    github_bootstrap_terra_infra_webhook_pat = var.github_bootstrap_terra_infra_webhook_pat
     flux_hook_domain  = var.flux_hook_domain
-    github_webhook_secret = var.github_webhook_secret
   })
 }

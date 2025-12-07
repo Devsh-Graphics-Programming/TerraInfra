@@ -15,9 +15,9 @@ SCW_DEFAULT_PROJECT_ID=...
 KIMAI_DOMAIN=kimai2.devsh.eu
 MONITORING_DOMAIN=monitoring.devsh.eu
 ACME_EMAIL=you@example.com
-CONFIG_PAT_TOKEN=ghp_...
+GITHUB_PERSISTENT_TERRA_INFRA_RO_PAT=ghp_...   # read-only PAT stored in cluster for repo access
+GITHUB_BOOTSTRAP_TERRA_INFRA_WEBHOOK_PAT=ghp_...   # required to auto-create GitHub webhook at bootstrap (Webhooks RW)
 FLUX_HOOK_DOMAIN=flux-hook.prod.devsh.eu
-GITHUB_WEBHOOK_SECRET=your_webhook_secret
 ```
 Load envs: `.\env.ps1`
 
@@ -33,9 +33,9 @@ terraform apply `
   -var "config_repo_url=https://github.com/Devsh-Graphics-Programming/TerraInfra.git" `
   -var "config_repo_branch=master" `
   -var "config_repo_path=terraform/k8s" `
-  -var "config_pat_token=$env:CONFIG_PAT_TOKEN" `
-  -var "flux_hook_domain=$env:FLUX_HOOK_DOMAIN" `
-  -var "github_webhook_secret=$env:GITHUB_WEBHOOK_SECRET"
+  -var "github_persistent_terra_infra_ro_pat=$env:GITHUB_PERSISTENT_TERRA_INFRA_RO_PAT" `
+  -var "github_bootstrap_terra_infra_webhook_pat=$env:GITHUB_BOOTSTRAP_TERRA_INFRA_WEBHOOK_PAT" `
+  -var "flux_hook_domain=$env:FLUX_HOOK_DOMAIN"
 ```
 To force rebuild: `terraform taint module.k3s_node_prod.scaleway_instance_server.k3s_node_1` then apply.
 

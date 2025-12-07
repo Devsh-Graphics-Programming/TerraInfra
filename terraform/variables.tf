@@ -35,21 +35,22 @@ variable "config_repo_path" {
   default     = "terraform/k8s"
 }
 
-variable "config_pat_token" {
+variable "github_persistent_terra_infra_ro_pat" {
   type        = string
-  description = "Fine-grained PAT with read-only access to the manifests repo"
+  description = "Fine-grained PAT (read-only) kept in cluster for repo access"
   sensitive   = true
+}
+
+variable "github_bootstrap_terra_infra_webhook_pat" {
+  type        = string
+  description = "Fine-grained PAT used only during bootstrap to create/patch GitHub webhook (not persisted)"
+  sensitive   = true
+  default     = ""
 }
 
 variable "flux_hook_domain" {
   type        = string
   description = "Domain name for Flux webhook receiver (e.g., flux-hook.prod.example.com)"
-}
-
-variable "github_webhook_secret" {
-  type        = string
-  description = "Shared secret for GitHub webhook -> Flux receiver"
-  sensitive   = true
 }
 
 variable "env_name" {
