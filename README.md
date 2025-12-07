@@ -46,11 +46,13 @@ Set A records to the cluster IP (e.g. `212.47.251.150`):
 - `flux-hook.prod.devsh.eu`
 
 ## GitHub Webhook
-Repo TerraInfra → Settings → Webhooks:
-- Payload URL: `https://flux-hook.prod.devsh.eu/_flux/hook`
+Repo TerraInfra > Settings > Webhooks:
+- Get path (after receiver Ready): `kubectl -n flux-system get receiver github-receiver -o jsonpath='{.status.webhookPath}'`
+- Payload URL: `https://flux-hook.prod.devsh.eu<status.webhookPath>` (example: `https://flux-hook.prod.devsh.eu/hook/xxxxxxxx...`)
 - Content type: `application/json`
-- Secret: `GITHUB_WEBHOOK_SECRET`
-- Events: push
+- Secret: value from `.env` `GITHUB_WEBHOOK_SECRET`
+- Events: push (ping allowed)
+- Path stays the same as long as receiver name/namespace and secret value do not change.
 
 ## After boot
 On the node:

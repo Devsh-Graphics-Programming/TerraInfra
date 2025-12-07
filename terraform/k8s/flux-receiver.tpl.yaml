@@ -6,11 +6,13 @@ metadata:
 spec:
   type: github
   events:
+    - ping
     - push
   secretRef:
     name: github-webhook-token
   resources:
-    - kind: GitRepository
+    - apiVersion: source.toolkit.fluxcd.io/v1
+      kind: GitRepository
       name: terralinfra
       namespace: flux-system
   suspend: false
@@ -22,7 +24,7 @@ metadata:
   namespace: flux-system
 type: Opaque
 stringData:
-  token: ${github_webhook_secret}
+  token: "${GITHUB_WEBHOOK_SECRET}"
 ---
 apiVersion: v1
 kind: Service
@@ -38,7 +40,6 @@ spec:
       name: http
   selector:
     app: notification-controller
-    app.kubernetes.io/component: notification-controller
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
