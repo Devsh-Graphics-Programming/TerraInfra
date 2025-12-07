@@ -119,7 +119,7 @@ write_files:
 
       kubectl -n flux-system delete secret github-webhook-token || true
       kubectl -n flux-system create secret generic github-webhook-token \
-        --from-literal=token="${webhook_secret}"
+        --from-literal=token="$${webhook_secret}"
 
       cat >/root/flux-source.yaml <<'EOF'
       apiVersion: source.toolkit.fluxcd.io/v1
@@ -156,7 +156,7 @@ write_files:
             KIMAI_DOMAIN: ${kimai_domain}
             MONITORING_DOMAIN: ${monitoring_domain}
             FLUX_HOOK_DOMAIN: ${flux_hook_domain}
-            GITHUB_WEBHOOK_SECRET: ${webhook_secret}
+            GITHUB_WEBHOOK_SECRET: $${webhook_secret}
       EOF
 
       cat >/root/flux-receiver.yaml <<EOF
@@ -186,7 +186,7 @@ write_files:
         namespace: flux-system
       type: Opaque
       stringData:
-        token: "${webhook_secret}"
+        token: "$${webhook_secret}"
       ---
       apiVersion: v1
       kind: Service
@@ -245,9 +245,9 @@ write_files:
       # Create or patch GitHub webhook automatically if bootstrap PAT is provided
       if [ -n "${github_bootstrap_terra_infra_webhook_pat}" ]; then
         repo_url="${config_repo_url}"
-        repo_url_stripped="${repo_url%.git}"
-        repo_name="${repo_url_stripped##*/}"
-        repo_owner="$(printf "%s" "${repo_url_stripped}" | sed -E 's#https?://[^/]+/([^/]+)/.*#\\1#')"
+        repo_url_stripped="$${repo_url%.git}"
+        repo_name="$${repo_url_stripped##*/}"
+        repo_owner="$(printf "%s" "$${repo_url_stripped}" | sed -E 's#https?://[^/]+/([^/]+)/.*#\\1#')"
         webhook_path=""
         for i in $(seq 1 30); do
           webhook_path="$(kubectl -n flux-system get receiver github-receiver -o jsonpath='{.status.webhookPath}' 2>/dev/null || true)"
@@ -255,16 +255,16 @@ write_files:
           sleep 5
         done
         if [ -n "$repo_owner" ] && [ -n "$repo_name" ] && [ -n "$webhook_path" ]; then
-          webhook_url="https://${flux_hook_domain}${webhook_path}"
-          api_base="https://api.github.com/repos/${repo_owner}/${repo_name}/hooks"
-          hooks_json="$(curl -sf -H \"Authorization: Bearer ${github_bootstrap_terra_infra_webhook_pat}\" -H \"Accept: application/vnd.github+json\" \"${api_base}\" 2>/dev/null || echo \"[]\")"
+          webhook_url="https://${flux_hook_domain}$${webhook_path}"
+          api_base="https://api.github.com/repos/$${repo_owner}/$${repo_name}/hooks"
+          hooks_json="$(curl -sf -H \"Authorization: Bearer ${github_bootstrap_terra_infra_webhook_pat}\" -H \"Accept: application/vnd.github+json\" \"$${api_base}\" 2>/dev/null || echo \"[]\")"
           hook_id="$(python3 - <<'PY'\nimport json, os, sys\nhooks=json.loads(os.environ.get('HOOKS','[]'))\nurl=os.environ.get('HOOK_URL')\nfor h in hooks:\n    cfg=h.get('config') or {}\n    if cfg.get('url')==url:\n        print(h.get('id',''))\n        sys.exit(0)\nprint('')\nPY\n)"
-          export HOOKS="${hooks_json}"
-          export HOOK_URL="${webhook_url}"
-          payload="$(cat <<JSON\n{\n  \"name\": \"web\",\n  \"active\": true,\n  \"events\": [\"push\",\"ping\"],\n  \"config\": {\n    \"url\": \"${webhook_url}\",\n    \"content_type\": \"json\",\n    \"insecure_ssl\": \"0\",\n    \"secret\": \"${webhook_secret}\"\n  }\n}\nJSON\n)"
+          export HOOKS="$${hooks_json}"
+          export HOOK_URL="$${webhook_url}"
+          payload="$(cat <<JSON\n{\n  \"name\": \"web\",\n  \"active\": true,\n  \"events\": [\"push\",\"ping\"],\n  \"config\": {\n    \"url\": \"$${webhook_url}\",\n    \"content_type\": \"json\",\n    \"insecure_ssl\": \"0\",\n    \"secret\": \"$${webhook_secret}\"\n  }\n}\nJSON\n)"
           if [ -n "$hook_id" ]; then
-            curl -sf -X PATCH \"${api_base}/${hook_id}\" \\\n              -H \"Authorization: Bearer ${github_bootstrap_terra_infra_webhook_pat}\" \\\n              -H \"Accept: application/vnd.github+json\" \\\n              -d \"${payload}\" || true\n          else
-            curl -sf -X POST \"${api_base}\" \\\n              -H \"Authorization: Bearer ${github_bootstrap_terra_infra_webhook_pat}\" \\\n              -H \"Accept: application/vnd.github+json\" \\\n              -d \"${payload}\" || true\n          fi
+            curl -sf -X PATCH \"$${api_base}/$${hook_id}\" \\\n              -H \"Authorization: Bearer ${github_bootstrap_terra_infra_webhook_pat}\" \\\n              -H \"Accept: application/vnd.github+json\" \\\n              -d \"$${payload}\" || true\n          else
+            curl -sf -X POST \"$${api_base}\" \\\n              -H \"Authorization: Bearer ${github_bootstrap_terra_infra_webhook_pat}\" \\\n              -H \"Accept: application/vnd.github+json\" \\\n              -d \"$${payload}\" || true\n          fi
           unset HOOKS HOOK_URL
         fi
         unset github_bootstrap_terra_infra_webhook_pat
