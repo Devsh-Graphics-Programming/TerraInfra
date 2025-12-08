@@ -11,6 +11,8 @@ from datetime import datetime
 from typing import Optional
 
 
+start_ts = time.time()
+
 def log(msg: str, level: str = "INFO") -> None:
     colors = {
         "INFO": "\033[36m",   # cyan
@@ -29,11 +31,11 @@ def log(msg: str, level: str = "INFO") -> None:
     sys.stdout.flush()
 
 
-def log_status(kind: str, status: str, detail: str = "") -> None:
-    msg = f"{kind}: {status}"
-    if detail:
-        msg = f"{msg} - {detail}"
+def log_status(subject: str, status: str, detail: str = "") -> None:
     level = "OK" if status.upper() == "OK" else "ERROR"
+    msg = "done" if status.upper() == "OK" else "failure!"
+    if detail:
+        msg = f"{msg} {detail}"
     log(msg, level=level)
 
 
@@ -42,7 +44,7 @@ def run(
     check: bool = True,
     input_str: Optional[str] = None,
     quiet: bool = False,
-    kind: Optional[str] = None,
+    log_ok: bool = True,
 ) -> subprocess.CompletedProcess:
     """Run shell command with text mode and echo output for live logging."""
     log(f"$ {cmd}", level="CMD")
@@ -57,10 +59,14 @@ def run(
         raise RuntimeError(f"Command failed ({result.returncode}): {cmd}\nstdout: {result.stdout}\nstderr: {result.stderr}")
     if result.stdout and not quiet:
         print(result.stdout, end="")
+        if not result.stdout.endswith("\n"):
+            print()
     if result.stderr and not quiet:
         print(result.stderr, file=sys.stderr, end="")
-    if check and result.returncode == 0 and kind and not quiet:
-        log_status(kind, "OK")
+        if not result.stderr.endswith("\n"):
+            print(file=sys.stderr)
+    if check and result.returncode == 0 and not quiet and log_ok:
+        log_status("", "OK")
     sys.stdout.flush()
     return result
 
@@ -98,7 +104,7 @@ def random_password(length: int = 24) -> str:
 
 
 def ensure_namespace(ns: str):
-    run(f"kubectl create namespace {ns} --dry-run=client -o yaml | kubectl apply -f -", kind=f"namespace {ns}")
+    run(f"kubectl create namespace {ns} --dry-run=client -o yaml | kubectl apply -f -")
 
 
 def upsert_secret(ns: str, name: str, data: dict):
@@ -113,37 +119,36 @@ def upsert_secret(ns: str, name: str, data: dict):
     ]
     for key, value in data.items():
         yaml_lines.append(f"  {key}: {value}")
-    apply_yaml("\n".join(yaml_lines), kind=f"secret {ns}/{name}")
+    apply_yaml("\n".join(yaml_lines))
 
 
 def ensure_helm():
     if subprocess.run("command -v helm", shell=True, stdout=subprocess.DEVNULL).returncode != 0:
-        run("curl -fsSL https://get.helm.sh/helm-v3.15.3-linux-amd64.tar.gz -o /tmp/helm.tar.gz", kind="helm download")
-        run("tar -xzf /tmp/helm.tar.gz -C /tmp", kind="helm extract")
-        run("mv /tmp/linux-amd64/helm /usr/local/bin/helm", kind="helm install")
-        run("chmod +x /usr/local/bin/helm", kind="helm chmod")
+        run("curl -fsSL https://get.helm.sh/helm-v3.15.3-linux-amd64.tar.gz -o /tmp/helm.tar.gz")
+        run("tar -xzf /tmp/helm.tar.gz -C /tmp")
+        run("mv /tmp/linux-amd64/helm /usr/local/bin/helm")
+        run("chmod +x /usr/local/bin/helm")
 
 
 def ensure_flux():
     if subprocess.run("command -v flux", shell=True, stdout=subprocess.DEVNULL).returncode != 0:
-        run("curl -s https://fluxcd.io/install.sh | bash", kind="flux install script")
-    run("flux install --components-extra=image-reflector-controller,image-automation-controller", kind="flux install")
+        run("curl -s https://fluxcd.io/install.sh | bash")
+    run("flux install --components-extra=image-reflector-controller,image-automation-controller")
 
 
-def apply_yaml(yaml_str: str, kind: Optional[str] = None):
-    run("kubectl apply -f -", input_str=yaml_str, kind=kind or "apply yaml")
+def apply_yaml(yaml_str: str):
+    run("kubectl apply -f -", input_str=yaml_str)
 
 
-def run_with_retries(cmd: str, attempts: int = 10, delay: int = 5, kind: Optional[str] = None) -> subprocess.CompletedProcess:
+def run_with_retries(cmd: str, attempts: int = 10, delay: int = 5) -> subprocess.CompletedProcess:
     """Retry a command to tolerate transient readiness issues."""
     last = None
     for i in range(attempts):
         log(f"Attempt {i + 1}/{attempts}: {cmd}", level="INFO")
         quiet = i < attempts - 1
-        last = run(cmd, check=False, quiet=quiet)
+        last = run(cmd, check=False, quiet=quiet, log_ok=False)
         if last.returncode == 0:
-            if kind:
-                log_status(kind, "OK")
+            log_status("", "OK")
             return last
         if i < attempts - 1:
             log(f"Attempt {i + 1}/{attempts} failed (rc={last.returncode}); retrying in {delay}s", level="WARN")
@@ -153,6 +158,7 @@ def run_with_retries(cmd: str, attempts: int = 10, delay: int = 5, kind: Optiona
         print(last.stdout, end="")
     if last and last.stderr:
         print(last.stderr, file=sys.stderr, end="")
+    log_status("", "ERROR")
     return last
 
 
@@ -160,16 +166,18 @@ def ensure_secrets_encryption():
     """
     Make sure K3s secrets encryption is healthy; fail fast on any error.
     """
-    status = run_with_retries("k3s secrets-encrypt status", attempts=15, delay=5, kind="k3s secrets-encrypt status")
+    status = run_with_retries("k3s secrets-encrypt status", attempts=15, delay=5)
     if status.returncode != 0:
         raise RuntimeError("K3s secrets encryption status failed; check k3s server logs.")
     if "disabled" in status.stdout.lower():
-        run("k3s secrets-encrypt enable", check=True, kind="k3s secrets-encrypt enable")
+        run("k3s secrets-encrypt enable", check=True)
         time.sleep(5)
-    run("k3s secrets-encrypt reencrypt --force", check=True, kind="k3s secrets-encrypt reencrypt")
+    run("k3s secrets-encrypt reencrypt --force", check=True)
 
 
 def main():
+    global start_ts
+    start_ts = time.time()
     required_env = [
         "ACME_EMAIL",
         "KIMAI_DOMAIN",
@@ -245,13 +253,11 @@ def main():
 
     run(
         "helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx "
-        "--namespace infra --create-namespace --set controller.publishService.enabled=true",
-        kind="ingress-nginx install",
+        "--namespace infra --create-namespace --set controller.publishService.enabled=true"
     )
     run(
         "helm upgrade --install cert-manager jetstack/cert-manager "
-        "--namespace cert-manager --create-namespace --set installCRDs=true",
-        kind="cert-manager install",
+        "--namespace cert-manager --create-namespace --set installCRDs=true"
     )
 
     wait_for_deploy("infra", "ingress-nginx-controller")
@@ -279,19 +285,17 @@ spec:
 
     run(
         "helm upgrade --install monitoring prometheus-community/kube-prometheus-stack "
-        f"--namespace monitoring --create-namespace --set grafana.adminPassword='{grafana_admin_password}'",
-        kind="monitoring install",
+        f"--namespace monitoring --create-namespace --set grafana.adminPassword='{grafana_admin_password}'"
     )
     wait_for_deploy("monitoring", "monitoring-grafana")
     wait_for_deploy("monitoring", "monitoring-kube-prometheus-operator")
 
     ensure_flux()
 
-    run("kubectl -n flux-system delete secret git-credentials || true", kind="flux git-credentials delete")
+    run("kubectl -n flux-system delete secret git-credentials || true")
     run(
         "kubectl -n flux-system create secret generic git-credentials "
-        f"--from-literal=username=git --from-literal=password='{github_pat}'",
-        kind="flux git-credentials create",
+        f"--from-literal=username=git --from-literal=password='{github_pat}'"
     )
 
     webhook_secret = (
@@ -304,11 +308,10 @@ spec:
         ).stdout.strip()
     )
 
-    run("kubectl -n flux-system delete secret github-webhook-token || true", kind="flux webhook-token delete")
+    run("kubectl -n flux-system delete secret github-webhook-token || true")
     run(
         "kubectl -n flux-system create secret generic github-webhook-token "
-        f"--from-literal=token='{webhook_secret}'",
-        kind="flux webhook-token create",
+        f"--from-literal=token='{webhook_secret}'"
     )
 
     flux_source = f"""apiVersion: source.toolkit.fluxcd.io/v1
@@ -427,10 +430,10 @@ spec:
                   number: 80
 """
 
-    apply_yaml(flux_source, kind="flux gitrepository")
-    apply_yaml(flux_kustomization, kind="flux kustomization")
-    apply_yaml(flux_receiver, kind="flux receiver")
-    run("kubectl -n flux-system wait --for=condition=ready kustomization/apps --timeout=300s", kind="kustomization/apps ready")
+    apply_yaml(flux_source)
+    apply_yaml(flux_kustomization)
+    apply_yaml(flux_receiver)
+    run("kubectl -n flux-system wait --for=condition=ready kustomization/apps --timeout=300s")
     wait_for_deploy("apps-tools", "kimai-mariadb")
     wait_for_deploy("apps-tools", "kimai")
     create_admin = run_with_retries(
@@ -438,7 +441,6 @@ spec:
         f"bash -lc \"cd /opt/kimai && php bin/console kimai:user:create {kimai_admin_user.split('@')[0]} {kimai_admin_user} ROLE_SUPER_ADMIN '{kimai_admin_password}'\"",
         attempts=20,
         delay=10,
-        kind="kimai admin create",
     )
     if create_admin.returncode != 0:
         raise RuntimeError("Kimai admin user creation failed; see logs above for details.")
@@ -511,7 +513,10 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as exc:  # noqa: BLE001
-        log(f"Bootstrap failed: {exc}", level="ERROR")
+        elapsed = time.time() - globals().get("start_ts", time.time())
+        log_status("bootstrap", "ERROR", detail=f"after {elapsed:.1f}s: {exc}")
         sys.exit(1)
     else:
-        log("Bootstrap successful", level="OK")
+        elapsed = time.time() - start_ts
+        print()
+        log_status("bootstrap", "OK", detail=f"(took {elapsed:.1f}s)")
