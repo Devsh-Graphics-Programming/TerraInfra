@@ -354,7 +354,7 @@ spec:
     wait_for_deploy("apps-tools", "kimai")
     create_admin = run(
         "kubectl -n apps-tools exec deploy/kimai -- "
-        f"bash -lc \"cd /opt/kimai && php bin/console kimai:create-user {kimai_admin_user} '{kimai_admin_password}' --admin\"",
+        f"bash -lc \"cd /opt/kimai && php bin/console kimai:user:create {kimai_admin_user} '{kimai_admin_password}' --admin\"",
         check=False,
     )
     if create_admin.returncode != 0:
