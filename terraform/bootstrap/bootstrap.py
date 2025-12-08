@@ -154,11 +154,15 @@ def main():
             "password": kimai_admin_password,
         },
     )
-    print("Generated credentials (stored in cluster secrets):")
-    print(f"  [monitoring] grafana admin: {grafana_admin_user} / {grafana_admin_password}")
-    print(f"  [apps-tools] kimai MariaDB root password: {kimai_db_root_password}")
-    print(f"  [apps-tools] kimai MariaDB user password: {kimai_db_user_password}")
-    print(f"  [apps-tools] kimai admin: {kimai_admin_user} / {kimai_admin_password}")
+    print("Generated credentials stored in cluster secrets. Retrieve with kubectl:")
+    print("  [monitoring] grafana admin user: admin")
+    print("    kubectl -n monitoring get secret monitoring-grafana -o jsonpath='{.data.admin-password}' | base64 -d && echo")
+    print("  [apps-tools] kimai MariaDB root password:")
+    print("    kubectl -n apps-tools get secret kimai-db-credentials -o jsonpath='{.data.mysql-root-password}' | base64 -d && echo")
+    print("  [apps-tools] kimai MariaDB user password:")
+    print("    kubectl -n apps-tools get secret kimai-db-credentials -o jsonpath='{.data.mysql-user-password}' | base64 -d && echo")
+    print(f"  [apps-tools] kimai admin user: {kimai_admin_user}")
+    print("    kubectl -n apps-tools get secret kimai-admin-credentials -o jsonpath='{.data.password}' | base64 -d && echo")
 
     ensure_helm()
 
