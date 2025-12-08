@@ -349,7 +349,7 @@ spec:
     apply_yaml(flux_source)
     apply_yaml(flux_kustomization)
     apply_yaml(flux_receiver)
-    run("kubectl -n flux-system wait --for=condition=ready kustomization/apps --timeout=300s", check=False)
+    run("kubectl -n flux-system wait --for=condition=ready kustomization/apps --timeout=300s")
     wait_for_deploy("apps-tools", "kimai-mariadb")
     wait_for_deploy("apps-tools", "kimai")
     create_admin = run(
@@ -358,7 +358,7 @@ spec:
         check=False,
     )
     if create_admin.returncode != 0:
-        print("Kimai admin user may already exist; creation command failed.")
+        raise RuntimeError("Kimai admin user creation failed; see logs above for details.")
 
     # Webhook sync
     if github_bootstrap_pat:
