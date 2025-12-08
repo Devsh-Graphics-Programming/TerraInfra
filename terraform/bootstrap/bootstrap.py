@@ -98,6 +98,17 @@ def apply_yaml(yaml_str: str):
     run("kubectl apply -f -", input_str=yaml_str)
 
 
+def ensure_secrets_encryption():
+    status = run("k3s secrets-encrypt status", check=False)
+    if "disabled" in status.stdout.lower():
+        run("k3s secrets-encrypt enable")
+        time.sleep(5)
+        status = run("k3s secrets-encrypt status", check=False)
+        if "disabled" in status.stdout.lower():
+            raise RuntimeError("Failed to enable K3s secrets encryption")
+    run("k3s secrets-encrypt reencrypt --force", check=False)
+
+
 def main():
     required_env = [
         "ACME_EMAIL",
@@ -133,6 +144,7 @@ def main():
     kimai_db_root_password = random_password()
     kimai_db_user_password = random_password()
 
+    ensure_secrets_encryption()
     wait_for_k8s()
     print("k8s ready")
     ensure_namespace("monitoring")
