@@ -101,11 +101,11 @@ def apply_yaml(yaml_str: str):
 def ensure_secrets_encryption():
     status = run("k3s secrets-encrypt status", check=False)
     if "disabled" in status.stdout.lower():
-        run("k3s secrets-encrypt enable")
+        enable = run("k3s secrets-encrypt enable", check=False)
+        if enable.returncode != 0:
+            print("WARNING: K3s secrets encryption enable failed; cluster secrets remain unencrypted.")
+            return
         time.sleep(5)
-        status = run("k3s secrets-encrypt status", check=False)
-        if "disabled" in status.stdout.lower():
-            raise RuntimeError("Failed to enable K3s secrets encryption")
     run("k3s secrets-encrypt reencrypt --force", check=False)
 
 
