@@ -49,13 +49,19 @@ spec:
           image: mariadb:11
           env:
             - name: MYSQL_ROOT_PASSWORD
-              value: "rootpass"
+              valueFrom:
+                secretKeyRef:
+                  name: kimai-db-credentials
+                  key: mysql-root-password
             - name: MYSQL_DATABASE
               value: "kimai"
             - name: MYSQL_USER
               value: "kimai"
             - name: MYSQL_PASSWORD
-              value: "kimai_pass"
+              valueFrom:
+                secretKeyRef:
+                  name: kimai-db-credentials
+                  key: mysql-user-password
           ports:
             - containerPort: 3306
           volumeMounts:
@@ -102,7 +108,10 @@ spec:
             - containerPort: 8001
           env:
             - name: DATABASE_URL
-              value: "mysql://kimai:kimai_pass@kimai-mariadb:3306/kimai"
+              valueFrom:
+                secretKeyRef:
+                  name: kimai-db-credentials
+                  key: database-url
           volumeMounts:
             - name: kimai-var
               mountPath: /opt/kimai/var

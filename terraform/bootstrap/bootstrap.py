@@ -2,6 +2,8 @@
 import base64
 import json
 import os
+import secrets
+import string
 import subprocess
 import sys
 import time
@@ -47,6 +49,30 @@ def wait_for_crd(crd: str):
             return
         time.sleep(5)
     raise RuntimeError(f"CRD {crd} not ready")
+
+
+def random_password(length: int = 24) -> str:
+    alphabet = string.ascii_letters + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+def ensure_namespace(ns: str):
+    run(f"kubectl create namespace {ns} --dry-run=client -o yaml | kubectl apply -f -")
+
+
+def upsert_secret(ns: str, name: str, data: dict):
+    yaml_lines = [
+        "apiVersion: v1",
+        "kind: Secret",
+        "type: Opaque",
+        "metadata:",
+        f"  name: {name}",
+        f"  namespace: {ns}",
+        "stringData:",
+    ]
+    for key, value in data.items():
+        yaml_lines.append(f"  {key}: {value}")
+    apply_yaml("\n".join(yaml_lines))
 
 
 def ensure_helm():
@@ -95,8 +121,28 @@ def main():
     print("== bootstrap start ==")
     os.environ["KUBECONFIG"] = "/etc/rancher/k3s/k3s.yaml"
 
+    grafana_admin_password = random_password()
+    kimai_db_root_password = random_password()
+    kimai_db_user_password = random_password()
+
     wait_for_k8s()
     print("k8s ready")
+    ensure_namespace("monitoring")
+    ensure_namespace("apps-tools")
+    upsert_secret(
+        "apps-tools",
+        "kimai-db-credentials",
+        {
+            "mysql-root-password": kimai_db_root_password,
+            "mysql-user-password": kimai_db_user_password,
+            "database-url": f"mysql://kimai:{kimai_db_user_password}@kimai-mariadb:3306/kimai",
+        },
+    )
+    print("Generated credentials (stored in cluster secrets):")
+    print(f"  [monitoring] grafana admin password: {grafana_admin_password}")
+    print(f"  [apps-tools] kimai MariaDB root password: {kimai_db_root_password}")
+    print(f"  [apps-tools] kimai MariaDB user password: {kimai_db_user_password}")
+
     ensure_helm()
 
     run("helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx || true")
@@ -138,7 +184,7 @@ spec:
 
     run(
         "helm upgrade --install monitoring prometheus-community/kube-prometheus-stack "
-        "--namespace monitoring --create-namespace"
+        f"--namespace monitoring --create-namespace --set grafana.adminPassword='{grafana_admin_password}'"
     )
     wait_for_deploy("monitoring", "monitoring-grafana")
     wait_for_deploy("monitoring", "monitoring-kube-prometheus-operator")
