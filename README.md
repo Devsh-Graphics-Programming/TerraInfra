@@ -60,9 +60,9 @@ If you need to inspect manually:
 ## After boot
 On the node:
 ```
-cloud-init status --long
-tail -f /var/log/cloud-init-output.log   # wait until you see all flux components ready and "Cloud-init ... finished ..."
-tail -f /var/log/bootstrap.log           # live Python bootstrap output
+cloud-init status --wait --long          # block until cloud-init finishes
+tail -f /var/log/cloud-init-output.log   # watch remaining output if needed
+tail -f /var/log/bootstrap.log           # live Python bootstrap output (contains generated creds)
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 kubectl get nodes
 flux get kustomizations -A
