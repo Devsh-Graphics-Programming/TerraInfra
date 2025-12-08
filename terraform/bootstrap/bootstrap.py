@@ -11,7 +11,22 @@ from datetime import datetime
 from typing import Optional
 
 
+SENSITIVE: list[str] = []
 start_ts = time.time()
+
+
+def add_sensitive(value: Optional[str]) -> None:
+    if value:
+        SENSITIVE.append(value)
+
+
+def sanitize(text: str) -> str:
+    masked = text
+    for secret in SENSITIVE:
+        if secret:
+            masked = masked.replace(secret, "*****")
+    return masked
+
 
 def log(msg: str, level: str = "INFO") -> None:
     colors = {
@@ -24,10 +39,11 @@ def log(msg: str, level: str = "INFO") -> None:
     reset = "\033[0m"
     ts = datetime.utcnow().isoformat(timespec="seconds") + "Z"
     prefix = f"[{ts}][{level}]"
+    safe_msg = sanitize(msg)
     if level in colors:
-        print(f"{colors[level]}{prefix}{reset}: {msg}")
+        print(f"{colors[level]}{prefix}{reset}: {safe_msg}")
     else:
-        print(f"{prefix}: {msg}")
+        print(f"{prefix}: {safe_msg}")
     sys.stdout.flush()
 
 
@@ -47,7 +63,7 @@ def run(
     log_ok: bool = True,
 ) -> subprocess.CompletedProcess:
     """Run shell command with text mode and echo output for live logging."""
-    log(f"$ {cmd}", level="CMD")
+    log(f"$ {sanitize(cmd)}", level="CMD")
     result = subprocess.run(
         cmd,
         shell=True,
@@ -58,12 +74,14 @@ def run(
     if check and result.returncode != 0:
         raise RuntimeError(f"Command failed ({result.returncode}): {cmd}\nstdout: {result.stdout}\nstderr: {result.stderr}")
     if result.stdout and not quiet:
-        print(result.stdout, end="")
-        if not result.stdout.endswith("\n"):
+        out = sanitize(result.stdout)
+        print(out, end="")
+        if not out.endswith("\n"):
             print()
     if result.stderr and not quiet:
-        print(result.stderr, file=sys.stderr, end="")
-        if not result.stderr.endswith("\n"):
+        err = sanitize(result.stderr)
+        print(err, file=sys.stderr, end="")
+        if not err.endswith("\n"):
             print(file=sys.stderr)
     if check and result.returncode == 0 and not quiet and log_ok:
         log_status("", "OK")
@@ -144,7 +162,7 @@ def run_with_retries(cmd: str, attempts: int = 10, delay: int = 5) -> subprocess
     """Retry a command to tolerate transient readiness issues."""
     last = None
     for i in range(attempts):
-        log(f"Attempt {i + 1}/{attempts}: {cmd}", level="INFO")
+        log(f"Attempt {i + 1}/{attempts}: {sanitize(cmd)}", level="INFO")
         quiet = i < attempts - 1
         last = run(cmd, check=False, quiet=quiet, log_ok=False)
         if last.returncode == 0:
@@ -201,6 +219,8 @@ def main():
     config_repo_path = os.environ["CONFIG_REPO_PATH"]
     github_pat = os.environ["GITHUB_PERSISTENT_PAT"]
     github_bootstrap_pat = os.environ.get("GITHUB_BOOTSTRAP_PAT", "")
+    add_sensitive(github_pat)
+    add_sensitive(github_bootstrap_pat)
 
     print("== bootstrap start ==")
     os.environ["KUBECONFIG"] = "/etc/rancher/k3s/k3s.yaml"
@@ -211,6 +231,10 @@ def main():
     kimai_admin_password = random_password()
     kimai_db_root_password = random_password()
     kimai_db_user_password = random_password()
+    add_sensitive(grafana_admin_password)
+    add_sensitive(kimai_admin_password)
+    add_sensitive(kimai_db_root_password)
+    add_sensitive(kimai_db_user_password)
 
     wait_for_k8s()
     ensure_secrets_encryption()
@@ -307,6 +331,7 @@ spec:
             check=True,
         ).stdout.strip()
     )
+    add_sensitive(webhook_secret)
 
     run("kubectl -n flux-system delete secret github-webhook-token || true")
     run(
@@ -464,8 +489,10 @@ spec:
         token_b64 = run(
             "kubectl -n flux-system get secret github-webhook-token -o jsonpath='{.data.token}'",
             check=True,
+            quiet=True,
         ).stdout.strip().strip("'\"")
         hook_secret = base64.b64decode(token_b64).decode()
+        add_sensitive(hook_secret)
 
         owner_repo = config_repo_url.rstrip("/").split("/")[-2:]
         if len(owner_repo) != 2:
