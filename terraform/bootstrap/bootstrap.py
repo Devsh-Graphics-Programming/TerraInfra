@@ -519,4 +519,4 @@ if __name__ == "__main__":
     else:
         elapsed = time.time() - start_ts
         print()
-        log_status("bootstrap", "OK", detail=f"(took {elapsed:.1f}s)")
+        log(f"bootstrap completed (took {elapsed:.1f}s)", level="OK")
