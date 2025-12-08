@@ -40,6 +40,33 @@ terraform apply `
 ```
 To force rebuild: `terraform taint module.k3s_node_prod.scaleway_instance_server.k3s_node_1` then apply.
 
+### Destroy/recreate while keeping the data volume
+The data block volume is marked `prevent_destroy`; destroy only the node/public IP/SG and leave the volume:
+```
+.\env.ps1
+terraform destroy -auto-approve `
+  -target="module.k3s_node_prod.scaleway_instance_server.k3s_node_1" `
+  -target="module.k3s_node_prod.scaleway_instance_ip.public_ip" `
+  -target="module.k3s_node_prod.scaleway_instance_security_group.web_sg"
+```
+Then recreate the node (volume will be reattached automatically):
+```
+.\env.ps1
+terraform apply `
+  -var "project_id=$env:SCW_DEFAULT_PROJECT_ID" `
+  -var "env_name=prod" `
+  -var "kimai_domain=$env:KIMAI_DOMAIN" `
+  -var "monitoring_domain=$env:MONITORING_DOMAIN" `
+  -var "acme_email=$env:ACME_EMAIL" `
+  -var "config_repo_url=https://github.com/Devsh-Graphics-Programming/TerraInfra.git" `
+  -var "config_repo_branch=master" `
+  -var "config_repo_path=terraform/k8s" `
+  -var "github_persistent_terra_infra_ro_pat=$env:GITHUB_PERSISTENT_TERRA_INFRA_RO_PAT" `
+  -var "github_bootstrap_terra_infra_webhook_pat=$env:GITHUB_BOOTSTRAP_TERRA_INFRA_WEBHOOK_PAT" `
+  -var "flux_hook_domain=$env:FLUX_HOOK_DOMAIN"
+```
+To delete the data volume entirely, remove `prevent_destroy` first, then run a full `terraform destroy`.
+
 ## DNS
 Set A records to the cluster IP (e.g. `212.47.251.150`):
 - `kimai2.devsh.eu`

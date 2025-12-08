@@ -57,7 +57,21 @@ resource "scaleway_instance_server" "k3s_node_1" {
     var.env_name,
   ]
 
+  additional_volume_ids = [scaleway_block_volume.data_volume.id]
+
   lifecycle {
     ignore_changes = [cloud_init]
+  }
+}
+
+resource "scaleway_block_volume" "data_volume" {
+  project_id = var.project_id
+  name       = "devsh-k3s-${var.env_name}-data-node1"
+  size_in_gb = 10
+  iops       = 5000
+  tags       = ["devsh", "k3s", "data", var.env_name]
+
+  lifecycle {
+    prevent_destroy = true
   }
 }

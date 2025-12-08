@@ -3,30 +3,6 @@ kind: Namespace
 metadata:
   name: apps-tools
 ---
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: kimai-mariadb-pvc
-  namespace: apps-tools
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 5Gi
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: kimai-var-pvc
-  namespace: apps-tools
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 5Gi
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -69,8 +45,9 @@ spec:
               mountPath: /var/lib/mysql
       volumes:
         - name: mariadb-data
-          persistentVolumeClaim:
-            claimName: kimai-mariadb-pvc
+          hostPath:
+            path: /mnt/data/mariadb
+            type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: Service
@@ -117,8 +94,9 @@ spec:
               mountPath: /opt/kimai/var
       volumes:
         - name: kimai-var
-          persistentVolumeClaim:
-            claimName: kimai-var-pvc
+          hostPath:
+            path: /mnt/data/kimai-var
+            type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: Service

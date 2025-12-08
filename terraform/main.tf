@@ -33,8 +33,8 @@ module "k3s_node_prod" {
     acme_email        = var.acme_email
     kimai_domain      = var.kimai_domain
     monitoring_domain = var.monitoring_domain
-    config_repo_url   = var.config_repo_url
-    config_repo_branch = var.config_repo_branch
+  config_repo_url   = var.config_repo_url
+  config_repo_branch = var.config_repo_branch
   config_repo_path  = var.config_repo_path
   github_persistent_terra_infra_ro_pat  = var.github_persistent_terra_infra_ro_pat
   github_bootstrap_terra_infra_webhook_pat = var.github_bootstrap_terra_infra_webhook_pat

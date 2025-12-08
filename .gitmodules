@@ -1,0 +1,3 @@
+[submodule "terraform/provider"]
+	path = terraform/provider
+	url = https://github.com/scaleway/terraform-provider-scaleway

@@ -236,6 +236,28 @@ def main():
     add_sensitive(kimai_db_root_password)
     add_sensitive(kimai_db_user_password)
 
+    # Prepare attached data volume (non-root) for stateful data
+    run(
+        r"""bash -euxo pipefail
+ROOT_DEV=$(findmnt -n -o SOURCE / | sed 's/[0-9]*$//')
+DATA_DEV=$(lsblk -ndo NAME,TYPE | awk -v root="${ROOT_DEV##*/}" '$2=="disk" && $1!=root {print "/dev/"$1; exit}')
+if [ -z "${DATA_DEV}" ]; then
+  echo "[WARN] No data device found for mount, skipping /mnt/data setup"
+  exit 0
+fi
+if ! lsblk -no FSTYPE "${DATA_DEV}" | grep -q .; then
+  mkfs.ext4 -F "${DATA_DEV}"
+fi
+mkdir -p /mnt/data
+if ! grep -q "${DATA_DEV} /mnt/data" /etc/fstab; then
+  echo "${DATA_DEV} /mnt/data ext4 defaults,nofail 0 2" >> /etc/fstab
+fi
+mount -a
+mkdir -p /mnt/data/mariadb /mnt/data/kimai-var
+""",
+        quiet=True,
+    )
+
     wait_for_k8s()
     ensure_secrets_encryption()
     print("k8s ready")
