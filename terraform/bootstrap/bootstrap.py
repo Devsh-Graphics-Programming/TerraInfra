@@ -144,8 +144,8 @@ def main():
     kimai_db_root_password = random_password()
     kimai_db_user_password = random_password()
 
-    ensure_secrets_encryption()
     wait_for_k8s()
+    ensure_secrets_encryption()
     print("k8s ready")
     ensure_namespace("monitoring")
     ensure_namespace("apps-tools")
