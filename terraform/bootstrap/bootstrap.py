@@ -103,8 +103,7 @@ def ensure_secrets_encryption():
     if "disabled" in status.stdout.lower():
         enable = run("k3s secrets-encrypt enable", check=False)
         if enable.returncode != 0:
-            print("WARNING: K3s secrets encryption enable failed; cluster secrets remain unencrypted.")
-            return
+            raise RuntimeError("K3s secrets encryption enable failed; cluster secrets remain unencrypted.")
         time.sleep(5)
     run("k3s secrets-encrypt reencrypt --force", check=False)
 
