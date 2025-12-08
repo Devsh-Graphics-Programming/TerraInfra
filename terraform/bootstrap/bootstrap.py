@@ -40,7 +40,12 @@ def wait_for_k8s():
 
 
 def wait_for_deploy(ns: str, name: str):
-    run(f"kubectl -n {ns} rollout status deploy/{name} --timeout=300s")
+    for _ in range(60):
+        cp = run(f"kubectl -n {ns} rollout status deploy/{name} --timeout=30s", check=False)
+        if cp.returncode == 0:
+            return
+        time.sleep(5)
+    raise RuntimeError(f"Deployment {name} in {ns} not ready")
 
 
 def wait_for_crd(crd: str):
@@ -121,7 +126,10 @@ def main():
     print("== bootstrap start ==")
     os.environ["KUBECONFIG"] = "/etc/rancher/k3s/k3s.yaml"
 
+    grafana_admin_user = "admin"
     grafana_admin_password = random_password()
+    kimai_admin_user = f"admin@{kimai_domain}"
+    kimai_admin_password = random_password()
     kimai_db_root_password = random_password()
     kimai_db_user_password = random_password()
 
@@ -138,10 +146,19 @@ def main():
             "database-url": f"mysql://kimai:{kimai_db_user_password}@kimai-mariadb:3306/kimai",
         },
     )
+    upsert_secret(
+        "apps-tools",
+        "kimai-admin-credentials",
+        {
+            "username": kimai_admin_user,
+            "password": kimai_admin_password,
+        },
+    )
     print("Generated credentials (stored in cluster secrets):")
-    print(f"  [monitoring] grafana admin password: {grafana_admin_password}")
+    print(f"  [monitoring] grafana admin: {grafana_admin_user} / {grafana_admin_password}")
     print(f"  [apps-tools] kimai MariaDB root password: {kimai_db_root_password}")
     print(f"  [apps-tools] kimai MariaDB user password: {kimai_db_user_password}")
+    print(f"  [apps-tools] kimai admin: {kimai_admin_user} / {kimai_admin_password}")
 
     ensure_helm()
 
@@ -332,6 +349,16 @@ spec:
     apply_yaml(flux_source)
     apply_yaml(flux_kustomization)
     apply_yaml(flux_receiver)
+    run("kubectl -n flux-system wait --for=condition=ready kustomization/apps --timeout=300s", check=False)
+    wait_for_deploy("apps-tools", "kimai-mariadb")
+    wait_for_deploy("apps-tools", "kimai")
+    create_admin = run(
+        "kubectl -n apps-tools exec deploy/kimai -- "
+        f"php bin/console kimai:create-user {kimai_admin_user} '{kimai_admin_password}' --admin",
+        check=False,
+    )
+    if create_admin.returncode != 0:
+        print("Kimai admin user may already exist; creation command failed.")
 
     # Webhook sync
     if github_bootstrap_pat:
