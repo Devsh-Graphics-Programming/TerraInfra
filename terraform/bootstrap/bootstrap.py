@@ -98,6 +98,18 @@ def apply_yaml(yaml_str: str):
     run("kubectl apply -f -", input_str=yaml_str)
 
 
+def run_with_retries(cmd: str, attempts: int = 10, delay: int = 5) -> subprocess.CompletedProcess:
+    """Retry a command to tolerate transient readiness issues."""
+    last = None
+    for i in range(attempts):
+        last = run(cmd, check=False)
+        if last.returncode == 0:
+            return last
+        if i < attempts - 1:
+            time.sleep(delay)
+    return last
+
+
 def ensure_secrets_encryption():
     status = run("k3s secrets-encrypt status", check=False)
     if "disabled" in status.stdout.lower():
@@ -367,10 +379,11 @@ spec:
     run("kubectl -n flux-system wait --for=condition=ready kustomization/apps --timeout=300s")
     wait_for_deploy("apps-tools", "kimai-mariadb")
     wait_for_deploy("apps-tools", "kimai")
-    create_admin = run(
+    create_admin = run_with_retries(
         "kubectl -n apps-tools exec deploy/kimai -- "
         f"bash -lc \"cd /opt/kimai && php bin/console kimai:user:create {kimai_admin_user.split('@')[0]} {kimai_admin_user} ROLE_SUPER_ADMIN '{kimai_admin_password}'\"",
-        check=False,
+        attempts=20,
+        delay=10,
     )
     if create_admin.returncode != 0:
         raise RuntimeError("Kimai admin user creation failed; see logs above for details.")
