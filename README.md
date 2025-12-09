@@ -12,31 +12,29 @@ Do not commit. Example:
 ```
 SCW_ACCESS_KEY=...
 SCW_SECRET_KEY=...
-SCW_DEFAULT_PROJECT_ID=...
-KIMAI_DOMAIN=kimai2.devsh.eu
-MONITORING_DOMAIN=monitoring.devsh.eu
-ACME_EMAIL=you@example.com
-GITHUB_PERSISTENT_TERRA_INFRA_RO_PAT=ghp_...   # read-only PAT stored in cluster for repo access
-GITHUB_BOOTSTRAP_TERRA_INFRA_WEBHOOK_PAT=ghp_...   # required to auto-create GitHub webhook at bootstrap (Webhooks RW)
-FLUX_HOOK_DOMAIN=flux-hook.prod.devsh.eu
+TF_VAR_project_id=...
+TF_VAR_env_name=prod
+TF_VAR_kimai_domain=kimai2.devsh.eu
+TF_VAR_monitoring_domain=monitoring.devsh.eu
+TF_VAR_acme_email=you@example.com
+TF_VAR_config_repo_url=https://github.com/Devsh-Graphics-Programming/TerraInfra
+TF_VAR_config_repo_branch=master
+TF_VAR_config_repo_path=terraform/k8s
+TF_VAR_github_persistent_terra_infra_ro_pat=ghp_...   # read-only PAT stored in cluster for repo access
+TF_VAR_github_bootstrap_terra_infra_webhook_pat=ghp_...   # required to auto-create GitHub webhook at bootstrap (Webhooks RW)
+TF_VAR_flux_hook_domain=flux-hook.prod.devsh.eu
+TF_VAR_luks_key_access_key=...
+TF_VAR_luks_key_secret_key=...
+# optional, only if using presigned URL instead of RO creds:
+# TF_VAR_luks_key_url=https://...
 ```
 Load envs: `.\env.ps1`
 
 ## Deploy / Recreate
 From `terraform/`:
 ```
-terraform apply `
-  -var "project_id=$env:SCW_DEFAULT_PROJECT_ID" `
-  -var "env_name=prod" `
-  -var "kimai_domain=$env:KIMAI_DOMAIN" `
-  -var "monitoring_domain=$env:MONITORING_DOMAIN" `
-  -var "acme_email=$env:ACME_EMAIL" `
-  -var "config_repo_url=https://github.com/Devsh-Graphics-Programming/TerraInfra.git" `
-  -var "config_repo_branch=master" `
-  -var "config_repo_path=terraform/k8s" `
-  -var "github_persistent_terra_infra_ro_pat=$env:GITHUB_PERSISTENT_TERRA_INFRA_RO_PAT" `
-  -var "github_bootstrap_terra_infra_webhook_pat=$env:GITHUB_BOOTSTRAP_TERRA_INFRA_WEBHOOK_PAT" `
-  -var "flux_hook_domain=$env:FLUX_HOOK_DOMAIN"
+.\env.ps1
+terraform apply
 ```
 To force rebuild: `terraform taint module.k3s_node_prod.scaleway_instance_server.k3s_node_1` then apply.
 
@@ -52,18 +50,7 @@ terraform destroy -auto-approve `
 Then recreate the node (volume will be reattached automatically):
 ```
 .\env.ps1
-terraform apply `
-  -var "project_id=$env:SCW_DEFAULT_PROJECT_ID" `
-  -var "env_name=prod" `
-  -var "kimai_domain=$env:KIMAI_DOMAIN" `
-  -var "monitoring_domain=$env:MONITORING_DOMAIN" `
-  -var "acme_email=$env:ACME_EMAIL" `
-  -var "config_repo_url=https://github.com/Devsh-Graphics-Programming/TerraInfra.git" `
-  -var "config_repo_branch=master" `
-  -var "config_repo_path=terraform/k8s" `
-  -var "github_persistent_terra_infra_ro_pat=$env:GITHUB_PERSISTENT_TERRA_INFRA_RO_PAT" `
-  -var "github_bootstrap_terra_infra_webhook_pat=$env:GITHUB_BOOTSTRAP_TERRA_INFRA_WEBHOOK_PAT" `
-  -var "flux_hook_domain=$env:FLUX_HOOK_DOMAIN"
+terraform apply
 ```
 To delete the data volume entirely, remove `prevent_destroy` first, then run a full `terraform destroy`.
 

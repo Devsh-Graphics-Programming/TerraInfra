@@ -1,4 +1,4 @@
-Get-Content ".\.env" |
+Get-Content ".\\.env" |
   Where-Object { $_ -and $_ -notmatch '^\s*#' } |
   ForEach-Object {
     $parts = $_ -split '=', 2

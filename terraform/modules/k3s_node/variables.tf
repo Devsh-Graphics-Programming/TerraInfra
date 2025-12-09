@@ -62,3 +62,9 @@ variable "cloud_init" {
   type        = string
   description = "Rendered cloud-init user data"
 }
+
+variable "with_vs_code_server" {
+  type        = bool
+  description = "Expose and install VS Code Server for remote debugging (port 8080)"
+  default     = false
+}

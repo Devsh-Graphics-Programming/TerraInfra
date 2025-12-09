@@ -9,6 +9,8 @@ packages:
   - gettext-base
   - ca-certificates
   - python3
+  - awscli
+  - cryptsetup
 
 write_files:
   - path: /root/bootstrap/bootstrap.py
@@ -33,4 +35,8 @@ runcmd:
       CONFIG_REPO_PATH=${config_repo_path} \
       GITHUB_PERSISTENT_PAT=${github_persistent_terra_infra_ro_pat} \
       GITHUB_BOOTSTRAP_PAT=${github_bootstrap_terra_infra_webhook_pat} \
+      ENV_NAME=${env_name} \
+      LUKS_KEY_ACCESS_KEY=${luks_key_access_key} \
+      LUKS_KEY_SECRET_KEY=${luks_key_secret_key} \
+      LUKS_KEY_URL=${luks_key_url} \
       python3 /root/bootstrap/bootstrap.py 2>&1 | tee /var/log/bootstrap.log'

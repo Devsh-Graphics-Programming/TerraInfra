@@ -58,3 +58,23 @@ variable "env_name" {
   description = "Environment name"
   default     = "prod"
 }
+
+variable "luks_key_access_key" {
+  type        = string
+  description = "Access key (read-only) for fetching LUKS key from Object Storage"
+  sensitive   = true
+  default     = ""
+}
+
+variable "luks_key_secret_key" {
+  type        = string
+  description = "Secret key (read-only) for fetching LUKS key from Object Storage"
+  sensitive   = true
+  default     = ""
+}
+
+variable "luks_key_url" {
+  type        = string
+  description = "Optional presigned URL to fetch LUKS key (overrides access/secret when set)"
+  default     = ""
+}

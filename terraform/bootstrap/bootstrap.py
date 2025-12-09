@@ -5,6 +5,7 @@ import os
 import secrets
 import string
 import subprocess
+import tempfile
 import sys
 import time
 from datetime import datetime
@@ -61,6 +62,7 @@ def run(
     input_str: Optional[str] = None,
     quiet: bool = False,
     log_ok: bool = True,
+    env: Optional[dict] = None,
 ) -> subprocess.CompletedProcess:
     """Run shell command with text mode and echo output for live logging."""
     log(f"$ {sanitize(cmd)}", level="CMD")
@@ -70,6 +72,7 @@ def run(
         text=True,
         input=input_str,
         capture_output=True,
+        env=env,
     )
     if check and result.returncode != 0:
         raise RuntimeError(f"Command failed ({result.returncode}): {cmd}\nstdout: {result.stdout}\nstderr: {result.stderr}")
@@ -140,6 +143,70 @@ def upsert_secret(ns: str, name: str, data: dict):
     apply_yaml("\n".join(yaml_lines))
 
 
+def load_secret(ns: str, name: str) -> dict:
+    """
+    Return decoded secret data if it exists, otherwise {}.
+    """
+    cp = subprocess.run(
+        f"kubectl -n {ns} get secret {name} -o json",
+        shell=True,
+        text=True,
+        capture_output=True,
+    )
+    if cp.returncode != 0 or not cp.stdout:
+        return {}
+    try:
+        data = json.loads(cp.stdout).get("data") or {}
+    except json.JSONDecodeError:
+        return {}
+    decoded = {}
+    for key, value in data.items():
+        try:
+            decoded[key] = base64.b64decode(value).decode()
+        except Exception:
+            continue
+    return decoded
+
+
+def secret_exists(ns: str, name: str) -> bool:
+    return (
+        subprocess.run(
+            f"kubectl -n {ns} get secret {name}",
+            shell=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ).returncode
+        == 0
+    )
+
+
+def restore_secret_from_backup(ns: str, name: str, backup_path: str) -> None:
+    if secret_exists(ns, name):
+        log(f"Secret {ns}/{name} exists; skipping restore", level="INFO")
+        return
+    if not os.path.exists(backup_path):
+        log(f"Backup for {ns}/{name} not found at {backup_path}; skipping restore", level="WARN")
+        return
+    log(f"Restoring secret {ns}/{name} from {backup_path}", level="INFO")
+    run(f"kubectl apply -f {backup_path}")
+
+
+def backup_secret(ns: str, name: str, backup_path: str) -> None:
+    os.makedirs(os.path.dirname(backup_path), exist_ok=True)
+    cp = subprocess.run(
+        f"kubectl -n {ns} get secret {name} -o yaml",
+        shell=True,
+        text=True,
+        capture_output=True,
+    )
+    if cp.returncode != 0 or not cp.stdout:
+        log(f"Cannot backup {ns}/{name} (not found yet); skipping", level="WARN")
+        return
+    with open(backup_path, "w", encoding="utf-8") as f:
+        f.write(cp.stdout)
+    log(f"Backed up secret {ns}/{name} to {backup_path}", level="INFO")
+
+
 def ensure_helm():
     if subprocess.run("command -v helm", shell=True, stdout=subprocess.DEVNULL).returncode != 0:
         run("curl -fsSL https://get.helm.sh/helm-v3.15.3-linux-amd64.tar.gz -o /tmp/helm.tar.gz")
@@ -190,7 +257,116 @@ def ensure_secrets_encryption():
     if "disabled" in status.stdout.lower():
         run("k3s secrets-encrypt enable", check=True)
         time.sleep(5)
-    run("k3s secrets-encrypt reencrypt --force", check=True)
+    reenc = run_with_retries("k3s secrets-encrypt reencrypt --force", attempts=5, delay=10)
+    if reenc.returncode != 0:
+        raise RuntimeError("K3s secrets-encrypt reencrypt failed; check k3s server logs.")
+
+
+def ensure_data_mount(env_name: str, luks_key_url: str, luks_key_access: str, luks_key_secret: str) -> None:
+    """Ensure /mnt/data is mounted via LUKS (if present)."""
+    if os.path.ismount("/mnt/data"):
+        log("[mnt] /mnt/data already mounted; skipping LUKS setup", level="INFO")
+        return
+
+    root_dev_cp = subprocess.run("findmnt -n -o SOURCE /", shell=True, text=True, capture_output=True)
+    root_dev = (root_dev_cp.stdout or "").strip()
+    root_pkname_cp = subprocess.run(f"lsblk -no PKNAME {root_dev}", shell=True, text=True, capture_output=True)
+    root_disk = (root_pkname_cp.stdout or "").strip()
+    if not root_disk:
+        root_disk = os.path.basename(root_dev).rstrip("0123456789")
+
+    data_dev = ""
+    lsblk = subprocess.run("lsblk -ndo NAME,TYPE", shell=True, text=True, capture_output=True)
+    if lsblk.stdout:
+        for line in lsblk.stdout.splitlines():
+            parts = line.split()
+            if len(parts) != 2:
+                continue
+            name, typ = parts
+            if typ == "disk" and name != root_disk:
+                data_dev = f"/dev/{name}"
+                break
+    if not data_dev:
+        log("[mnt] No data device found; skipping /mnt/data setup", level="WARN")
+        return
+
+    fstype_cp = subprocess.run(f"lsblk -no FSTYPE {data_dev}", shell=True, text=True, capture_output=True)
+    fstype = (fstype_cp.stdout or "").strip()
+    os.makedirs("/mnt/data", exist_ok=True)
+
+    # Plain filesystem already present (non-LUKS): just mount it
+    if fstype and fstype != "crypto_LUKS":
+        log(f"[mnt] Existing non-LUKS filesystem on {data_dev}: {fstype}; mounting directly", level="INFO")
+        uuid_cp = run(f"blkid -s UUID -o value {data_dev}", quiet=True)
+        uuid_val = (uuid_cp.stdout or "").strip()
+        if uuid_val and "UUID" not in uuid_val:
+            fstab_line = f"UUID={uuid_val} /mnt/data {fstype} defaults,nofail 0 2\n"
+            with open("/etc/fstab", "r+", encoding="utf-8") as f:
+                content = f.read()
+                if fstab_line not in content:
+                    f.write(fstab_line)
+        run("mount -a")
+        os.makedirs("/mnt/data/mariadb", exist_ok=True)
+        os.makedirs("/mnt/data/kimai-var", exist_ok=True)
+        return
+
+    # LUKS path (new or existing crypto_LUKS)
+    key_path = None
+    try:
+        shm_dir = "/dev/shm"
+        os.makedirs(shm_dir, exist_ok=True)
+        key_path = tempfile.NamedTemporaryFile(delete=False, dir=shm_dir).name
+        if luks_key_url:
+            import urllib.request
+
+            log("[mnt] Fetching LUKS key from URL", level="INFO")
+            with urllib.request.urlopen(luks_key_url, timeout=30) as resp, open(key_path, "wb") as fh:
+                fh.write(resp.read())
+        elif luks_key_access and luks_key_secret:
+            log("[mnt] Fetching LUKS key from bucket with read-only creds", level="INFO")
+            env = dict(os.environ)
+            env.update(
+                {
+                    "AWS_ACCESS_KEY_ID": luks_key_access,
+                    "AWS_SECRET_ACCESS_KEY": luks_key_secret,
+                    "AWS_DEFAULT_REGION": "fr-par",
+                }
+            )
+            run(
+                f"aws --endpoint-url=https://s3.fr-par.scw.cloud s3 cp s3://terra-luks-keys-{env_name}/luks.key {key_path}",
+                env=env,
+            )
+        else:
+            raise RuntimeError("No LUKS key source provided (url or access/secret)")
+
+        if not fstype:
+            run(f"cryptsetup luksFormat --type luks2 --batch-mode --key-file {key_path} {data_dev}")
+        else:
+            log(f"[mnt] LUKS detected on {data_dev}, skipping format", level="INFO")
+
+        run(f"cryptsetup luksOpen {data_dev} data_crypt --key-file {key_path}")
+
+        mapper_fstype_cp = subprocess.run(
+            "lsblk -no FSTYPE /dev/mapper/data_crypt", shell=True, text=True, capture_output=True
+        )
+        mapper_fstype = (mapper_fstype_cp.stdout or "").strip()
+        if not mapper_fstype:
+            run("mkfs.ext4 -F /dev/mapper/data_crypt")
+
+        uuid_cp = run("blkid -s UUID -o value /dev/mapper/data_crypt", quiet=True)
+        uuid_val = (uuid_cp.stdout or "").strip()
+        if uuid_val and "UUID" not in uuid_val:
+            fstab_line = f"UUID={uuid_val} /mnt/data ext4 defaults,nofail 0 2\n"
+            with open("/etc/fstab", "r+", encoding="utf-8") as f:
+                content = f.read()
+                if fstab_line not in content:
+                    f.write(fstab_line)
+        run("mount -a")
+        os.makedirs("/mnt/data/mariadb", exist_ok=True)
+        os.makedirs("/mnt/data/kimai-var", exist_ok=True)
+    finally:
+        if key_path and os.path.exists(key_path):
+            run(f"shred -u {key_path}", check=False, quiet=True, log_ok=False)
 
 
 def main():
@@ -205,6 +381,7 @@ def main():
         "CONFIG_REPO_BRANCH",
         "CONFIG_REPO_PATH",
         "GITHUB_PERSISTENT_PAT",
+        "ENV_NAME",
     ]
     for name in required_env:
         if not os.environ.get(name):
@@ -218,35 +395,46 @@ def main():
     config_repo_branch = os.environ["CONFIG_REPO_BRANCH"]
     config_repo_path = os.environ["CONFIG_REPO_PATH"]
     github_pat = os.environ["GITHUB_PERSISTENT_PAT"]
+    env_name = os.environ["ENV_NAME"]
+    luks_key_access = os.environ.get("LUKS_KEY_ACCESS_KEY", "")
+    luks_key_secret = os.environ.get("LUKS_KEY_SECRET_KEY", "")
+    luks_key_url = os.environ.get("LUKS_KEY_URL", "")
     github_bootstrap_pat = os.environ.get("GITHUB_BOOTSTRAP_PAT", "")
     add_sensitive(github_pat)
     add_sensitive(github_bootstrap_pat)
 
     print("== bootstrap start ==")
     os.environ["KUBECONFIG"] = "/etc/rancher/k3s/k3s.yaml"
-
-    grafana_admin_user = "admin"
-    grafana_admin_password = random_password()
-    kimai_admin_user = f"admin@{kimai_domain}"
-    kimai_admin_password = random_password()
-    kimai_db_root_password = random_password()
-    kimai_db_user_password = random_password()
-    add_sensitive(grafana_admin_password)
-    add_sensitive(kimai_admin_password)
-    add_sensitive(kimai_db_root_password)
-    add_sensitive(kimai_db_user_password)
+    backup_base = "/mnt/data/backup/certificates"
+    secrets_backup_base = "/mnt/data/backup/secrets"
+    kimai_tls_backup = f"{backup_base}/apps-tools/kimai-tls.yaml"
+    flux_tls_backup = f"{backup_base}/flux-system/flux-hook-tls.yaml"
+    acme_backup = f"{backup_base}/cert-manager/letsencrypt-http-private-key.yaml"
+    kimai_db_backup = f"{secrets_backup_base}/apps-tools/kimai-db-credentials.yaml"
+    kimai_admin_backup = f"{secrets_backup_base}/apps-tools/kimai-admin-credentials.yaml"
+    grafana_admin_backup = f"{secrets_backup_base}/monitoring/monitoring-grafana.yaml"
+    allow_fresh = os.environ.get("ALLOW_FRESH_BOOTSTRAP", "").lower() in ("1", "true", "yes")
+    ensure_data_mount(env_name, luks_key_url, luks_key_access, luks_key_secret)
 
     # Prepare attached data volume (non-root) for stateful data
     run(
         r"""bash -euxo pipefail
 ROOT_DEV=$(findmnt -n -o SOURCE / | sed 's/[0-9]*$//')
+if findmnt -n /mnt/data >/dev/null 2>&1; then
+  echo "[INFO] /mnt/data already mounted (likely LUKS handled by cloud-init); skipping format/mount"
+  exit 0
+fi
 DATA_DEV=$(lsblk -ndo NAME,TYPE | awk -v root="${ROOT_DEV##*/}" '$2=="disk" && $1!=root {print "/dev/"$1; exit}')
 if [ -z "${DATA_DEV}" ]; then
   echo "[WARN] No data device found for mount, skipping /mnt/data setup"
   exit 0
 fi
-if ! lsblk -no FSTYPE "${DATA_DEV}" | grep -q .; then
+FSTYPE=$(lsblk -no FSTYPE "${DATA_DEV}" || true)
+if [ -z "${FSTYPE}" ]; then
   mkfs.ext4 -F "${DATA_DEV}"
+elif [ "${FSTYPE}" = "crypto_LUKS" ]; then
+  echo "[INFO] Detected LUKS on ${DATA_DEV}, skipping format"
+  exit 0
 fi
 mkdir -p /mnt/data
 if ! grep -q "${DATA_DEV} /mnt/data" /etc/fstab; then
@@ -261,8 +449,43 @@ mkdir -p /mnt/data/mariadb /mnt/data/kimai-var
     wait_for_k8s()
     ensure_secrets_encryption()
     print("k8s ready")
+
+    grafana_admin_user = "admin"
+    existing_grafana_secret = load_secret("monitoring", "monitoring-grafana")
+    if not existing_grafana_secret and os.path.exists(grafana_admin_backup):
+        restore_secret_from_backup("monitoring", "monitoring-grafana", grafana_admin_backup)
+        existing_grafana_secret = load_secret("monitoring", "monitoring-grafana")
+    if not existing_grafana_secret and not allow_fresh:
+        raise RuntimeError("monitoring/monitoring-grafana secret missing and fresh init disabled (set ALLOW_FRESH_BOOTSTRAP=1 to allow).")
+    grafana_admin_password = existing_grafana_secret.get("admin-password") or random_password()
+
+    kimai_admin_user_default = f"admin@{kimai_domain}"
+    existing_kimai_admin_secret = load_secret("apps-tools", "kimai-admin-credentials")
+    if not existing_kimai_admin_secret and os.path.exists(kimai_admin_backup):
+        restore_secret_from_backup("apps-tools", "kimai-admin-credentials", kimai_admin_backup)
+        existing_kimai_admin_secret = load_secret("apps-tools", "kimai-admin-credentials")
+    if not existing_kimai_admin_secret and not allow_fresh:
+        raise RuntimeError("apps-tools/kimai-admin-credentials missing and fresh init disabled (set ALLOW_FRESH_BOOTSTRAP=1 to allow).")
+    kimai_admin_user = existing_kimai_admin_secret.get("username", kimai_admin_user_default)
+    kimai_admin_password = existing_kimai_admin_secret.get("password") or random_password()
+
+    existing_kimai_db_secret = load_secret("apps-tools", "kimai-db-credentials")
+    if not existing_kimai_db_secret and os.path.exists(kimai_db_backup):
+        restore_secret_from_backup("apps-tools", "kimai-db-credentials", kimai_db_backup)
+        existing_kimai_db_secret = load_secret("apps-tools", "kimai-db-credentials")
+    if not existing_kimai_db_secret and not allow_fresh:
+        raise RuntimeError("apps-tools/kimai-db-credentials missing and fresh init disabled (set ALLOW_FRESH_BOOTSTRAP=1 to allow).")
+    fresh_kimai_creds = not bool(existing_kimai_db_secret)
+    kimai_db_root_password = existing_kimai_db_secret.get("mysql-root-password") or random_password()
+    kimai_db_user_password = existing_kimai_db_secret.get("mysql-user-password") or random_password()
+
+    add_sensitive(grafana_admin_password)
+    add_sensitive(kimai_admin_password)
+    add_sensitive(kimai_db_root_password)
+    add_sensitive(kimai_db_user_password)
     ensure_namespace("monitoring")
     ensure_namespace("apps-tools")
+    restore_secret_from_backup("apps-tools", "kimai-tls", kimai_tls_backup)
     upsert_secret(
         "apps-tools",
         "kimai-db-credentials",
@@ -311,6 +534,7 @@ mkdir -p /mnt/data/mariadb /mnt/data/kimai-var
     wait_for_deploy("cert-manager", "cert-manager-webhook")
     wait_for_crd("certificates.cert-manager.io")
     wait_for_crd("clusterissuers.cert-manager.io")
+    restore_secret_from_backup("cert-manager", "letsencrypt-http-private-key", acme_backup)
 
     cluster_issuer = f"""apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
@@ -337,6 +561,7 @@ spec:
     wait_for_deploy("monitoring", "monitoring-kube-prometheus-operator")
 
     ensure_flux()
+    restore_secret_from_backup("flux-system", "flux-hook-tls", flux_tls_backup)
 
     run("kubectl -n flux-system delete secret git-credentials || true")
     run(
@@ -483,14 +708,22 @@ spec:
     run("kubectl -n flux-system wait --for=condition=ready kustomization/apps --timeout=300s")
     wait_for_deploy("apps-tools", "kimai-mariadb")
     wait_for_deploy("apps-tools", "kimai")
-    create_admin = run_with_retries(
+    create_admin_cmd = (
         "kubectl -n apps-tools exec deploy/kimai -- "
-        f"bash -lc \"cd /opt/kimai && php bin/console kimai:user:create {kimai_admin_user.split('@')[0]} {kimai_admin_user} ROLE_SUPER_ADMIN '{kimai_admin_password}'\"",
-        attempts=20,
-        delay=10,
+        f"bash -lc \"cd /opt/kimai && php bin/console kimai:user:create "
+        f"{kimai_admin_user.split('@')[0]} {kimai_admin_user} ROLE_SUPER_ADMIN '{kimai_admin_password}'\""
     )
-    if create_admin.returncode != 0:
-        raise RuntimeError("Kimai admin user creation failed; see logs above for details.")
+    should_create_admin = fresh_kimai_creds or not existing_kimai_admin_secret
+    if should_create_admin:
+        create_admin = run_with_retries(create_admin_cmd, attempts=20, delay=10)
+        if create_admin.returncode != 0:
+            combined = f"{create_admin.stdout} {create_admin.stderr}".lower()
+            if "already exists" in combined:
+                log("Kimai admin already exists; keeping existing credentials/roles", level="WARN")
+            else:
+                raise RuntimeError("Kimai admin user creation failed; see logs above for details.")
+    else:
+        log("Skipping Kimai admin creation (existing creds restored)", level="INFO")
 
     # Webhook sync
     if github_bootstrap_pat:
@@ -556,6 +789,13 @@ spec:
             },
         }
         http("POST", api_base, payload)
+
+    backup_secret("monitoring", "monitoring-grafana", grafana_admin_backup)
+    backup_secret("apps-tools", "kimai-db-credentials", kimai_db_backup)
+    backup_secret("apps-tools", "kimai-admin-credentials", kimai_admin_backup)
+    backup_secret("apps-tools", "kimai-tls", kimai_tls_backup)
+    backup_secret("flux-system", "flux-hook-tls", flux_tls_backup)
+    backup_secret("cert-manager", "letsencrypt-http-private-key", acme_backup)
 
 
 if __name__ == "__main__":
