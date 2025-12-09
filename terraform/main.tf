@@ -33,16 +33,17 @@ module "k3s_node_prod" {
     acme_email        = var.acme_email
     kimai_domain      = var.kimai_domain
     monitoring_domain = var.monitoring_domain
-  config_repo_url   = var.config_repo_url
-  config_repo_branch = var.config_repo_branch
-  config_repo_path  = var.config_repo_path
-  github_persistent_terra_infra_ro_pat  = var.github_persistent_terra_infra_ro_pat
-  github_bootstrap_terra_infra_webhook_pat = var.github_bootstrap_terra_infra_webhook_pat
-  flux_hook_domain  = var.flux_hook_domain
-  env_name          = var.env_name
-  luks_key_access_key = var.luks_key_access_key
-  luks_key_secret_key = var.luks_key_secret_key
-  luks_key_url        = var.luks_key_url
-  path_root         = path.root
+    config_repo_url   = var.config_repo_url
+    config_repo_branch = var.config_repo_branch
+    config_repo_path  = var.config_repo_path
+    github_persistent_terra_infra_ro_pat  = var.github_persistent_terra_infra_ro_pat
+    github_bootstrap_terra_infra_webhook_pat = var.github_bootstrap_terra_infra_webhook_pat
+    flux_hook_domain  = var.flux_hook_domain
+    env_name          = var.env_name
+    luks_key_access_key = var.luks_key_access_key
+    luks_key_secret_key = var.luks_key_secret_key
+    luks_key_url        = var.luks_key_url
+    path_root         = path.root
+    allow_fresh_bootstrap = var.allow_fresh_bootstrap
   })
 }

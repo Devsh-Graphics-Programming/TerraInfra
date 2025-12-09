@@ -3,17 +3,23 @@ import base64
 import json
 import os
 import secrets
+import shlex
+import shutil
 import string
 import subprocess
 import tempfile
+import textwrap
 import sys
 import time
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Sequence
 
 
 SENSITIVE: list[str] = []
 start_ts = time.time()
+K3S_ENCRYPTION_KEY = "/var/lib/rancher/k3s/server/aescbc.keys"
+K3S_ENCRYPTION_KEY_BACKUP = "/mnt/data/backup/k3s/aescbc.keys"
+BOOTSTRAP_VOLUME_MARKER = "/mnt/data/.bootstrap-initialized"
 
 
 def add_sensitive(value: Optional[str]) -> None:
@@ -124,6 +130,119 @@ def random_password(length: int = 24) -> str:
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
+def backup_files_exist(paths: Sequence[str]) -> bool:
+    """Return True if any of the predefined backup files already exist."""
+    for path in paths:
+        if os.path.exists(path):
+            return True
+    return False
+
+
+def _directory_is_clean(path: str, allowed: Optional[Sequence[str]] = None) -> bool:
+    """Return True if *path* contains only entries from *allowed* (or is missing)."""
+    try:
+        entries = os.listdir(path)
+    except FileNotFoundError:
+        return True
+    allowed = set(allowed or ())
+    for entry in entries:
+        if entry not in allowed:
+            return False
+    return True
+
+
+def assert_clean_for_fresh(allow_fresh_env: bool, wants_fresh: bool) -> None:
+    """Ensure a clean data volume when we need to treat the run as a fresh bootstrap."""
+    if not wants_fresh:
+        return
+    if os.path.exists(BOOTSTRAP_VOLUME_MARKER):
+        raise RuntimeError(
+            "ALLOW_FRESH_BOOTSTRAP is enabled but /mnt/data already contains bootstrap artifacts. "
+            "Wipe the volume (or remove the marker) before retrying a fresh bootstrap."
+        )
+
+    reason = "ALLOW_FRESH_BOOTSTRAP is enabled" if allow_fresh_env else "Fresh bootstrap assumed (no backups detected)"
+    allowed_root = {"lost+found", "mariadb", "kimai-var"}
+    if not _directory_is_clean("/mnt/data", allowed_root):
+        raise RuntimeError(
+            f"{reason}, but /mnt/data already holds data; remove or mount an empty disk before retrying."
+        )
+    if not _directory_is_clean("/mnt/data/mariadb", {"lost+found"}):
+        raise RuntimeError(
+            f"{reason}, but /mnt/data/mariadb contains leftover files; wipe the volume before rerunning."
+        )
+    if not _directory_is_clean("/mnt/data/kimai-var", {"lost+found"}):
+        raise RuntimeError(
+            f"{reason}, but /mnt/data/kimai-var contains leftover files; wipe the volume before rerunning."
+        )
+
+
+def restore_k3s_encryption_keys(backup_path: str) -> bool:
+    """Restore the k3s secrets encryption key file from the data volume if available."""
+    if os.path.exists(K3S_ENCRYPTION_KEY):
+        return False
+    if not os.path.exists(backup_path):
+        return False
+    os.makedirs(os.path.dirname(K3S_ENCRYPTION_KEY), exist_ok=True)
+    log(f"[k3s] Restoring encryption key from {backup_path}", level="INFO")
+    shutil.copy2(backup_path, K3S_ENCRYPTION_KEY)
+    run(f"chmod 600 {K3S_ENCRYPTION_KEY}")
+    run("systemctl restart k3s")
+    return True
+
+
+def backup_k3s_encryption_keys(backup_path: str) -> None:
+    """Persist the active k3s encryption keys onto the data volume."""
+    if not os.path.exists(K3S_ENCRYPTION_KEY):
+        log("[k3s] Encryption key file missing; skipping backup", level="WARN")
+        return
+    os.makedirs(os.path.dirname(backup_path), exist_ok=True)
+    shutil.copy2(K3S_ENCRYPTION_KEY, backup_path)
+    log(f"[k3s] Stored encryption key backup to {backup_path}", level="INFO")
+
+
+def mark_volume_initialized(marker_path: str = BOOTSTRAP_VOLUME_MARKER) -> None:
+    """Write a marker onto the data volume so we can detect existing state."""
+    try:
+        os.makedirs(os.path.dirname(marker_path), exist_ok=True)
+        with open(marker_path, "w", encoding="utf-8") as fh:
+            fh.write(datetime.utcnow().isoformat() + "\n")
+    except Exception as exc:  # noqa: BLE001
+        log(f"Failed to write volume marker: {exc}", level="WARN")
+
+
+def ensure_mariadb_credentials(root_password: str, user_password: str, namespace: str = "apps-tools", deployment: str = "kimai-mariadb") -> None:
+    """Make sure MariaDB root + kimai user/password match the secrets we expect."""
+    sql = textwrap.dedent(
+        f"""\
+        CREATE DATABASE IF NOT EXISTS kimai;
+        CREATE USER IF NOT EXISTS 'kimai'@'%' IDENTIFIED BY '{user_password}';
+        GRANT ALL PRIVILEGES ON kimai.* TO 'kimai'@'%';
+        ALTER USER 'kimai'@'%' IDENTIFIED BY '{user_password}';
+        ALTER USER 'root'@'localhost' IDENTIFIED BY '{root_password}';
+        FLUSH PRIVILEGES;
+        """
+    )
+    script = textwrap.dedent(
+        f"""\
+        CLIENT=$(command -v mariadb || command -v mysql)
+        if [ -z "$CLIENT" ]; then
+          echo "mysql/mariadb client not installed" >&2
+          exit 1
+        fi
+        cat <<'SQL' | "$CLIENT" -uroot -p'{root_password}'
+        {sql}SQL
+        """
+    )
+    cmd = (
+        f"kubectl -n {namespace} exec deploy/{deployment} -- "
+        f"bash -c {shlex.quote(script)}"
+    )
+    result = run_with_retries(cmd, attempts=10, delay=10)
+    if result.returncode != 0:
+        raise RuntimeError("Failed to sync MariaDB credentials; check mariadb logs.")
+
+
 def ensure_namespace(ns: str):
     run(f"kubectl create namespace {ns} --dry-run=client -o yaml | kubectl apply -f -")
 
@@ -181,6 +300,7 @@ def secret_exists(ns: str, name: str) -> bool:
 
 
 def restore_secret_from_backup(ns: str, name: str, backup_path: str) -> None:
+    ensure_namespace(ns)
     if secret_exists(ns, name):
         log(f"Secret {ns}/{name} exists; skipping restore", level="INFO")
         return
@@ -413,8 +533,30 @@ def main():
     kimai_db_backup = f"{secrets_backup_base}/apps-tools/kimai-db-credentials.yaml"
     kimai_admin_backup = f"{secrets_backup_base}/apps-tools/kimai-admin-credentials.yaml"
     grafana_admin_backup = f"{secrets_backup_base}/monitoring/monitoring-grafana.yaml"
-    allow_fresh = os.environ.get("ALLOW_FRESH_BOOTSTRAP", "").lower() in ("1", "true", "yes")
+    allow_fresh_env = os.environ.get("ALLOW_FRESH_BOOTSTRAP", "").lower() in ("1", "true", "yes")
     ensure_data_mount(env_name, luks_key_url, luks_key_access, luks_key_secret)
+
+    backup_paths = [
+        kimai_tls_backup,
+        flux_tls_backup,
+        acme_backup,
+        kimai_db_backup,
+        kimai_admin_backup,
+        grafana_admin_backup,
+    ]
+    has_backups = backup_files_exist(backup_paths)
+    if allow_fresh_env and has_backups:
+        raise RuntimeError(
+            "ALLOW_FRESH_BOOTSTRAP is enabled but backup secrets already exist on /mnt/data. "
+            "Disable the flag or clear /mnt/data if you really intend to recreate everything."
+        )
+    allow_fresh = allow_fresh_env or not has_backups
+    if not allow_fresh_env and not has_backups:
+        log("[bootstrap] No secret backups detected on /mnt/data; assuming fresh bootstrap", level="INFO")
+    if allow_fresh_env and not has_backups:
+        log("[bootstrap] ALLOW_FRESH_BOOTSTRAP requested and volume is clean; generating new secrets", level="INFO")
+
+    assert_clean_for_fresh(allow_fresh_env, allow_fresh)
 
     # Prepare attached data volume (non-root) for stateful data
     run(
@@ -446,8 +588,11 @@ mkdir -p /mnt/data/mariadb /mnt/data/kimai-var
         quiet=True,
     )
 
+    restore_k3s_encryption_keys(K3S_ENCRYPTION_KEY_BACKUP)
     wait_for_k8s()
     ensure_secrets_encryption()
+    ensure_namespace("monitoring")
+    ensure_namespace("apps-tools")
     print("k8s ready")
 
     grafana_admin_user = "admin"
@@ -707,6 +852,7 @@ spec:
     apply_yaml(flux_receiver)
     run("kubectl -n flux-system wait --for=condition=ready kustomization/apps --timeout=300s")
     wait_for_deploy("apps-tools", "kimai-mariadb")
+    ensure_mariadb_credentials(kimai_db_root_password, kimai_db_user_password)
     wait_for_deploy("apps-tools", "kimai")
     create_admin_cmd = (
         "kubectl -n apps-tools exec deploy/kimai -- "
@@ -715,7 +861,7 @@ spec:
     )
     should_create_admin = fresh_kimai_creds or not existing_kimai_admin_secret
     if should_create_admin:
-        create_admin = run_with_retries(create_admin_cmd, attempts=20, delay=10)
+        create_admin = run_with_retries(create_admin_cmd, attempts=10, delay=10)
         if create_admin.returncode != 0:
             combined = f"{create_admin.stdout} {create_admin.stderr}".lower()
             if "already exists" in combined:
@@ -766,7 +912,7 @@ spec:
             if data is not None:
                 body = json.dumps(data).encode()
             req = urllib.request.Request(url, data=body, headers=headers, method=method)
-            with urllib.request.urlopen(req, timeout=20) as resp:
+            with urllib.request.urlopen(req, timeout=10) as resp:
                 return resp.read().decode(), resp.getcode()
 
         hooks_body, _ = http("GET", api_base)
@@ -796,6 +942,8 @@ spec:
     backup_secret("apps-tools", "kimai-tls", kimai_tls_backup)
     backup_secret("flux-system", "flux-hook-tls", flux_tls_backup)
     backup_secret("cert-manager", "letsencrypt-http-private-key", acme_backup)
+    backup_k3s_encryption_keys(K3S_ENCRYPTION_KEY_BACKUP)
+    mark_volume_initialized()
 
 
 if __name__ == "__main__":

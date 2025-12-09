@@ -78,3 +78,9 @@ variable "luks_key_url" {
   description = "Optional presigned URL to fetch LUKS key (overrides access/secret when set)"
   default     = ""
 }
+
+variable "allow_fresh_bootstrap" {
+  type        = bool
+  description = "Set to true when you intentionally want to recreate secrets (new volume or clean data)."
+  default     = false
+}

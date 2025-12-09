@@ -39,4 +39,5 @@ runcmd:
       LUKS_KEY_ACCESS_KEY=${luks_key_access_key} \
       LUKS_KEY_SECRET_KEY=${luks_key_secret_key} \
       LUKS_KEY_URL=${luks_key_url} \
+      ALLOW_FRESH_BOOTSTRAP=${allow_fresh_bootstrap} \
       python3 /root/bootstrap/bootstrap.py 2>&1 | tee /var/log/bootstrap.log'
