@@ -65,6 +65,8 @@ kind: Ingress
 metadata:
   name: devsh-website
   namespace: website
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-http
 spec:
   ingressClassName: nginx
   tls:
@@ -145,6 +147,8 @@ kind: Ingress
 metadata:
   name: devsh-blog
   namespace: website
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-http
 spec:
   ingressClassName: nginx
   tls:
