@@ -128,6 +128,65 @@ spec:
             path: /mnt/data/kimai-var
             type: DirectoryOrCreate
 ---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kimai-bootstrap-admin
+  namespace: apps-tools
+spec:
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: create-admin
+          image: kimai/kimai2:apache
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: kimai-db-credentials
+                  key: database-url
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: kimai-db-credentials
+                  key: mysql-user-password
+            - name: KIMAI_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: kimai-admin-credentials
+                  key: username
+            - name: KIMAI_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: kimai-admin-credentials
+                  key: password
+            - name: KIMAI_ADMIN_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: kimai-admin-credentials
+                  key: username
+          volumeMounts:
+            - name: kimai-var
+              mountPath: /opt/kimai/var
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              for i in $(seq 1 30); do
+                mariadb -h kimai-mariadb -ukimai -p"$MYSQL_PASSWORD" -e "SELECT 1" && break
+                sleep 5
+              done
+              /opt/kimai/bin/console kimai:user:list | grep -q "$KIMAI_ADMIN_USERNAME" && exit 0
+              /opt/kimai/bin/console kimai:user:create "$KIMAI_ADMIN_USERNAME" "$KIMAI_ADMIN_EMAIL" ROLE_SUPER_ADMIN "$KIMAI_ADMIN_PASSWORD"
+      volumes:
+        - name: kimai-var
+          hostPath:
+            path: /mnt/data/kimai-var
+            type: DirectoryOrCreate
+---
 apiVersion: v1
 kind: Service
 metadata:
