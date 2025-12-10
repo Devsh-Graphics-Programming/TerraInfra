@@ -175,12 +175,16 @@ spec:
             - -c
             - |
               set -e
+              EMAIL="${KIMAI_ADMIN_EMAIL:-admin@devsh.eu}"
+              if ! printf "%s" "$EMAIL" | grep -Eq '.+@.+\\..+'; then
+                EMAIL="admin@devsh.eu"
+              fi
               for i in $(seq 1 30); do
                 php -r 'new PDO("mysql:host=kimai-mariadb;dbname=kimai","kimai",getenv("MYSQL_PASSWORD"));' && break
                 sleep 5
               done
               /opt/kimai/bin/console kimai:user:list | grep -q "$KIMAI_ADMIN_USERNAME" && exit 0
-              /opt/kimai/bin/console kimai:user:create "$KIMAI_ADMIN_USERNAME" "$KIMAI_ADMIN_EMAIL" ROLE_SUPER_ADMIN "$KIMAI_ADMIN_PASSWORD"
+              /opt/kimai/bin/console kimai:user:create "$KIMAI_ADMIN_USERNAME" "$EMAIL" ROLE_SUPER_ADMIN "$KIMAI_ADMIN_PASSWORD"
       volumes:
         - name: kimai-var
           hostPath:
