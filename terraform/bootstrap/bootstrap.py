@@ -499,10 +499,12 @@ def main():
         "FLUX_HOOK_DOMAIN",
         "CONFIG_REPO_URL",
         "CONFIG_REPO_BRANCH",
-        "CONFIG_REPO_PATH",
-        "GITHUB_PERSISTENT_PAT",
-        "ENV_NAME",
-    ]
+    "CONFIG_REPO_PATH",
+    "GITHUB_PERSISTENT_PAT",
+    "ENV_NAME",
+    "WEBSITE_DOMAIN",
+    "BLOG_DOMAIN",
+  ]
     for name in required_env:
         if not os.environ.get(name):
             raise SystemExit(f"Missing env: {name}")
@@ -511,6 +513,8 @@ def main():
     kimai_domain = os.environ["KIMAI_DOMAIN"]
     monitoring_domain = os.environ["MONITORING_DOMAIN"]
     flux_hook_domain = os.environ["FLUX_HOOK_DOMAIN"]
+    website_domain = os.environ["WEBSITE_DOMAIN"]
+    blog_domain = os.environ["BLOG_DOMAIN"]
     config_repo_url = os.environ["CONFIG_REPO_URL"]
     config_repo_branch = os.environ["CONFIG_REPO_BRANCH"]
     config_repo_path = os.environ["CONFIG_REPO_PATH"]
@@ -749,9 +753,11 @@ spec:
   timeout: 2m
   postBuild:
     substitute:
-      KIMAI_DOMAIN: {kimai_domain}
-      MONITORING_DOMAIN: {monitoring_domain}
-      FLUX_HOOK_DOMAIN: {flux_hook_domain}
+        KIMAI_DOMAIN: {kimai_domain}
+        MONITORING_DOMAIN: {monitoring_domain}
+        WEBSITE_DOMAIN: {website_domain}
+        BLOG_DOMAIN: {blog_domain}
+        FLUX_HOOK_DOMAIN: {flux_hook_domain}
       GITHUB_WEBHOOK_SECRET: {webhook_secret}
 """
     flux_receiver = f"""apiVersion: notification.toolkit.fluxcd.io/v1

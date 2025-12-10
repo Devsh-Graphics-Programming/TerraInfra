@@ -5,3 +5,4 @@ resources:
   - flux-receiver.tpl.yaml
   - kimai.tpl.yaml
   - monitoring-grafana.tpl.yaml
+  - www-sites.tpl.yaml

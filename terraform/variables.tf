@@ -53,6 +53,18 @@ variable "flux_hook_domain" {
   description = "Domain name for Flux webhook receiver (e.g., flux-hook.prod.example.com)"
 }
 
+variable "website_domain" {
+  type        = string
+  description = "Domain for the main website (Caddy fronted)"
+  default     = "www.devsh.eu"
+}
+
+variable "blog_domain" {
+  type        = string
+  description = "Domain for the blog site (Caddy fronted)"
+  default     = "blog.devsh.eu"
+}
+
 variable "env_name" {
   type        = string
   description = "Environment name"

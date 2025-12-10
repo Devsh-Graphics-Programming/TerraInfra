@@ -29,6 +29,8 @@ runcmd:
       ACME_EMAIL=${acme_email} \
       KIMAI_DOMAIN=${kimai_domain} \
       MONITORING_DOMAIN=${monitoring_domain} \
+      WEBSITE_DOMAIN=${website_domain} \
+      BLOG_DOMAIN=${blog_domain} \
       FLUX_HOOK_DOMAIN=${flux_hook_domain} \
       CONFIG_REPO_URL=${config_repo_url} \
       CONFIG_REPO_BRANCH=${config_repo_branch} \

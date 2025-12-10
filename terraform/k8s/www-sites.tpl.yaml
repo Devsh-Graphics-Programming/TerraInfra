@@ -1,0 +1,160 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: website
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devsh-website
+  namespace: website
+labels:
+  app: devsh-website
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: devsh-website
+  template:
+    metadata:
+      labels:
+        app: devsh-website
+    spec:
+      containers:
+        - name: website
+          image: ghcr.io/devsh-graphics-programming/www-website:latest
+          ports:
+            - containerPort: 80
+          securityContext:
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+          volumeMounts:
+            - name: tmpfs-tmp
+              mountPath: /tmp
+            - name: tmpfs-config
+              mountPath: /config
+            - name: tmpfs-data
+              mountPath: /data
+      volumes:
+        - name: tmpfs-tmp
+          emptyDir:
+            medium: Memory
+        - name: tmpfs-config
+          emptyDir:
+            medium: Memory
+        - name: tmpfs-data
+          emptyDir:
+            medium: Memory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: devsh-website
+  namespace: website
+spec:
+  selector:
+    app: devsh-website
+  ports:
+    - port: 80
+      targetPort: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: devsh-website
+  namespace: website
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - ${WEBSITE_DOMAIN}
+      secretName: devsh-website-tls
+  rules:
+    - host: ${WEBSITE_DOMAIN}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: devsh-website
+                port:
+                  number: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devsh-blog
+  namespace: website
+labels:
+  app: devsh-blog
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: devsh-blog
+  template:
+    metadata:
+      labels:
+        app: devsh-blog
+    spec:
+      containers:
+        - name: blog
+          image: ghcr.io/devsh-graphics-programming/www-blog:latest
+          ports:
+            - containerPort: 80
+          securityContext:
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+          volumeMounts:
+            - name: tmpfs-tmp
+              mountPath: /tmp
+            - name: tmpfs-config
+              mountPath: /config
+            - name: tmpfs-data
+              mountPath: /data
+      volumes:
+        - name: tmpfs-tmp
+          emptyDir:
+            medium: Memory
+        - name: tmpfs-config
+          emptyDir:
+            medium: Memory
+        - name: tmpfs-data
+          emptyDir:
+            medium: Memory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: devsh-blog
+  namespace: website
+spec:
+  selector:
+    app: devsh-blog
+  ports:
+    - port: 80
+      targetPort: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: devsh-blog
+  namespace: website
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - ${BLOG_DOMAIN}
+      secretName: devsh-blog-tls
+  rules:
+    - host: ${BLOG_DOMAIN}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: devsh-blog
+                port:
+                  number: 80

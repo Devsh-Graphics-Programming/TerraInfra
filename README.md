@@ -16,6 +16,8 @@ TF_VAR_project_id=...
 TF_VAR_env_name=prod       # set to e.g. "test"; only lowercase letters/digits/hyphen are kept (others collapse to "-") before suffix/domain prep
 TF_VAR_kimai_domain=kimai2.devsh.eu
 TF_VAR_monitoring_domain=monitoring.devsh.eu
+TF_VAR_website_domain=www.devsh.eu
+TF_VAR_blog_domain=blog.devsh.eu
 TF_VAR_acme_email=you@example.com
 TF_VAR_config_repo_url=https://github.com/Devsh-Graphics-Programming/TerraInfra
 TF_VAR_config_repo_branch=master
@@ -63,6 +65,12 @@ Set A records to the cluster IP (e.g. `212.47.251.150`):
 - `monitoring.devsh.eu`
 - `flux-hook.prod.devsh.eu`
 When `TF_VAR_env_name` is not `prod`, Terraform automatically prefixes the sanitized env slug (non `[a-z0-9-]` characters collapse to `-`, empty slugs fall back to `prod`) to each domain so the stack advertises `test.kimai2.devsh.eu`, `test.monitoring.devsh.eu`, and `test.flux-hook.prod.devsh.eu`.
+
+### Static website services
+
+Two additional Caddy-backed services host the main site (`TF_VAR_website_domain`, default `www.devsh.eu`) and the blog (`TF_VAR_blog_domain`, default `blog.devsh.eu`). Both containers run from prebuilt images, mount their root filesystem read-only, and expose writable tmpfs folders (`/tmp`, `/config`, `/data`) so caches remain ephemeral. They are defined in `terraform/k8s/www-sites.tpl.yaml` and picked up by the same Flux kustomization that boots Kimai and Grafana.
+
+These services do not require cloud-init changes; updating the domains just means editing your `.env` entries and rerunning `terraform apply` (Flux handles TLS via `cert-manager` ingresses defined in the template). Because the containers are immutable, nothing writes to `/opt`—everything mutable lives on temporary memory-backed volumes exposed in the manifest.
 
 ## Running prod and test side by side
 Terraform keeps a single state per workspace (`terraform.tfstate`), so applying `TF_VAR_env_name=test` in the same workspace as prod simply rewrites the existing resources with `test` in the names/tags. To stand up both environments concurrently, keep production in the default workspace and use a dedicated workspace for `test`:
