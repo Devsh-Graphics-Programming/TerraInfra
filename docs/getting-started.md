@@ -2,6 +2,11 @@
 
 This repo is GitOps-driven (Flux). You change manifests, push to the right branch, Flux syncs clusters (prod=test code on different branches). Terraform builds the k3s node and bootstraps Flux; day‑2 is via Git.
 
+### Git branches (quick reminder)
+- Prod: `env/prod`
+- Test: `env/test`
+- Workflow: commit to `env/test` → verify in test → merge to `env/prod`.
+
 ### Prerequisites
 - Windows PowerShell
 - Terraform
@@ -39,6 +44,14 @@ TF_VAR_luks_key_secret_key=...
 # TF_VAR_sops_age_key= (set in session, not in file)
 ```
 Reload per session: `cd terraform; . .\env.ps1`
+
+### First bootstrap (per environment)
+1) Set `.env` (prod) or override env vars (test).
+2) Set age key in session:  
+   `$env:SOPS_AGE_KEY = Get-Content terra.agekey -Raw`
+3) Select workspace (`terraform workspace select prod|test`).
+4) `terraform apply`
+5) Wait for cloud-init, then Flux reconciles (watch: `/var/log/cloud-init-output.log`, `/var/log/bootstrap.log` on the node; `kubectl get pods -A`).
 
 ### Quick commands
 - Prod apply:  

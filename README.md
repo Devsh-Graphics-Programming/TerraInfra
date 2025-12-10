@@ -1,8 +1,8 @@
 # TerraInfra
 
 Infra for Devsh (k3s on Scaleway) with GitOps via Flux. Branches:
-- `env/prod` → production cluster
-- `env/test` → test cluster
+- `env/prod` → production cluster (kept up, do not destroy)
+- `env/test` → ephemeral/test cluster (can be recreated on demand)
 
 Docs live in `docs/`:
 - `docs/getting-started.md` – prerequisites, tooling, `.env` template, age key, GitOps flow

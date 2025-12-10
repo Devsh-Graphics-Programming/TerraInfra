@@ -47,6 +47,10 @@ print(''.join(secrets.choice(alpha) for _ in range(32)))
 PY
 ```
 
+### App-specific notes
+- Kimai admin job reads `kimai-admin-credentials` (username/email/password) and creates the admin user if it does not exist.
+- DB creds live in `kimai-db-credentials` (passwords + DATABASE_URL).
+
 ### Flux decryption
 - Flux uses secret `sops-age` in `flux-system` (private age key) and `spec.decryption.provider: sops`.
 - Only `data/stringData` are encrypted (see `.sops.yaml`).
