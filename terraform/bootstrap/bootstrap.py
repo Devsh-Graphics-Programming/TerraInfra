@@ -20,6 +20,9 @@ start_ts = time.time()
 K3S_ENCRYPTION_KEY = "/var/lib/rancher/k3s/server/aescbc.keys"
 K3S_ENCRYPTION_KEY_BACKUP = "/mnt/data/backup/k3s/aescbc.keys"
 BOOTSTRAP_VOLUME_MARKER = "/mnt/data/.bootstrap-initialized"
+grafana_admin_backup = "/mnt/data/backup/monitoring/grafana-admin.yaml"
+kimai_db_backup = "/mnt/data/backup/apps-tools/kimai-db-credentials.yaml"
+kimai_admin_backup = "/mnt/data/backup/apps-tools/kimai-admin-credentials.yaml"
 
 
 def add_sensitive(value: Optional[str]) -> None:
@@ -697,7 +700,7 @@ spec:
     kind: GitRepository
     name: terralinfra
     namespace: flux-system
-  timeout: 1m
+{decryption_section}  timeout: 1m
 """
     flux_kustomization_apps = (
         "apiVersion: kustomize.toolkit.fluxcd.io/v1\n"
