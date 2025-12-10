@@ -98,13 +98,12 @@ spec:
             - |
               set -e
               for i in $(seq 1 30); do
-                mariadb -h kimai-mariadb -uroot -p"$MYSQL_ROOT_PASSWORD" <<'SQL' && exit 0
-                CREATE DATABASE IF NOT EXISTS kimai;
-                CREATE USER IF NOT EXISTS 'kimai'@'%' IDENTIFIED BY '${MYSQL_PASSWORD}';
-                ALTER USER 'kimai'@'%' IDENTIFIED BY '${MYSQL_PASSWORD}';
-                GRANT ALL PRIVILEGES ON kimai.* TO 'kimai'@'%';
-                FLUSH PRIVILEGES;
-SQL
+                mariadb -h kimai-mariadb -uroot -p"$MYSQL_ROOT_PASSWORD" -e "\
+CREATE DATABASE IF NOT EXISTS kimai; \
+CREATE USER IF NOT EXISTS 'kimai'@'%' IDENTIFIED BY '${MYSQL_PASSWORD}'; \
+ALTER USER 'kimai'@'%' IDENTIFIED BY '${MYSQL_PASSWORD}'; \
+GRANT ALL PRIVILEGES ON kimai.* TO 'kimai'@'%'; \
+FLUSH PRIVILEGES;" && exit 0
                 sleep 5
               done
               echo "Failed to prepare database" >&2
