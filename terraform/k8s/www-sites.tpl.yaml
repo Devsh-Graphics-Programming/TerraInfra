@@ -67,6 +67,8 @@ metadata:
   namespace: website
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-http
+    nginx.ingress.kubernetes.io/server-snippet: |
+      rewrite ^/blog/?(.*)$ https://${BLOG_DOMAIN}/$1 permanent;
 spec:
   ingressClassName: nginx
   tls:
