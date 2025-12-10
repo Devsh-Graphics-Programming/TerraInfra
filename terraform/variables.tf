@@ -88,3 +88,9 @@ variable "data_volume_snapshot_id" {
   description = "Optional snapshot ID used by environments that should attach a copy of the prod data volume."
   default     = ""
 }
+
+variable "prevent_destroy_data_volume" {
+  type        = bool
+  description = "Set false only when you intentionally want Terraform to allow destroying the data volume (e.g., wiping/recreating)."
+  default     = true
+}

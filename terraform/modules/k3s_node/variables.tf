@@ -14,6 +14,12 @@ variable "data_volume_snapshot_id" {
   default     = ""
 }
 
+variable "prevent_destroy_data_volume" {
+  type        = bool
+  description = "Set false only when you intentionally want Terraform to allow destroying the data volume (e.g., recreating from scratch/snapshot)."
+  default     = true
+}
+
 variable "create_daily_snapshot" {
   type        = bool
   description = "When true, creates a rotating daily snapshot of the data volume (usually enabled only for prod)."

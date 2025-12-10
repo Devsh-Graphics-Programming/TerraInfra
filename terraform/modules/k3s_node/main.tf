@@ -81,7 +81,7 @@ resource "scaleway_block_volume" "data_volume" {
   snapshot_id = var.data_volume_snapshot_id == "" ? null : var.data_volume_snapshot_id
 
   lifecycle {
-    prevent_destroy = true
+    prevent_destroy = var.prevent_destroy_data_volume
   }
 }
 
