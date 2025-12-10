@@ -84,3 +84,9 @@ variable "allow_fresh_bootstrap" {
   description = "Set to true when you intentionally want to recreate secrets (new volume or clean data)."
   default     = false
 }
+
+variable "snapshot_rotation_hours" {
+  type        = number
+  description = "Rotation period in hours for the production block-volume snapshot."
+  default     = 24
+}

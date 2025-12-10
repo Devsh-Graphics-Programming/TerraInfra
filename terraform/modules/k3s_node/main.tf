@@ -3,7 +3,15 @@ terraform {
     scaleway = {
       source = "scaleway/scaleway"
     }
+    time = {
+      source  = "hashicorp/time"
+      version = "~> 0.10"
+    }
   }
+}
+
+locals {
+  snapshot_enabled = var.create_daily_snapshot && var.env_name == "prod"
 }
 
 resource "scaleway_instance_ip" "public_ip" {
@@ -41,7 +49,7 @@ resource "scaleway_instance_server" "k3s_node_1" {
   type  = "DEV1-M"
   image = "ubuntu_jammy"
   root_volume {
-    size_in_gb = 40
+    size_in_gb  = 40
     volume_type = "l_ssd"
   }
 
@@ -73,5 +81,34 @@ resource "scaleway_block_volume" "data_volume" {
 
   lifecycle {
     prevent_destroy = true
+  }
+}
+
+resource "time_rotating" "snapshot_trigger" {
+  count          = local.snapshot_enabled ? 1 : 0
+  rotation_hours = var.snapshot_rotation_hours
+}
+
+resource "scaleway_block_snapshot" "data_volume" {
+  count = local.snapshot_enabled ? 1 : 0
+  name = format(
+    "devsh-k3s-%s-data-snapshot-%s",
+    var.env_name,
+    replace(
+      replace(
+        replace(time_rotating.snapshot_trigger[0].rotation_rfc3339, ":", "-"),
+        "T",
+        "-"
+      ),
+      "Z",
+      ""
+    )
+  )
+  project_id = var.project_id
+  volume_id  = scaleway_block_volume.data_volume.id
+  tags       = ["devsh", "k3s", "snapshot", var.env_name]
+
+  lifecycle {
+    create_before_destroy = false
   }
 }
