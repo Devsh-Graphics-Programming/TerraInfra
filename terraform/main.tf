@@ -39,6 +39,7 @@ module "k3s_node" {
   github_bootstrap_terra_infra_webhook_pat = var.github_bootstrap_terra_infra_webhook_pat
   create_daily_snapshot                    = local.snapshot_enabled
   snapshot_rotation_hours                  = var.snapshot_rotation_hours
+  data_volume_snapshot_id                  = var.data_volume_snapshot_id
 
   cloud_init = templatefile("${path.root}/cloud-init.yaml", {
     acme_email                               = var.acme_email

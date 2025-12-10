@@ -7,3 +7,13 @@ output "server_id" {
   value       = scaleway_instance_server.k3s_node_1.id
   description = "Scaleway server ID"
 }
+
+output "data_volume_id" {
+  value       = scaleway_block_volume.data_volume.id
+  description = "ID of the attached data volume"
+}
+
+output "latest_snapshot_id" {
+  value       = length(scaleway_block_snapshot.data_volume) > 0 ? scaleway_block_snapshot.data_volume[0].id : ""
+  description = "ID of the most recent managed snapshot (empty when snapshots are disabled)"
+}
