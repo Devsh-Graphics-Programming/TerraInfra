@@ -92,7 +92,8 @@ metadata:
   namespace: website
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-http
-    nginx.ingress.kubernetes.io/permanent-redirect: https://${BLOG_DOMAIN}$request_uri
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
 spec:
   ingressClassName: nginx
   tls:
@@ -103,8 +104,8 @@ spec:
     - host: ${WEBSITE_DOMAIN}
       http:
         paths:
-          - path: /blog
-            pathType: Prefix
+          - path: /blog(/|$)(.*)
+            pathType: ImplementationSpecific
             backend:
               service:
                 name: devsh-blog
