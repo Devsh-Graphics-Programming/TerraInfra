@@ -24,7 +24,7 @@ spec:
         - name: website
           image: ghcr.io/devsh-graphics-programming/www-website:latest
           ports:
-            - containerPort: 80
+            - containerPort: 3000
           securityContext:
             readOnlyRootFilesystem: true
             runAsNonRoot: true
@@ -58,7 +58,7 @@ spec:
     app: devsh-website
   ports:
     - port: 80
-      targetPort: 80
+      targetPort: 3000
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -106,7 +106,7 @@ spec:
         - name: blog
           image: ghcr.io/devsh-graphics-programming/www-blog:latest
           ports:
-            - containerPort: 80
+            - containerPort: 3000
           securityContext:
             readOnlyRootFilesystem: true
             runAsNonRoot: true
@@ -140,7 +140,7 @@ spec:
     app: devsh-blog
   ports:
     - port: 80
-      targetPort: 80
+      targetPort: 3000
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
