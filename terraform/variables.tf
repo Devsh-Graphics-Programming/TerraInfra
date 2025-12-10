@@ -55,13 +55,13 @@ variable "flux_hook_domain" {
 
 variable "website_domain" {
   type        = string
-  description = "Domain for the main website (Caddy fronted)"
+  description = "Domain for the main Caddy-hosted website (e.g., www.devsh.eu)"
   default     = "www.devsh.eu"
 }
 
 variable "blog_domain" {
   type        = string
-  description = "Domain for the blog site (Caddy fronted)"
+  description = "Domain for the blog site (e.g., blog.devsh.eu)"
   default     = "blog.devsh.eu"
 }
 

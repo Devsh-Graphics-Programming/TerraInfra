@@ -60,17 +60,33 @@ terraform apply
 To delete the data volume entirely, remove `prevent_destroy` first, then run a full `terraform destroy`.
 
 ## DNS
-Set A records to the cluster IP (e.g. `212.47.251.150`):
+- Set A records to the cluster IP (e.g. `212.47.251.150`):
 - `kimai2.devsh.eu`
 - `monitoring.devsh.eu`
 - `flux-hook.prod.devsh.eu`
-When `TF_VAR_env_name` is not `prod`, Terraform automatically prefixes the sanitized env slug (non `[a-z0-9-]` characters collapse to `-`, empty slugs fall back to `prod`) to each domain so the stack advertises `test.kimai2.devsh.eu`, `test.monitoring.devsh.eu`, and `test.flux-hook.prod.devsh.eu`.
+- `www.devsh.eu` (`TF_VAR_website_domain`)
+- `blog.devsh.eu` (`TF_VAR_blog_domain`)
+When `TF_VAR_env_name` is not `prod`, Terraform automatically prefixes the sanitized env slug (non `[a-z0-9-]` characters collapse to `-`, empty slugs fall back to `prod`) to each domain so the stack advertises `test.kimai2.devsh.eu`, `test.monitoring.devsh.eu`, `test.www.devsh.eu`, `test.blog.devsh.eu`, and `test.flux-hook.prod.devsh.eu`.
 
 ### Static website services
 
 Two additional Caddy-backed services host the main site (`TF_VAR_website_domain`, default `www.devsh.eu`) and the blog (`TF_VAR_blog_domain`, default `blog.devsh.eu`). Both containers run from prebuilt images, mount their root filesystem read-only, and expose writable tmpfs folders (`/tmp`, `/config`, `/data`) so caches remain ephemeral. They are defined in `terraform/k8s/www-sites.tpl.yaml` and picked up by the same Flux kustomization that boots Kimai and Grafana.
 
-These services do not require cloud-init changes; updating the domains just means editing your `.env` entries and rerunning `terraform apply` (Flux handles TLS via `cert-manager` ingresses defined in the template). Because the containers are immutable, nothing writes to `/opt`—everything mutable lives on temporary memory-backed volumes exposed in the manifest.
+These services do not require cloud-init changes; updating the domains just means editing your `.env` entries and rerunning `terraform apply` (Flux handles TLS via `cert-manager` ingresses defined in the template). Because the containers are immutable, nothing writes to `/opt`–everything mutable lives on temporary memory-backed volumes exposed in the manifest.
+
+### Verifying the website/blog rollout
+
+Flux polls the repo every two minutes (webhooks just speed that up), so expect the `apps` kustomization to refresh soon after you apply. Verify the website and blog stack with:
+
+```
+flux -n flux-system get kustomizations apps
+kubectl -n website get deploy,svc,ingress
+kubectl -n website describe ingress devsh-website
+kubectl -n website describe ingress devsh-blog
+kubectl -n website get certificates
+```
+
+The ingresses/certificates should show `${WEBSITE_DOMAIN}`/`${BLOG_DOMAIN}` (or slug-prefixed variants) and report `Ready` before DNS traffic reaches the cluster. The manifest also generates `devsh-website-tls` and `devsh-blog-tls` secrets via `cert-manager`, so check those secrets after the DNS challenge succeeds.
 
 ## Running prod and test side by side
 Terraform keeps a single state per workspace (`terraform.tfstate`), so applying `TF_VAR_env_name=test` in the same workspace as prod simply rewrites the existing resources with `test` in the names/tags. To stand up both environments concurrently, keep production in the default workspace and use a dedicated workspace for `test`:
@@ -89,7 +105,9 @@ terraform apply -auto-approve     # creates/updates test resources
 
 After renaming `module.k3s_node_prod` to `module.k3s_node`, re-select the workspace you're operating in (`default` or `test`) and run `terraform state mv module.k3s_node_prod module.k3s_node` once per workspace so the existing resources stay managed under the new module name.
 
-Whenever you switch between stacks, run `terraform workspace select default` (or `test`) and reset `$env:TF_VAR_env_name` (reload `.env` for prod). `test` keeps its own state file so it won't mutate prod. To tear down the test stack, select `test` and run `terraform destroy -auto-approve` (the shared `terra-luks-keys` bucket still has `prevent_destroy`, so nothing accidentally deletes it). The test workspace is meant for short-lived experiments only—destroy all `test` resources once you finish validating changes so the shared snapshot/volume workflow stays clean.
+Whenever you switch between stacks, run `terraform workspace select default` (or `test`) and reset `$env:TF_VAR_env_name` (reload `.env` for prod). `test` keeps its own state file so it won't mutate prod. To tear down the test stack, select `test` and run `terraform destroy -auto-approve` (the shared `terra-luks-keys` bucket still has `prevent_destroy`, so nothing accidentally deletes it). The test workspace is meant for short-lived experiments only-destroy all `test` resources once you finish validating changes so the shared snapshot/volume workflow stays clean.
+
+> **Heads-up:** treat the `test` workspace as ephemeral. Destroy the namespace/instances/skipped storage (`terraform destroy` in `test`) once you finish exercising backups or config changes so prod keeps running unchanged and shared snapshots don't get accidentally reused.
 
 ## GitHub Webhook
 Bootstrap (Python) auto-creates the webhook when `GITHUB_BOOTSTRAP_TERRA_INFRA_WEBHOOK_PAT` is set:

@@ -27,9 +27,9 @@ locals {
   domain_prefix     = local.env_slug == "prod" ? "" : "${local.env_slug}."
   kimai_domain      = format("%s%s", local.domain_prefix, trimspace(var.kimai_domain))
   monitoring_domain = format("%s%s", local.domain_prefix, trimspace(var.monitoring_domain))
+  flux_hook_domain  = format("%s%s", local.domain_prefix, trimspace(var.flux_hook_domain))
   website_domain    = format("%s%s", local.domain_prefix, trimspace(var.website_domain))
   blog_domain       = format("%s%s", local.domain_prefix, trimspace(var.blog_domain))
-  flux_hook_domain  = format("%s%s", local.domain_prefix, trimspace(var.flux_hook_domain))
 }
 
 module "k3s_node" {
@@ -53,14 +53,14 @@ module "k3s_node" {
     acme_email                               = var.acme_email
     kimai_domain                             = local.kimai_domain
     monitoring_domain                        = local.monitoring_domain
+    website_domain                           = local.website_domain
+    blog_domain                              = local.blog_domain
     config_repo_url                          = var.config_repo_url
     config_repo_branch                       = var.config_repo_branch
     config_repo_path                         = var.config_repo_path
     github_persistent_terra_infra_ro_pat     = var.github_persistent_terra_infra_ro_pat
     github_bootstrap_terra_infra_webhook_pat = var.github_bootstrap_terra_infra_webhook_pat
     flux_hook_domain                         = local.flux_hook_domain
-    website_domain                           = local.website_domain
-    blog_domain                              = local.blog_domain
     env_name                                 = local.env_slug
     luks_key_access_key                      = var.luks_key_access_key
     luks_key_secret_key                      = var.luks_key_secret_key
