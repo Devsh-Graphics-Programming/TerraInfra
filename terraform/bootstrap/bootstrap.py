@@ -494,32 +494,30 @@ def main():
     start_ts = time.time()
     required_env = [
         "ACME_EMAIL",
-        "KIMAI_DOMAIN",
-        "MONITORING_DOMAIN",
-        "FLUX_HOOK_DOMAIN",
         "CONFIG_REPO_URL",
         "CONFIG_REPO_BRANCH",
-    "CONFIG_REPO_PATH",
-    "GITHUB_PERSISTENT_PAT",
-    "ENV_NAME",
-    "WEBSITE_DOMAIN",
-    "BLOG_DOMAIN",
+        "CONFIG_REPO_PATH",
+        "GITHUB_PERSISTENT_PAT",
+        "ENV_NAME",
   ]
     for name in required_env:
         if not os.environ.get(name):
             raise SystemExit(f"Missing env: {name}")
 
     acme_email = os.environ["ACME_EMAIL"]
-    kimai_domain = os.environ["KIMAI_DOMAIN"]
-    monitoring_domain = os.environ["MONITORING_DOMAIN"]
-    flux_hook_domain = os.environ["FLUX_HOOK_DOMAIN"]
-    website_domain = os.environ["WEBSITE_DOMAIN"]
-    blog_domain = os.environ["BLOG_DOMAIN"]
+    base_domain = os.environ.get("BASE_DOMAIN", "")
+    env_name = os.environ["ENV_NAME"]
+    env_prefix = os.environ.get(
+        "ENV_PREFIX", "" if env_name == "prod" else f"{env_name}."
+    )
+    kimai_domain = f"{env_prefix}kimai.{base_domain}" if base_domain else ""
+    monitoring_domain = f"{env_prefix}monitoring.{base_domain}" if base_domain else ""
+    website_domain = f"{env_prefix}www.{base_domain}" if base_domain else ""
+    blog_domain = f"{env_prefix}blog.{base_domain}" if base_domain else ""
     config_repo_url = os.environ["CONFIG_REPO_URL"]
     config_repo_branch = os.environ["CONFIG_REPO_BRANCH"]
     config_repo_path = os.environ["CONFIG_REPO_PATH"]
     github_pat = os.environ["GITHUB_PERSISTENT_PAT"]
-    env_name = os.environ["ENV_NAME"]
     luks_key_access = os.environ.get("LUKS_KEY_ACCESS_KEY", "")
     luks_key_secret = os.environ.get("LUKS_KEY_SECRET_KEY", "")
     luks_key_url = os.environ.get("LUKS_KEY_URL", "")
@@ -602,7 +600,7 @@ mkdir -p /mnt/data/mariadb /mnt/data/kimai-var
         raise RuntimeError("monitoring/monitoring-grafana secret missing and fresh init disabled (set ALLOW_FRESH_BOOTSTRAP=1 to allow).")
     grafana_admin_password = existing_grafana_secret.get("admin-password") or random_password()
 
-    kimai_admin_user_default = f"admin@{kimai_domain}"
+    kimai_admin_user_default = f"admin@{kimai_domain}" if kimai_domain else "admin@localhost"
     existing_kimai_admin_secret = load_secret("apps-tools", "kimai-admin-credentials")
     if not existing_kimai_admin_secret and os.path.exists(kimai_admin_backup):
         restore_secret_from_backup("apps-tools", "kimai-admin-credentials", kimai_admin_backup)
@@ -726,6 +724,34 @@ spec:
         f"--from-literal=token='{webhook_secret}'"
     )
 
+    sops_age_key_raw = os.environ.get("SOPS_AGE_KEY", "")
+    sops_age_key_b64 = os.environ.get("SOPS_AGE_KEY_B64", "")
+    sops_age_key = ""
+    if sops_age_key_b64:
+        try:
+            sops_age_key = base64.b64decode(sops_age_key_b64).decode()
+        except Exception as exc:  # noqa: BLE001
+            log(f"Failed to decode SOPS_AGE_KEY_B64: {exc}", level="WARN")
+    elif sops_age_key_raw:
+        sops_age_key = sops_age_key_raw
+
+    if sops_age_key:
+        add_sensitive(sops_age_key)
+        with tempfile.NamedTemporaryFile(delete=False, mode="w", encoding="utf-8") as keyf:
+            keyf.write(sops_age_key)
+            key_path = keyf.name
+        try:
+            run("kubectl -n flux-system delete secret sops-age || true")
+            run(
+                "kubectl -n flux-system create secret generic sops-age "
+                f"--from-file=age.agekey={key_path}"
+            )
+        finally:
+            try:
+                os.remove(key_path)
+            except OSError:
+                pass
+
     flux_source = f"""apiVersion: source.toolkit.fluxcd.io/v1
 kind: GitRepository
 metadata:
@@ -739,115 +765,80 @@ spec:
   secretRef:
     name: git-credentials
 """
-    flux_kustomization = f"""apiVersion: kustomize.toolkit.fluxcd.io/v1
+    decryption_section = (
+        "  decryption:\n"
+        "    provider: sops\n"
+        "    secretRef:\n"
+        "      name: sops-age\n"
+        if sops_age_key
+        else ""
+    )
+    vars_path = f"{config_repo_path}/vars/{env_name}"
+    apps_path = f"{config_repo_path}/apps"
+    flux_kustomization_vars = f"""apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
-  name: apps
+  name: vars
   namespace: flux-system
 spec:
   interval: 2m
   prune: true
-  path: ./{config_repo_path}
+  path: ./{vars_path}
   sourceRef:
     kind: GitRepository
     name: terralinfra
     namespace: flux-system
-  timeout: 2m
-  postBuild:
-    substitute:
-      KIMAI_DOMAIN: {kimai_domain}
-      MONITORING_DOMAIN: {monitoring_domain}
-      WEBSITE_DOMAIN: {website_domain}
-      BLOG_DOMAIN: {blog_domain}
-      FLUX_HOOK_DOMAIN: {flux_hook_domain}
-      GITHUB_WEBHOOK_SECRET: {webhook_secret}
+  timeout: 1m
 """
-    flux_receiver = f"""apiVersion: notification.toolkit.fluxcd.io/v1
-kind: Receiver
-metadata:
-  name: github-receiver
-  namespace: flux-system
-spec:
-  type: github
-  events:
-    - ping
-    - push
-  secretRef:
-    name: github-webhook-token
-  resources:
-    - apiVersion: source.toolkit.fluxcd.io/v1
-      kind: GitRepository
-      name: terralinfra
-      namespace: flux-system
-  suspend: false
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: github-webhook-token
-  namespace: flux-system
-type: Opaque
-stringData:
-  token: "{webhook_secret}"
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: flux-receiver
-  namespace: flux-system
-spec:
-  type: ClusterIP
-  ports:
-    - port: 80
-      targetPort: 9292
-      protocol: TCP
-      name: http
-  selector:
-    app: notification-controller
----
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: flux-hook-cert
-  namespace: flux-system
-spec:
-  secretName: flux-hook-tls
-  dnsNames:
-    - {flux_hook_domain}
-  issuerRef:
-    name: letsencrypt-http
-    kind: ClusterIssuer
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: flux-receiver
-  namespace: flux-system
-  annotations:
-    kubernetes.io/ingress.class: nginx
-spec:
-  ingressClassName: nginx
-  tls:
-    - hosts:
-        - {flux_hook_domain}
-      secretName: flux-hook-tls
-  rules:
-    - host: {flux_hook_domain}
-      http:
-        paths:
-          - path: /hook
-            pathType: Prefix
-            backend:
-              service:
-                name: flux-receiver
-                port:
-                  number: 80
-"""
+    flux_kustomization_apps = (
+        "apiVersion: kustomize.toolkit.fluxcd.io/v1\n"
+        "kind: Kustomization\n"
+        "metadata:\n"
+        "  name: apps\n"
+        "  namespace: flux-system\n"
+        "spec:\n"
+        "  interval: 2m\n"
+        "  prune: true\n"
+        f"  path: ./{apps_path}\n"
+        "  sourceRef:\n"
+        "    kind: GitRepository\n"
+        "    name: terralinfra\n"
+        "    namespace: flux-system\n"
+        "  dependsOn:\n"
+        "    - name: vars\n"
+        f"{decryption_section}"
+        "  timeout: 2m\n"
+        "  postBuild:\n"
+        "    substitute:\n"
+        f"      GITHUB_WEBHOOK_SECRET: {webhook_secret}\n"
+        "    substituteFrom:\n"
+        "      - kind: ConfigMap\n"
+        "        name: cluster-vars\n"
+    )
 
     apply_yaml(flux_source)
-    apply_yaml(flux_kustomization)
-    apply_yaml(flux_receiver)
+    apply_yaml(flux_kustomization_vars)
+    apply_yaml(flux_kustomization_apps)
+    run("kubectl -n flux-system wait --for=condition=ready kustomization/vars --timeout=120s")
     run("kubectl -n flux-system wait --for=condition=ready kustomization/apps --timeout=300s")
+    base_domain_cfg = base_domain
+    env_prefix_cfg = env_prefix
+    try:
+        cfg_raw = (
+            run(
+                "kubectl -n flux-system get configmap cluster-vars -o jsonpath='{.data.BASE_DOMAIN}|{.data.ENV_PREFIX}'",
+                quiet=True,
+            )
+            .stdout.strip()
+            .strip("'\"")
+        )
+        parts = cfg_raw.split("|")
+        if len(parts) == 2:
+            base_domain_cfg = parts[0]
+            env_prefix_cfg = parts[1]
+    except Exception as exc:  # noqa: BLE001
+        log(f"Failed to read cluster-vars ConfigMap: {exc}", level="WARN")
+    flux_hook_domain = f"{env_prefix_cfg}flux-hook.{base_domain_cfg}".replace("..", ".")
     wait_for_deploy("apps-tools", "kimai-mariadb")
     ensure_mariadb_credentials(kimai_db_root_password, kimai_db_user_password)
     wait_for_deploy("apps-tools", "kimai")
@@ -883,6 +874,9 @@ spec:
         if not webhook_path:
             return
 
+        if not flux_hook_domain:
+            log("Skipping GitHub webhook: flux_hook_domain missing", level="WARN")
+            return
         hook_url = f"https://{flux_hook_domain}{webhook_path}"
         token_b64 = run(
             "kubectl -n flux-system get secret github-webhook-token -o jsonpath='{.data.token}'",

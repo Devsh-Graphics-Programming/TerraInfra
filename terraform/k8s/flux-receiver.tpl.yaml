@@ -49,7 +49,7 @@ metadata:
 spec:
   secretName: flux-hook-tls
   dnsNames:
-    - ${FLUX_HOOK_DOMAIN}
+    - ${ENV_PREFIX}flux-hook.${BASE_DOMAIN}
   issuerRef:
     name: letsencrypt-http
     kind: ClusterIssuer
@@ -65,10 +65,10 @@ spec:
   ingressClassName: nginx
   tls:
     - hosts:
-        - ${FLUX_HOOK_DOMAIN}
+        - ${ENV_PREFIX}flux-hook.${BASE_DOMAIN}
       secretName: flux-hook-tls
   rules:
-    - host: ${FLUX_HOOK_DOMAIN}
+    - host: ${ENV_PREFIX}flux-hook.${BASE_DOMAIN}
       http:
         paths:
           - path: /hook

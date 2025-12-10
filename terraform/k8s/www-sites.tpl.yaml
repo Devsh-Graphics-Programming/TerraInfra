@@ -71,10 +71,10 @@ spec:
   ingressClassName: nginx
   tls:
     - hosts:
-        - ${WEBSITE_DOMAIN}
+        - ${ENV_PREFIX}www.${BASE_DOMAIN}
       secretName: devsh-website-tls
   rules:
-    - host: ${WEBSITE_DOMAIN}
+    - host: ${ENV_PREFIX}www.${BASE_DOMAIN}
       http:
         paths:
           - path: /
@@ -98,10 +98,10 @@ spec:
   ingressClassName: nginx
   tls:
     - hosts:
-        - ${WEBSITE_DOMAIN}
+        - ${ENV_PREFIX}www.${BASE_DOMAIN}
       secretName: devsh-website-tls
   rules:
-    - host: ${WEBSITE_DOMAIN}
+    - host: ${ENV_PREFIX}www.${BASE_DOMAIN}
       http:
         paths:
           - path: /blog(/|$)(.*)
@@ -180,10 +180,10 @@ spec:
   ingressClassName: nginx
   tls:
     - hosts:
-        - ${BLOG_DOMAIN}
+        - ${ENV_PREFIX}blog.${BASE_DOMAIN}
       secretName: devsh-blog-tls
   rules:
-    - host: ${BLOG_DOMAIN}
+    - host: ${ENV_PREFIX}blog.${BASE_DOMAIN}
       http:
         paths:
           - path: /
@@ -193,3 +193,29 @@ spec:
                 name: devsh-blog
                 port:
                   number: 80
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: devsh-website-tls
+  namespace: website
+spec:
+  secretName: devsh-website-tls
+  dnsNames:
+    - ${ENV_PREFIX}www.${BASE_DOMAIN}
+  issuerRef:
+    name: letsencrypt-http
+    kind: ClusterIssuer
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: devsh-blog-tls
+  namespace: website
+spec:
+  secretName: devsh-blog-tls
+  dnsNames:
+    - ${ENV_PREFIX}blog.${BASE_DOMAIN}
+  issuerRef:
+    name: letsencrypt-http
+    kind: ClusterIssuer

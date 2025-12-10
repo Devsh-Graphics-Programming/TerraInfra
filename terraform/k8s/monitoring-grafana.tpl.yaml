@@ -6,7 +6,7 @@ metadata:
 spec:
   secretName: grafana-tls
   dnsNames:
-    - ${MONITORING_DOMAIN}
+    - ${ENV_PREFIX}monitoring.${BASE_DOMAIN}
   issuerRef:
     name: letsencrypt-http
     kind: ClusterIssuer
@@ -20,10 +20,10 @@ spec:
   ingressClassName: nginx
   tls:
     - hosts:
-        - ${MONITORING_DOMAIN}
+        - ${ENV_PREFIX}monitoring.${BASE_DOMAIN}
       secretName: grafana-tls
   rules:
-    - host: ${MONITORING_DOMAIN}
+    - host: ${ENV_PREFIX}monitoring.${BASE_DOMAIN}
       http:
         paths:
           - path: /

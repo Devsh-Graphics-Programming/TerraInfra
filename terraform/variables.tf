@@ -3,16 +3,6 @@ variable "project_id" {
   description = "Scaleway Project ID"
 }
 
-variable "kimai_domain" {
-  type        = string
-  description = "Domain for Kimai"
-}
-
-variable "monitoring_domain" {
-  type        = string
-  description = "Domain for monitoring (Grafana)"
-}
-
 variable "acme_email" {
   type        = string
   description = "Email for ACME"
@@ -48,23 +38,6 @@ variable "github_bootstrap_terra_infra_webhook_pat" {
   default     = ""
 }
 
-variable "flux_hook_domain" {
-  type        = string
-  description = "Domain name for Flux webhook receiver (e.g., flux-hook.prod.example.com)"
-}
-
-variable "website_domain" {
-  type        = string
-  description = "Domain for the main Caddy-hosted website (e.g., www.devsh.eu)"
-  default     = "www.devsh.eu"
-}
-
-variable "blog_domain" {
-  type        = string
-  description = "Domain for the blog site (e.g., blog.devsh.eu)"
-  default     = "blog.devsh.eu"
-}
-
 variable "env_name" {
   type        = string
   description = "Environment name"
@@ -95,6 +68,13 @@ variable "allow_fresh_bootstrap" {
   type        = bool
   description = "Set to true when you intentionally want to recreate secrets (new volume or clean data)."
   default     = false
+}
+
+variable "sops_age_key" {
+  type        = string
+  description = "Age private key used by Flux to decrypt SOPS-managed secrets (optional)."
+  sensitive   = true
+  default     = ""
 }
 
 variable "snapshot_rotation_hours" {

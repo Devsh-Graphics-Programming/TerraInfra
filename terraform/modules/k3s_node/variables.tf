@@ -26,16 +26,6 @@ variable "snapshot_rotation_hours" {
   default     = 24
 }
 
-variable "kimai_domain" {
-  type        = string
-  description = "Domain for Kimai"
-}
-
-variable "monitoring_domain" {
-  type        = string
-  description = "Domain for monitoring (Grafana)"
-}
-
 variable "acme_email" {
   type        = string
   description = "Email for ACME"
@@ -69,11 +59,6 @@ variable "github_bootstrap_terra_infra_webhook_pat" {
   description = "Fine-grained PAT used only during bootstrap to create/patch GitHub webhook (not persisted)"
   sensitive   = true
   default     = ""
-}
-
-variable "flux_hook_domain" {
-  type        = string
-  description = "Domain name for Flux webhook receiver"
 }
 
 variable "cloud_init" {

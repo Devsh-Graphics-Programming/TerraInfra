@@ -118,7 +118,7 @@ metadata:
 spec:
   secretName: kimai-tls
   dnsNames:
-    - ${KIMAI_DOMAIN}
+    - ${ENV_PREFIX}kimai.${BASE_DOMAIN}
   issuerRef:
     name: letsencrypt-http
     kind: ClusterIssuer
@@ -132,10 +132,10 @@ spec:
   ingressClassName: nginx
   tls:
     - hosts:
-        - ${KIMAI_DOMAIN}
+        - ${ENV_PREFIX}kimai.${BASE_DOMAIN}
       secretName: kimai-tls
   rules:
-    - host: ${KIMAI_DOMAIN}
+    - host: ${ENV_PREFIX}kimai.${BASE_DOMAIN}
       http:
         paths:
           - path: /
