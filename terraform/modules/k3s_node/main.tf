@@ -80,9 +80,7 @@ resource "scaleway_block_volume" "data_volume" {
   tags        = ["devsh", "k3s", "data", var.env_name]
   snapshot_id = var.data_volume_snapshot_id == "" ? null : var.data_volume_snapshot_id
 
-  lifecycle {
-    prevent_destroy = var.prevent_destroy_data_volume
-  }
+  lifecycle {}
 }
 
 resource "time_rotating" "snapshot_trigger" {
