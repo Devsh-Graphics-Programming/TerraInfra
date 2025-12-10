@@ -505,15 +505,10 @@ def main():
             raise SystemExit(f"Missing env: {name}")
 
     acme_email = os.environ["ACME_EMAIL"]
-    base_domain = os.environ.get("BASE_DOMAIN", "")
     env_name = os.environ["ENV_NAME"]
     env_prefix = os.environ.get(
         "ENV_PREFIX", "" if env_name == "prod" else f"{env_name}."
     )
-    kimai_domain = f"{env_prefix}kimai2.{base_domain}" if base_domain else ""
-    monitoring_domain = f"{env_prefix}monitoring.{base_domain}" if base_domain else ""
-    website_domain = f"{env_prefix}www.{base_domain}" if base_domain else ""
-    blog_domain = f"{env_prefix}blog.{base_domain}" if base_domain else ""
     config_repo_url = os.environ["CONFIG_REPO_URL"]
     config_repo_branch = os.environ["CONFIG_REPO_BRANCH"]
     config_repo_path = os.environ["CONFIG_REPO_PATH"]
@@ -527,31 +522,8 @@ def main():
 
     print("== bootstrap start ==")
     os.environ["KUBECONFIG"] = "/etc/rancher/k3s/k3s.yaml"
-    secrets_backup_base = "/mnt/data/backup/secrets"
-    kimai_db_backup = f"{secrets_backup_base}/apps-tools/kimai-db-credentials.yaml"
-    kimai_admin_backup = f"{secrets_backup_base}/apps-tools/kimai-admin-credentials.yaml"
-    grafana_admin_backup = f"{secrets_backup_base}/monitoring/monitoring-grafana.yaml"
     allow_fresh_env = os.environ.get("ALLOW_FRESH_BOOTSTRAP", "").lower() in ("1", "true", "yes")
     ensure_data_mount(env_name, luks_key_url, luks_key_access, luks_key_secret)
-
-    backup_paths = [
-        kimai_db_backup,
-        kimai_admin_backup,
-        grafana_admin_backup,
-    ]
-    has_backups = backup_files_exist(backup_paths)
-    if allow_fresh_env and has_backups:
-        raise RuntimeError(
-            "ALLOW_FRESH_BOOTSTRAP is enabled but backup secrets already exist on /mnt/data. "
-            "Disable the flag or clear /mnt/data if you really intend to recreate everything."
-        )
-    allow_fresh = allow_fresh_env or not has_backups
-    if not allow_fresh_env and not has_backups:
-        log("[bootstrap] No secret backups detected on /mnt/data; assuming fresh bootstrap", level="INFO")
-    if allow_fresh_env and not has_backups:
-        log("[bootstrap] ALLOW_FRESH_BOOTSTRAP requested and volume is clean; generating new secrets", level="INFO")
-
-    assert_clean_for_fresh(allow_fresh_env, allow_fresh)
 
     # Prepare attached data volume (non-root) for stateful data
     run(
@@ -590,69 +562,6 @@ mkdir -p /mnt/data/mariadb /mnt/data/kimai-var
     ensure_namespace("apps-tools")
     ensure_namespace("website")
     print("k8s ready")
-
-    grafana_admin_user = "admin"
-    existing_grafana_secret = load_secret("monitoring", "monitoring-grafana")
-    if not existing_grafana_secret and os.path.exists(grafana_admin_backup):
-        restore_secret_from_backup("monitoring", "monitoring-grafana", grafana_admin_backup)
-        existing_grafana_secret = load_secret("monitoring", "monitoring-grafana")
-    if not existing_grafana_secret and not allow_fresh:
-        raise RuntimeError("monitoring/monitoring-grafana secret missing and fresh init disabled (set ALLOW_FRESH_BOOTSTRAP=1 to allow).")
-    grafana_admin_password = existing_grafana_secret.get("admin-password") or random_password()
-
-    kimai_admin_user_default = f"admin@{kimai_domain}" if kimai_domain else "admin@localhost"
-    existing_kimai_admin_secret = load_secret("apps-tools", "kimai-admin-credentials")
-    if not existing_kimai_admin_secret and os.path.exists(kimai_admin_backup):
-        restore_secret_from_backup("apps-tools", "kimai-admin-credentials", kimai_admin_backup)
-        existing_kimai_admin_secret = load_secret("apps-tools", "kimai-admin-credentials")
-    if not existing_kimai_admin_secret and not allow_fresh:
-        raise RuntimeError("apps-tools/kimai-admin-credentials missing and fresh init disabled (set ALLOW_FRESH_BOOTSTRAP=1 to allow).")
-    kimai_admin_user = existing_kimai_admin_secret.get("username", kimai_admin_user_default)
-    kimai_admin_password = existing_kimai_admin_secret.get("password") or random_password()
-
-    existing_kimai_db_secret = load_secret("apps-tools", "kimai-db-credentials")
-    if not existing_kimai_db_secret and os.path.exists(kimai_db_backup):
-        restore_secret_from_backup("apps-tools", "kimai-db-credentials", kimai_db_backup)
-        existing_kimai_db_secret = load_secret("apps-tools", "kimai-db-credentials")
-    if not existing_kimai_db_secret and not allow_fresh:
-        raise RuntimeError("apps-tools/kimai-db-credentials missing and fresh init disabled (set ALLOW_FRESH_BOOTSTRAP=1 to allow).")
-    fresh_kimai_creds = not bool(existing_kimai_db_secret)
-    kimai_db_root_password = existing_kimai_db_secret.get("mysql-root-password") or random_password()
-    kimai_db_user_password = existing_kimai_db_secret.get("mysql-user-password") or random_password()
-
-    add_sensitive(grafana_admin_password)
-    add_sensitive(kimai_admin_password)
-    add_sensitive(kimai_db_root_password)
-    add_sensitive(kimai_db_user_password)
-    ensure_namespace("monitoring")
-    ensure_namespace("apps-tools")
-    ensure_namespace("website")
-    upsert_secret(
-        "apps-tools",
-        "kimai-db-credentials",
-        {
-            "mysql-root-password": kimai_db_root_password,
-            "mysql-user-password": kimai_db_user_password,
-            "database-url": f"mysql://kimai:{kimai_db_user_password}@kimai-mariadb:3306/kimai",
-        },
-    )
-    upsert_secret(
-        "apps-tools",
-        "kimai-admin-credentials",
-        {
-            "username": kimai_admin_user,
-            "password": kimai_admin_password,
-        },
-    )
-    print("Generated credentials stored in cluster secrets. Retrieve with kubectl:")
-    print("  [monitoring] grafana admin user: admin")
-    print("    kubectl -n monitoring get secret monitoring-grafana -o jsonpath='{.data.admin-password}' | base64 -d && echo")
-    print("  [apps-tools] kimai MariaDB root password:")
-    print("    kubectl -n apps-tools get secret kimai-db-credentials -o jsonpath='{.data.mysql-root-password}' | base64 -d && echo")
-    print("  [apps-tools] kimai MariaDB user password:")
-    print("    kubectl -n apps-tools get secret kimai-db-credentials -o jsonpath='{.data.mysql-user-password}' | base64 -d && echo")
-    print(f"  [apps-tools] kimai admin user: {kimai_admin_user}")
-    print("    kubectl -n apps-tools get secret kimai-admin-credentials -o jsonpath='{.data.password}' | base64 -d && echo")
 
     ensure_helm()
 
@@ -695,7 +604,7 @@ spec:
 
     run(
         "helm upgrade --install monitoring prometheus-community/kube-prometheus-stack "
-        f"--namespace monitoring --create-namespace --set grafana.adminPassword='{grafana_admin_password}'"
+        "--namespace monitoring --create-namespace"
     )
     wait_for_deploy("monitoring", "monitoring-grafana")
     wait_for_deploy("monitoring", "monitoring-kube-prometheus-operator")
@@ -821,8 +730,8 @@ spec:
     apply_yaml(flux_kustomization_apps)
     run("kubectl -n flux-system wait --for=condition=ready kustomization/vars --timeout=120s")
     run("kubectl -n flux-system wait --for=condition=ready kustomization/apps --timeout=300s")
-    base_domain_cfg = base_domain
-    env_prefix_cfg = env_prefix
+    base_domain_cfg = ""
+    env_prefix_cfg = ""
     try:
         cfg_raw = (
             run(
@@ -839,26 +748,6 @@ spec:
     except Exception as exc:  # noqa: BLE001
         log(f"Failed to read cluster-vars ConfigMap: {exc}", level="WARN")
     flux_hook_domain = f"{env_prefix_cfg}flux-hook.{base_domain_cfg}".replace("..", ".")
-    wait_for_deploy("apps-tools", "kimai-mariadb")
-    ensure_mariadb_credentials(kimai_db_root_password, kimai_db_user_password)
-    wait_for_deploy("apps-tools", "kimai")
-    create_admin_cmd = (
-        "kubectl -n apps-tools exec deploy/kimai -- "
-        f"bash -lc \"cd /opt/kimai && php bin/console kimai:user:create "
-        f"{kimai_admin_user.split('@')[0]} {kimai_admin_user} ROLE_SUPER_ADMIN '{kimai_admin_password}'\""
-    )
-    should_create_admin = False
-    if should_create_admin:
-        create_admin = run_with_retries(create_admin_cmd, attempts=10, delay=10)
-        if create_admin.returncode != 0:
-            combined = f"{create_admin.stdout} {create_admin.stderr}".lower()
-            if "already exists" in combined:
-                log("Kimai admin already exists; keeping existing credentials/roles", level="WARN")
-            else:
-                raise RuntimeError("Kimai admin user creation failed; see logs above for details.")
-    else:
-        log("Skipping Kimai admin creation (handled by app manifests or existing user)", level="INFO")
-
     # Webhook sync
     if github_bootstrap_pat:
         webhook_path = ""
