@@ -510,7 +510,7 @@ def main():
     env_prefix = os.environ.get(
         "ENV_PREFIX", "" if env_name == "prod" else f"{env_name}."
     )
-    kimai_domain = f"{env_prefix}kimai.{base_domain}" if base_domain else ""
+    kimai_domain = f"{env_prefix}kimai2.{base_domain}" if base_domain else ""
     monitoring_domain = f"{env_prefix}monitoring.{base_domain}" if base_domain else ""
     website_domain = f"{env_prefix}www.{base_domain}" if base_domain else ""
     blog_domain = f"{env_prefix}blog.{base_domain}" if base_domain else ""
@@ -847,7 +847,7 @@ spec:
         f"bash -lc \"cd /opt/kimai && php bin/console kimai:user:create "
         f"{kimai_admin_user.split('@')[0]} {kimai_admin_user} ROLE_SUPER_ADMIN '{kimai_admin_password}'\""
     )
-    should_create_admin = fresh_kimai_creds or not existing_kimai_admin_secret
+    should_create_admin = False
     if should_create_admin:
         create_admin = run_with_retries(create_admin_cmd, attempts=10, delay=10)
         if create_admin.returncode != 0:
@@ -857,7 +857,7 @@ spec:
             else:
                 raise RuntimeError("Kimai admin user creation failed; see logs above for details.")
     else:
-        log("Skipping Kimai admin creation (existing creds restored)", level="INFO")
+        log("Skipping Kimai admin creation (handled by app manifests or existing user)", level="INFO")
 
     # Webhook sync
     if github_bootstrap_pat:
