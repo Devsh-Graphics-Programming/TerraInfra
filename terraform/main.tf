@@ -30,7 +30,7 @@ locals {
   flux_hook_domain  = format("%s%s", local.domain_prefix, trimspace(var.flux_hook_domain))
 }
 
-module "k3s_node_prod" {
+module "k3s_node" {
   source = "./modules/k3s_node"
 
   project_id                               = var.project_id

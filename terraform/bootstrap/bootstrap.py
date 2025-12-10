@@ -453,7 +453,7 @@ def ensure_data_mount(env_name: str, luks_key_url: str, luks_key_access: str, lu
                 }
             )
             run(
-                f"aws --endpoint-url=https://s3.fr-par.scw.cloud s3 cp s3://terra-luks-keys-{env_name}/luks.key {key_path}",
+                f"aws --endpoint-url=https://s3.fr-par.scw.cloud s3 cp s3://terra-luks-keys/luks.key {key_path}",
                 env=env,
             )
         else:
@@ -525,11 +525,7 @@ def main():
 
     print("== bootstrap start ==")
     os.environ["KUBECONFIG"] = "/etc/rancher/k3s/k3s.yaml"
-    backup_base = "/mnt/data/backup/certificates"
     secrets_backup_base = "/mnt/data/backup/secrets"
-    kimai_tls_backup = f"{backup_base}/apps-tools/kimai-tls.yaml"
-    flux_tls_backup = f"{backup_base}/flux-system/flux-hook-tls.yaml"
-    acme_backup = f"{backup_base}/cert-manager/letsencrypt-http-private-key.yaml"
     kimai_db_backup = f"{secrets_backup_base}/apps-tools/kimai-db-credentials.yaml"
     kimai_admin_backup = f"{secrets_backup_base}/apps-tools/kimai-admin-credentials.yaml"
     grafana_admin_backup = f"{secrets_backup_base}/monitoring/monitoring-grafana.yaml"
@@ -537,9 +533,6 @@ def main():
     ensure_data_mount(env_name, luks_key_url, luks_key_access, luks_key_secret)
 
     backup_paths = [
-        kimai_tls_backup,
-        flux_tls_backup,
-        acme_backup,
         kimai_db_backup,
         kimai_admin_backup,
         grafana_admin_backup,
@@ -630,7 +623,6 @@ mkdir -p /mnt/data/mariadb /mnt/data/kimai-var
     add_sensitive(kimai_db_user_password)
     ensure_namespace("monitoring")
     ensure_namespace("apps-tools")
-    restore_secret_from_backup("apps-tools", "kimai-tls", kimai_tls_backup)
     upsert_secret(
         "apps-tools",
         "kimai-db-credentials",
@@ -679,7 +671,6 @@ mkdir -p /mnt/data/mariadb /mnt/data/kimai-var
     wait_for_deploy("cert-manager", "cert-manager-webhook")
     wait_for_crd("certificates.cert-manager.io")
     wait_for_crd("clusterissuers.cert-manager.io")
-    restore_secret_from_backup("cert-manager", "letsencrypt-http-private-key", acme_backup)
 
     cluster_issuer = f"""apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
@@ -706,8 +697,6 @@ spec:
     wait_for_deploy("monitoring", "monitoring-kube-prometheus-operator")
 
     ensure_flux()
-    restore_secret_from_backup("flux-system", "flux-hook-tls", flux_tls_backup)
-
     run("kubectl -n flux-system delete secret git-credentials || true")
     run(
         "kubectl -n flux-system create secret generic git-credentials "
@@ -939,9 +928,6 @@ spec:
     backup_secret("monitoring", "monitoring-grafana", grafana_admin_backup)
     backup_secret("apps-tools", "kimai-db-credentials", kimai_db_backup)
     backup_secret("apps-tools", "kimai-admin-credentials", kimai_admin_backup)
-    backup_secret("apps-tools", "kimai-tls", kimai_tls_backup)
-    backup_secret("flux-system", "flux-hook-tls", flux_tls_backup)
-    backup_secret("cert-manager", "letsencrypt-http-private-key", acme_backup)
     backup_k3s_encryption_keys(K3S_ENCRYPTION_KEY_BACKUP)
     mark_volume_initialized()
 

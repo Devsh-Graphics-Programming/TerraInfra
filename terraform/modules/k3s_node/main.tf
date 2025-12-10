@@ -78,6 +78,7 @@ resource "scaleway_block_volume" "data_volume" {
   size_in_gb = 10
   iops       = 5000
   tags       = ["devsh", "k3s", "data", var.env_name]
+  snapshot_id = var.data_volume_snapshot_id == "" ? null : var.data_volume_snapshot_id
 
   lifecycle {
     prevent_destroy = true

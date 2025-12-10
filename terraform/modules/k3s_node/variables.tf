@@ -8,6 +8,12 @@ variable "env_name" {
   description = "Environment name (prod/dev/etc)"
 }
 
+variable "data_volume_snapshot_id" {
+  type        = string
+  description = "Optional snapshot ID used to boot the data volume instead of a blank disk."
+  default     = ""
+}
+
 variable "create_daily_snapshot" {
   type        = bool
   description = "When true, creates a rotating daily snapshot of the data volume (usually enabled only for prod)."
