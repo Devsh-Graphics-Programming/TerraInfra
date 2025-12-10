@@ -25,31 +25,31 @@ This repo is GitOps-driven (Flux). You change manifests, push to the right branc
 - Keep `.env` local only; rotate creds if it ever leaks.
 - SOPS-encrypted YAMLs are fine in git; only the public age key sits in `.sops.yaml`.
 - Provider test fixtures under `provider/` use dummy keys; scanners may flag them—review before whitelisting.
-- Run a secret scan before sharing the repo or changing visibility.
 
 ### .env template (prod default)
 `terraform/.env` (not committed):
 ```
 # Scaleway provider auth
-SCW_ACCESS_KEY=...
-SCW_SECRET_KEY=...
+SCW_ACCESS_KEY=...                     # Scaleway access key
+SCW_SECRET_KEY=...                     # Scaleway secret key
 
 # Terraform inputs
-TF_VAR_project_id=...
-TF_VAR_acme_email=notification@devsh.eu
-TF_VAR_config_repo_url=https://github.com/Devsh-Graphics-Programming/TerraInfra
-TF_VAR_config_repo_branch=env/prod
-TF_VAR_config_repo_path=terraform/k8s
-TF_VAR_github_persistent_terra_infra_ro_pat=...
-TF_VAR_github_bootstrap_terra_infra_webhook_pat=...
-TF_VAR_env_name=prod
-TF_VAR_luks_key_access_key=...
-TF_VAR_luks_key_secret_key=...
+TF_VAR_project_id=...                  # Scaleway project id
+TF_VAR_acme_email=notification@devsh.eu# Email for ACME/Let’s Encrypt
+TF_VAR_config_repo_url=https://github.com/Devsh-Graphics-Programming/TerraInfra # Git repo for manifests
+TF_VAR_config_repo_branch=env/prod     # Git branch (env/prod or env/test)
+TF_VAR_config_repo_path=terraform/k8s  # Path in repo with k8s manifests
+TF_VAR_github_persistent_terra_infra_ro_pat=...      # PAT for Flux source auth (read-only)
+TF_VAR_github_bootstrap_terra_infra_webhook_pat=...  # PAT for GitHub webhook token
+TF_VAR_env_name=prod                   # Logical env name (prod/test)
+TF_VAR_luks_key_access_key=...         # Object Storage access key for LUKS key
+TF_VAR_luks_key_secret_key=...         # Object Storage secret key for LUKS key
+
 # Optional overrides
-# TF_VAR_luks_key_url=
-# TF_VAR_prevent_destroy_data_volume=true
-# TF_VAR_data_volume_snapshot_id=
-# TF_VAR_sops_age_key= (set in session, not in file)
+# TF_VAR_luks_key_url=                 # Presigned URL for LUKS key (overrides access/secret)
+# TF_VAR_prevent_destroy_data_volume=true  # Set true to block data volume destroy
+# TF_VAR_data_volume_snapshot_id=      # Snapshot id to restore data volume
+# TF_VAR_sops_age_key=                 # Age private key (set in session, not in file)
 ```
 Reload per session: `cd terraform; . .\env.ps1`
 
