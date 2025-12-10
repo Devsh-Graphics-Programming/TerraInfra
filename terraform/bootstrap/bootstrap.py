@@ -753,11 +753,11 @@ spec:
   timeout: 2m
   postBuild:
     substitute:
-        KIMAI_DOMAIN: {kimai_domain}
-        MONITORING_DOMAIN: {monitoring_domain}
-        WEBSITE_DOMAIN: {website_domain}
-        BLOG_DOMAIN: {blog_domain}
-        FLUX_HOOK_DOMAIN: {flux_hook_domain}
+      KIMAI_DOMAIN: {kimai_domain}
+      MONITORING_DOMAIN: {monitoring_domain}
+      WEBSITE_DOMAIN: {website_domain}
+      BLOG_DOMAIN: {blog_domain}
+      FLUX_HOOK_DOMAIN: {flux_hook_domain}
       GITHUB_WEBHOOK_SECRET: {webhook_secret}
 """
     flux_receiver = f"""apiVersion: notification.toolkit.fluxcd.io/v1

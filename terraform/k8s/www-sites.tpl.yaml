@@ -8,8 +8,8 @@ kind: Deployment
 metadata:
   name: devsh-website
   namespace: website
-labels:
-  app: devsh-website
+  labels:
+    app: devsh-website
 spec:
   replicas: 1
   selector:
@@ -86,8 +86,8 @@ kind: Deployment
 metadata:
   name: devsh-blog
   namespace: website
-labels:
-  app: devsh-blog
+  labels:
+    app: devsh-blog
 spec:
   replicas: 1
   selector:
