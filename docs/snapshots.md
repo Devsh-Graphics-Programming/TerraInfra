@@ -32,5 +32,5 @@ terraform apply -auto-approve
 
 ### Notes
 - Prod volume is never destroyed (prevent_destroy). Snapshots run every `snapshot_rotation_hours` (default 24h) on prod; manual snapshot via taint when needed.
-- Snapshot pruning is not automated—clean up old snapshots in Scaleway when needed.
+- Terraform keeps only the latest managed snapshot (replaces the previous one after the new snapshot is created).
 - Test infra can be destroyed/recreated freely with a chosen snapshot ID.

@@ -108,6 +108,6 @@ resource "scaleway_block_snapshot" "data_volume" {
   tags       = ["devsh", "k3s", "snapshot", var.env_name]
 
   lifecycle {
-    create_before_destroy = false
+    create_before_destroy = true # keep previous snapshot until the new one exists
   }
 }
