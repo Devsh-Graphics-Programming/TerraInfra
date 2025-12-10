@@ -176,7 +176,7 @@ spec:
             - |
               set -e
               for i in $(seq 1 30); do
-                mariadb -h kimai-mariadb -ukimai -p"$MYSQL_PASSWORD" -e "SELECT 1" && break
+                php -r 'new PDO("mysql:host=kimai-mariadb;dbname=kimai","kimai",getenv("MYSQL_PASSWORD"));' && break
                 sleep 5
               done
               /opt/kimai/bin/console kimai:user:list | grep -q "$KIMAI_ADMIN_USERNAME" && exit 0
