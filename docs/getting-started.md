@@ -16,7 +16,7 @@ This repo is GitOps-driven (Flux). You change manifests, push to the right branc
 - SSH key (for k3s node)
 
 ### Age key
-- Private key kept locally (e.g., `terraform/terra.agekey`, store in 1Password).
+- Private key file (e.g., `terraform/terra.agekey`) – keep it securely (password manager/secure storage), never commit.
 - Set per session:  
   `cd terraform; $env:SOPS_AGE_KEY = Get-Content terra.agekey -Raw`
 
