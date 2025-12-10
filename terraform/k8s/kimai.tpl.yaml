@@ -175,16 +175,17 @@ spec:
             - -c
             - |
               set -e
-              EMAIL="${KIMAI_ADMIN_EMAIL:-admin@devsh.eu}"
-              if ! printf "%s" "$EMAIL" | grep -Eq '.+@.+\\..+'; then
-                EMAIL="admin@devsh.eu"
+              ADMIN_EMAIL="${KIMAI_ADMIN_EMAIL:-admin@devsh.eu}"
+              if ! printf "%s" "$ADMIN_EMAIL" | grep -Eq '.+@.+\\..+'; then
+                ADMIN_EMAIL="admin@devsh.eu"
               fi
+              export KIMAI_ADMIN_EMAIL="$ADMIN_EMAIL"
               for i in $(seq 1 30); do
                 php -r 'new PDO("mysql:host=kimai-mariadb;dbname=kimai","kimai",getenv("MYSQL_PASSWORD"));' && break
                 sleep 5
               done
-              php -r '$pdo=new PDO("mysql:host=kimai-mariadb;dbname=kimai","kimai",getenv("MYSQL_PASSWORD")); $stmt=$pdo->prepare("SELECT 1 FROM kimai2_users WHERE username=? OR email=?"); $stmt->execute([getenv("KIMAI_ADMIN_USERNAME"), getenv("EMAIL")]); exit($stmt->fetch() ? 0 : 1);' && exit 0
-              /opt/kimai/bin/console kimai:user:create "$KIMAI_ADMIN_USERNAME" "$EMAIL" ROLE_SUPER_ADMIN "$KIMAI_ADMIN_PASSWORD"
+              php -r '$pdo=new PDO("mysql:host=kimai-mariadb;dbname=kimai","kimai",getenv("MYSQL_PASSWORD")); $stmt=$pdo->prepare("SELECT 1 FROM kimai2_users WHERE username=? OR email=?"); $stmt->execute([getenv("KIMAI_ADMIN_USERNAME"), getenv("KIMAI_ADMIN_EMAIL")]); exit($stmt->fetch() ? 0 : 1);' && exit 0
+              /opt/kimai/bin/console kimai:user:create "$KIMAI_ADMIN_USERNAME" "$ADMIN_EMAIL" ROLE_SUPER_ADMIN "$KIMAI_ADMIN_PASSWORD"
       volumes:
         - name: kimai-var
           hostPath:
