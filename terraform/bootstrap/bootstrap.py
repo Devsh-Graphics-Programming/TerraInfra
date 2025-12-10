@@ -590,6 +590,7 @@ mkdir -p /mnt/data/mariadb /mnt/data/kimai-var
     ensure_secrets_encryption()
     ensure_namespace("monitoring")
     ensure_namespace("apps-tools")
+    ensure_namespace("website")
     print("k8s ready")
 
     grafana_admin_user = "admin"
@@ -627,6 +628,7 @@ mkdir -p /mnt/data/mariadb /mnt/data/kimai-var
     add_sensitive(kimai_db_user_password)
     ensure_namespace("monitoring")
     ensure_namespace("apps-tools")
+    ensure_namespace("website")
     upsert_secret(
         "apps-tools",
         "kimai-db-credentials",
