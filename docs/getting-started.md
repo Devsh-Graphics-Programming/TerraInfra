@@ -20,6 +20,13 @@ This repo is GitOps-driven (Flux). You change manifests, push to the right branc
 - Set per session:  
   `cd terraform; $env:SOPS_AGE_KEY = Get-Content terra.agekey -Raw`
 
+### Do not do this
+- Never commit private keys, PATs, webhook secrets, state files, `.terraform/`, or `*.agekey`.
+- Keep `.env` local only; rotate creds if it ever leaks.
+- SOPS-encrypted YAMLs are fine in git; only the public age key sits in `.sops.yaml`.
+- Provider test fixtures under `provider/` use dummy keys; scanners may flag them—review before whitelisting.
+- Run a secret scan before sharing the repo or changing visibility.
+
 ### .env template (prod default)
 `terraform/.env` (not committed):
 ```
