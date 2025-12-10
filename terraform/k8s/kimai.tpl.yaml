@@ -183,7 +183,7 @@ spec:
                 php -r 'new PDO("mysql:host=kimai-mariadb;dbname=kimai","kimai",getenv("MYSQL_PASSWORD"));' && break
                 sleep 5
               done
-              php -r '$pdo=new PDO("mysql:host=kimai-mariadb;dbname=kimai","kimai",getenv("MYSQL_PASSWORD")); $stmt=$pdo->prepare("SELECT 1 FROM kimai2_users WHERE username=?"); $stmt->execute([getenv("KIMAI_ADMIN_USERNAME")]); exit($stmt->fetch() ? 0 : 1);' && exit 0
+              php -r '$pdo=new PDO("mysql:host=kimai-mariadb;dbname=kimai","kimai",getenv("MYSQL_PASSWORD")); $stmt=$pdo->prepare("SELECT 1 FROM kimai2_users WHERE username=? OR email=?"); $stmt->execute([getenv("KIMAI_ADMIN_USERNAME"), getenv("EMAIL")]); exit($stmt->fetch() ? 0 : 1);' && exit 0
               /opt/kimai/bin/console kimai:user:create "$KIMAI_ADMIN_USERNAME" "$EMAIL" ROLE_SUPER_ADMIN "$KIMAI_ADMIN_PASSWORD"
       volumes:
         - name: kimai-var
