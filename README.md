@@ -4,6 +4,8 @@ Infra for Devsh (k3s on Scaleway) with GitOps via Flux. Branches:
 - `env/prod` → production cluster (kept up, do not destroy)
 - `env/test` → ephemeral/test cluster (can be recreated on demand)
 
+> **Warning:** Pushing to `env/prod` reconciles the live production cluster. Read `docs/environments.md` and `docs/getting-started.md` before changing prod.
+
 Docs live in `docs/`:
 - `docs/getting-started.md` – prerequisites, tooling, `.env` template, age key, GitOps flow
 - `docs/environments.md` – prod/test branches & workspaces
