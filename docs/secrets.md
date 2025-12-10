@@ -1,7 +1,7 @@
 ## Secrets (SOPS + age)
 
 - Secrets stored as encrypted YAML (SOPS) in `terraform/k8s/vars/{prod,test}/secrets/`.
-- Encryption uses age; public key in `.sops.yaml`, private key (`terra.agekey`) is local/1Password (never in repo).
+- Encryption uses age; public key in `.sops.yaml`, private key (`terra.agekey`) is local/secure storage (never in repo).
 
 ### Set key in session
 ```
