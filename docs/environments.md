@@ -4,6 +4,7 @@
 - `env/test` branch → test cluster (workspace `test`)
 - Flux in each cluster watches its branch; manifests are the same structure.
 - Workflow: commit to `env/test` → validate in test → PR/merge to `env/prod` for production.
+- WARNING: Push to `env/prod` applies to live production. Push to `env/test` updates the test cluster.
 
 ### Terraform workspace mapping
 - Prod: `terraform workspace select prod`, `.env` uses `TF_VAR_env_name=prod`, `TF_VAR_config_repo_branch=env/prod`.

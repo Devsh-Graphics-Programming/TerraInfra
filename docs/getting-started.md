@@ -6,6 +6,7 @@ This repo is GitOps-driven (Flux). You change manifests, push to the right branc
 - Prod: `env/prod`
 - Test: `env/test`
 - Workflow: commit to `env/test` → verify in test → merge to `env/prod`.
+- WARNING: pushing to these branches triggers Flux to reconcile the cluster that tracks them (prod watches `env/prod`, test watches `env/test`).
 
 ### Prerequisites
 - Windows PowerShell
