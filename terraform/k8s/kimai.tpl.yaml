@@ -78,6 +78,37 @@ spec:
       labels:
         app: kimai
     spec:
+      initContainers:
+        - name: ensure-db
+          image: mariadb:11
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: kimai-db-credentials
+                  key: mysql-root-password
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: kimai-db-credentials
+                  key: mysql-user-password
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              for i in $(seq 1 30); do
+                mariadb -h kimai-mariadb -uroot -p"$MYSQL_ROOT_PASSWORD" <<'SQL' && exit 0
+                CREATE DATABASE IF NOT EXISTS kimai;
+                CREATE USER IF NOT EXISTS 'kimai'@'%' IDENTIFIED BY '${MYSQL_PASSWORD}';
+                ALTER USER 'kimai'@'%' IDENTIFIED BY '${MYSQL_PASSWORD}';
+                GRANT ALL PRIVILEGES ON kimai.* TO 'kimai'@'%';
+                FLUSH PRIVILEGES;
+SQL
+                sleep 5
+              done
+              echo "Failed to prepare database" >&2
+              exit 1
       containers:
         - name: kimai
           image: kimai/kimai2:apache
