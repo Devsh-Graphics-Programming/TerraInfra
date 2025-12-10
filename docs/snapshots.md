@@ -31,5 +31,6 @@ terraform apply -auto-approve
 - Log into test apps (Kimai, etc.) and confirm data from prod snapshot (users, etc.).
 
 ### Notes
-- Prod volume is never destroyed (prevent_destroy). Snapshots are daily on prod; manual snapshot via taint when needed.
+- Prod volume is never destroyed (prevent_destroy). Snapshots run every `snapshot_rotation_hours` (default 24h) on prod; manual snapshot via taint when needed.
+- Snapshot pruning is not automated—clean up old snapshots in Scaleway when needed.
 - Test infra can be destroyed/recreated freely with a chosen snapshot ID.
