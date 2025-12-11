@@ -511,6 +511,7 @@ spec:
         "    namespace: flux-system\n"
         "  dependsOn:\n"
         "    - name: vars\n"
+        "  validation: client\n"
         f"{decryption_section}"
         "  timeout: 2m\n"
     )
