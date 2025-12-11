@@ -1,4 +1,7 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - cert-manager-ingress.tpl.yaml
+  - jetstack-repo.yaml
+  - cert-manager-helmrelease.yaml
+  - ingress-repo.yaml
+  - ingress-helmrelease.yaml
