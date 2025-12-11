@@ -75,9 +75,9 @@ Reload per session: `cd terraform; . .\env.ps1`
 ### Certificates (Let’s Encrypt)
 - Check status: `k3s kubectl get certificate -A` and `k3s kubectl get orders.acme.cert-manager.io -A`.
 - Let’s Encrypt rate limits: if you see `order ... errored ... too many certificates ... retry after ...`, wait until the indicated time; cert-manager will retry automatically.
-- TLS per host:
+- TLS per host (all subject to ACME rate limits if recreated frequently):
   - `website/devsh-blog-tls` → blog
-  - `website/devsh-website-tls` → www (can hit rate limits when recreated many times)
+  - `website/devsh-website-tls` → www
   - `apps-tools/kimai-cert` → kimai2
   - `monitoring/grafana-cert` → grafana
   - `flux-system/flux-hook-cert` → flux webhook
