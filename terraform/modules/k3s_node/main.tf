@@ -61,6 +61,35 @@ resource "scaleway_instance_security_group" "web_sg" {
     action = "accept"
     port   = "443"
   }
+
+  # Block outbound SMTP except TLS submission (587) to avoid unwanted relays.
+  outbound_rule {
+    action   = "drop"
+    protocol = "TCP"
+    port     = "25"
+    ip_range = "0.0.0.0/0"
+  }
+
+  outbound_rule {
+    action   = "drop"
+    protocol = "TCP"
+    port     = "465"
+    ip_range = "0.0.0.0/0"
+  }
+
+  outbound_rule {
+    action   = "drop"
+    protocol = "TCP"
+    port     = "25"
+    ip_range = "::/0"
+  }
+
+  outbound_rule {
+    action   = "drop"
+    protocol = "TCP"
+    port     = "465"
+    ip_range = "::/0"
+  }
 }
 
 resource "scaleway_instance_server" "k3s_node_1" {
