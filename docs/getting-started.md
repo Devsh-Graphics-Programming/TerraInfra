@@ -65,12 +65,20 @@ Reload per session: `cd terraform; . .\env.ps1`
 2) Set age key in session:  
    `$env:SOPS_AGE_KEY = Get-Content terra.agekey -Raw`
 3) Select workspace (`terraform workspace select prod|test`).
-4) For a brand-new data disk (no snapshot/previous data), set `TF_VAR_allow_fresh_bootstrap=true` in the session for that apply. Otherwise leave it unset/false.
-5) `terraform apply`
-6) Wait until cloud-init finishes:
+4) `terraform apply`
+5) Wait until cloud-init finishes:
    - `ssh-keygen -R <ip>`; `ssh root@<ip> 'cloud-init status --wait'`
    - Live logs on the node: `tail -f /var/log/cloud-init-output.log`, `tail -f /var/log/bootstrap.log`
    - When k3s is up: `k3s kubectl get pods -A`
+
+### Fresh bootstrap after destroying the data volume (empty disk)
+- Applies when you intentionally wiped the block storage (no snapshot/data). Do this only when you are fine losing everything on the volume.
+- In the session set:
+  - `$env:TF_VAR_allow_fresh_bootstrap='true'` (permits LUKS format + new k3s encryption config).
+  - `$env:TF_VAR_prevent_destroy_data_volume='false'` (if set in `.env`, override to allow creating a new volume).
+  - Clear any snapshot override: `$env:TF_VAR_data_volume_snapshot_id=''` unless you explicitly restore from a snapshot.
+  - `$env:TF_VAR_sops_age_key = Get-Content terra.agekey -Raw` (required; bootstrap fails without SOPS key).
+- Then `terraform apply`, wait for `cloud-init status --wait`.
 
 ### Certificates (Let’s Encrypt)
 - Check status: `k3s kubectl get certificate -A` and `k3s kubectl get orders.acme.cert-manager.io -A`.
