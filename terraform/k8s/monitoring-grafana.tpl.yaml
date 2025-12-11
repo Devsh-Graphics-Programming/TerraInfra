@@ -11,6 +11,84 @@ spec:
     name: letsencrypt-http
     kind: ClusterIssuer
 ---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: prometheus-community
+  namespace: flux-system
+spec:
+  interval: 1h
+  url: https://prometheus-community.github.io/helm-charts
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: grafana-pv
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: grafana-local
+  hostPath:
+    path: /mnt/data/grafana
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-pvc
+  namespace: monitoring
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: grafana-local
+  volumeName: grafana-pv
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: monitoring
+  namespace: monitoring
+spec:
+  interval: 10m
+  chart:
+    spec:
+      chart: kube-prometheus-stack
+      version: 80.2.0
+      sourceRef:
+        kind: HelmRepository
+        name: prometheus-community
+        namespace: flux-system
+      interval: 1h
+  releaseName: monitoring
+  targetNamespace: monitoring
+  install:
+    createNamespace: true
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    grafana:
+      envFromSecret: notification-smtp
+      admin:
+        existingSecret: monitoring-grafana
+        userKey: admin-user
+        passwordKey: admin-password
+      persistence:
+        enabled: true
+        type: statefulset
+        existingClaim: grafana-pvc
+      service:
+        type: ClusterIP
+      ingress:
+        enabled: false
+---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

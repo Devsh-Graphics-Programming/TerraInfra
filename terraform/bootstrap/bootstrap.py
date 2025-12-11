@@ -589,13 +589,6 @@ spec:
 """
     apply_yaml(cluster_issuer)
 
-    run(
-        "helm upgrade --install monitoring prometheus-community/kube-prometheus-stack "
-        "--namespace monitoring --create-namespace"
-    )
-    wait_for_deploy("monitoring", "monitoring-grafana")
-    wait_for_deploy("monitoring", "monitoring-kube-prometheus-operator")
-
     ensure_flux()
     run("kubectl -n flux-system delete secret git-credentials || true")
     run(
