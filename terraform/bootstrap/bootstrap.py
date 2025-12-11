@@ -2,10 +2,8 @@
 import base64
 import json
 import os
-import secrets
 import shlex
 import shutil
-import string
 import subprocess
 import tempfile
 import textwrap
@@ -20,9 +18,6 @@ start_ts = time.time()
 K3S_ENCRYPTION_CONFIG = "/var/lib/rancher/k3s/server/cred/encryption-config.json"
 K3S_ENCRYPTION_CONFIG_BACKUP = "/mnt/data/backup/k3s/encryption-config.json"
 BOOTSTRAP_VOLUME_MARKER = "/mnt/data/.bootstrap-initialized"
-grafana_admin_backup = "/mnt/data/backup/monitoring/grafana-admin.yaml"
-kimai_db_backup = "/mnt/data/backup/apps-tools/kimai-db-credentials.yaml"
-kimai_admin_backup = "/mnt/data/backup/apps-tools/kimai-admin-credentials.yaml"
 
 
 def encryption_config_has_keys(path: str) -> bool:
@@ -146,19 +141,6 @@ def wait_for_crd(crd: str):
     raise RuntimeError(f"CRD {crd} not ready")
 
 
-def random_password(length: int = 24) -> str:
-    alphabet = string.ascii_letters + string.digits
-    return "".join(secrets.choice(alphabet) for _ in range(length))
-
-
-def backup_files_exist(paths: Sequence[str]) -> bool:
-    """Return True if any of the predefined backup files already exist."""
-    for path in paths:
-        if os.path.exists(path):
-            return True
-    return False
-
-
 def _directory_is_clean(path: str, allowed: Optional[Sequence[str]] = None) -> bool:
     """Return True if *path* contains only entries from *allowed* (or is missing)."""
     try:
@@ -231,38 +213,6 @@ def mark_volume_initialized(marker_path: str = BOOTSTRAP_VOLUME_MARKER) -> None:
         log(f"Failed to write volume marker: {exc}", level="WARN")
 
 
-def ensure_mariadb_credentials(root_password: str, user_password: str, namespace: str = "apps-tools", deployment: str = "kimai-mariadb") -> None:
-    """Make sure MariaDB root + kimai user/password match the secrets we expect."""
-    sql = textwrap.dedent(
-        f"""\
-        CREATE DATABASE IF NOT EXISTS kimai;
-        CREATE USER IF NOT EXISTS 'kimai'@'%' IDENTIFIED BY '{user_password}';
-        GRANT ALL PRIVILEGES ON kimai.* TO 'kimai'@'%';
-        ALTER USER 'kimai'@'%' IDENTIFIED BY '{user_password}';
-        ALTER USER 'root'@'localhost' IDENTIFIED BY '{root_password}';
-        FLUSH PRIVILEGES;
-        """
-    )
-    script = textwrap.dedent(
-        f"""\
-        CLIENT=$(command -v mariadb || command -v mysql)
-        if [ -z "$CLIENT" ]; then
-          echo "mysql/mariadb client not installed" >&2
-          exit 1
-        fi
-        cat <<'SQL' | "$CLIENT" -uroot -p'{root_password}'
-        {sql}SQL
-        """
-    )
-    cmd = (
-        f"kubectl -n {namespace} exec deploy/{deployment} -- "
-        f"bash -c {shlex.quote(script)}"
-    )
-    result = run_with_retries(cmd, attempts=10, delay=10)
-    if result.returncode != 0:
-        raise RuntimeError("Failed to sync MariaDB credentials; check mariadb logs.")
-
-
 def ensure_namespace(ns: str):
     run(f"kubectl create namespace {ns} --dry-run=client -o yaml | kubectl apply -f -")
 
@@ -317,34 +267,6 @@ def secret_exists(ns: str, name: str) -> bool:
         ).returncode
         == 0
     )
-
-
-def restore_secret_from_backup(ns: str, name: str, backup_path: str) -> None:
-    ensure_namespace(ns)
-    if secret_exists(ns, name):
-        log(f"Secret {ns}/{name} exists; skipping restore", level="INFO")
-        return
-    if not os.path.exists(backup_path):
-        log(f"Backup for {ns}/{name} not found at {backup_path}; skipping restore", level="WARN")
-        return
-    log(f"Restoring secret {ns}/{name} from {backup_path}", level="INFO")
-    run(f"kubectl apply -f {backup_path}")
-
-
-def backup_secret(ns: str, name: str, backup_path: str) -> None:
-    os.makedirs(os.path.dirname(backup_path), exist_ok=True)
-    cp = subprocess.run(
-        f"kubectl -n {ns} get secret {name} -o yaml",
-        shell=True,
-        text=True,
-        capture_output=True,
-    )
-    if cp.returncode != 0 or not cp.stdout:
-        log(f"Cannot backup {ns}/{name} (not found yet); skipping", level="WARN")
-        return
-    with open(backup_path, "w", encoding="utf-8") as f:
-        f.write(cp.stdout)
-    log(f"Backed up secret {ns}/{name} to {backup_path}", level="INFO")
 
 
 def ensure_helm():
@@ -796,9 +718,6 @@ spec:
         }
         http("POST", api_base, payload)
 
-    backup_secret("monitoring", "monitoring-grafana", grafana_admin_backup)
-    backup_secret("apps-tools", "kimai-db-credentials", kimai_db_backup)
-    backup_secret("apps-tools", "kimai-admin-credentials", kimai_admin_backup)
     backup_k3s_encryption_config(K3S_ENCRYPTION_CONFIG_BACKUP)
     mark_volume_initialized()
 
