@@ -174,7 +174,7 @@ spec:
             - sh
             - -c
             - |
-              set -e
+              set -euo pipefail
               ADMIN_EMAIL="${KIMAI_ADMIN_EMAIL:-admin@devsh.eu}"
               if ! printf "%s" "$ADMIN_EMAIL" | grep -Eq '.+@.+\\..+'; then
                 ADMIN_EMAIL="admin@devsh.eu"
@@ -184,6 +184,7 @@ spec:
                 php -r 'new PDO("mysql:host=kimai-mariadb;dbname=kimai","kimai",getenv("MYSQL_PASSWORD"));' && break
                 sleep 5
               done
+              php -r 'try {$pdo=new PDO("mysql:host=kimai-mariadb;dbname=kimai","kimai",getenv("MYSQL_PASSWORD")); $pdo->query("SELECT 1 FROM kimai2_configuration LIMIT 1"); exit(0);} catch (Throwable $e) {exit(1);}' || /opt/kimai/bin/console kimai:install -n
               php -r '$pdo=new PDO("mysql:host=kimai-mariadb;dbname=kimai","kimai",getenv("MYSQL_PASSWORD")); $stmt=$pdo->prepare("SELECT 1 FROM kimai2_users WHERE username=? OR email=?"); $stmt->execute([getenv("KIMAI_ADMIN_USERNAME"), getenv("KIMAI_ADMIN_EMAIL")]); exit($stmt->fetch() ? 0 : 1);' && exit 0
               /opt/kimai/bin/console kimai:user:create "$KIMAI_ADMIN_USERNAME" "$ADMIN_EMAIL" ROLE_SUPER_ADMIN "$KIMAI_ADMIN_PASSWORD"
       volumes:
