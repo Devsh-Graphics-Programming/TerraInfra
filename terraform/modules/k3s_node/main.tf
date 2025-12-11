@@ -42,6 +42,7 @@ resource "scaleway_instance_security_group" "web_sg" {
   project_id = var.project_id
   name       = "devsh-k3s-sg-${var.env_name}"
   stateful   = true
+  enable_default_security = false
 
   inbound_default_policy  = "drop"
   outbound_default_policy = "accept"
