@@ -114,6 +114,16 @@ spec:
           ports:
             - containerPort: 8001
           env:
+            - name: MAILER_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: notification-smtp
+                  key: MAILER_DSN
+            - name: MAILER_FROM
+              valueFrom:
+                secretKeyRef:
+                  name: notification-smtp
+                  key: MAILER_FROM
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
