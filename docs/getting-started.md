@@ -28,8 +28,9 @@ This repo is GitOps-driven (Flux). You change manifests, push to the right branc
 
 ### Data volume unlock (LUKS)
 - Systemd service `ensure-data-mount.service` unlocks and mounts `/mnt/data` on every boot using `LUKS_KEY_URL` or bucket creds from `/etc/default/terra-data`.
-- Formatting (LUKS init) is allowed only when `ALLOW_LUKS_FORMAT=true` (controlled by `allow_fresh_bootstrap` in Terraform).
+- Formatting (LUKS init) is allowed only when `ALLOW_LUKS_FORMAT=true` (controlled by `allow_fresh_bootstrap` in Terraform). Set it to true only when you intentionally bootstrap a new/empty volume; keep it false for existing data/snapshots.
 - Key material lives on the node in `/etc/default/terra-data` (0600) and is not committed to git.
+- Secrets encryption config for k3s is generated/restored before k3s starts and backed up to `/mnt/data/backup/k3s/encryption-config.json`.
 
 ### .env template (prod default)
 `terraform/.env` (not committed):
@@ -55,6 +56,7 @@ TF_VAR_luks_key_secret_key=...         # Object Storage secret key for LUKS key
 # TF_VAR_prevent_destroy_data_volume=true  # Set true to block data volume destroy
 # TF_VAR_data_volume_snapshot_id=      # Snapshot id to restore data volume
 # TF_VAR_sops_age_key=                 # Age private key (set in session, not in file)
+# TF_VAR_allow_fresh_bootstrap=true    # Allow formatting LUKS on a brand-new volume only
 ```
 Reload per session: `cd terraform; . .\env.ps1`
 
@@ -63,8 +65,9 @@ Reload per session: `cd terraform; . .\env.ps1`
 2) Set age key in session:  
    `$env:SOPS_AGE_KEY = Get-Content terra.agekey -Raw`
 3) Select workspace (`terraform workspace select prod|test`).
-4) `terraform apply`
-5) Wait for cloud-init, then Flux reconciles (watch: `/var/log/cloud-init-output.log`, `/var/log/bootstrap.log` on the node; `kubectl get pods -A`).
+4) For a brand-new data disk (no snapshot/previous data), set `TF_VAR_allow_fresh_bootstrap=true` in the session for that apply. Otherwise leave it unset/false.
+5) `terraform apply`
+6) Wait for cloud-init, then Flux reconciles (watch: `/var/log/cloud-init-output.log`, `/var/log/bootstrap.log` on the node; `kubectl get pods -A`).
 
 ### Quick commands
 - Prod apply:  

@@ -11,6 +11,7 @@ packages:
   - python3
   - awscli
   - cryptsetup
+  - jq
 
 write_files:
   - path: /root/bootstrap/bootstrap.py
@@ -23,6 +24,11 @@ write_files:
     owner: root:root
     encoding: b64
     content: ${base64encode(file("${path_root}/bootstrap/ensure-data-mount.sh"))}
+  - path: /usr/local/bin/ensure-encryption-config.sh
+    permissions: "0755"
+    owner: root:root
+    encoding: b64
+    content: ${base64encode(file("${path_root}/bootstrap/ensure-encryption-config.sh"))}
   - path: /etc/systemd/system/ensure-data-mount.service
     permissions: "0644"
     owner: root:root
@@ -48,14 +54,49 @@ write_files:
       LUKS_KEY_ACCESS_KEY=${luks_key_access_key}
       LUKS_KEY_SECRET_KEY=${luks_key_secret_key}
       ALLOW_LUKS_FORMAT=${allow_fresh_bootstrap}
+  - path: /etc/rancher/k3s/config.yaml
+    permissions: "0644"
+    owner: root:root
+    content: |
+      disable:
+        - traefik
+      secrets-encryption: true
+  - path: /etc/systemd/system/ensure-encryption-config.service
+    permissions: "0644"
+    owner: root:root
+    content: |
+      [Unit]
+      Description=Ensure k3s encryption config has a key
+      After=ensure-data-mount.service
+      Wants=ensure-data-mount.service
+      Before=k3s.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/ensure-encryption-config.sh
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=multi-user.target
+  - path: /etc/systemd/system/k3s.service.d/10-encryption.conf
+    permissions: "0644"
+    owner: root:root
+    content: |
+      [Unit]
+      Requires=ensure-encryption-config.service ensure-data-mount.service
+      After=ensure-encryption-config.service ensure-data-mount.service
 
 runcmd:
   - mkdir -p /root/bootstrap
-  - curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--disable traefik --secrets-encryption" sh -
+  - INSTALL_K3S_EXEC="--disable traefik --secrets-encryption" INSTALL_K3S_SKIP_START=true curl -sfL https://get.k3s.io | sh -
   - echo 'alias k=kubectl' >> /root/.bashrc
   - echo 'export KUBECONFIG=/etc/rancher/k3s/k3s.yaml' >> /root/.bashrc
   - systemctl daemon-reload
   - systemctl enable --now ensure-data-mount.service
+  - systemctl enable ensure-encryption-config.service
+  - systemctl start ensure-encryption-config.service
+  - systemctl enable k3s
+  - systemctl start k3s
   - |
       bash -c 'set -euo pipefail; \
       ACME_EMAIL=${acme_email} \
@@ -71,4 +112,3 @@ runcmd:
       SOPS_AGE_KEY_B64=${base64encode(sops_age_key)} \
       ALLOW_FRESH_BOOTSTRAP=${allow_fresh_bootstrap} \
       python3 /root/bootstrap/bootstrap.py 2>&1 | tee /var/log/bootstrap.log'
-  - systemctl restart ensure-data-mount.service

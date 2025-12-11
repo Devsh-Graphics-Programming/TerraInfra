@@ -17,12 +17,30 @@ from typing import Optional, Sequence
 
 SENSITIVE: list[str] = []
 start_ts = time.time()
-K3S_ENCRYPTION_KEY = "/var/lib/rancher/k3s/server/aescbc.keys"
-K3S_ENCRYPTION_KEY_BACKUP = "/mnt/data/backup/k3s/aescbc.keys"
+K3S_ENCRYPTION_CONFIG = "/var/lib/rancher/k3s/server/cred/encryption-config.json"
+K3S_ENCRYPTION_CONFIG_BACKUP = "/mnt/data/backup/k3s/encryption-config.json"
 BOOTSTRAP_VOLUME_MARKER = "/mnt/data/.bootstrap-initialized"
 grafana_admin_backup = "/mnt/data/backup/monitoring/grafana-admin.yaml"
 kimai_db_backup = "/mnt/data/backup/apps-tools/kimai-db-credentials.yaml"
 kimai_admin_backup = "/mnt/data/backup/apps-tools/kimai-admin-credentials.yaml"
+
+
+def encryption_config_has_keys(path: str) -> bool:
+    if not os.path.exists(path):
+        return False
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return False
+    resources = data.get("resources", [])
+    for resource in resources:
+        providers = resource.get("providers", [])
+        for provider in providers:
+            keys = provider.get("aescbc", {}).get("keys", [])
+            if isinstance(keys, list) and len(keys) > 0:
+                return True
+    return False
 
 
 def add_sensitive(value: Optional[str]) -> None:
@@ -180,28 +198,27 @@ def assert_clean_for_fresh(allow_fresh_env: bool, wants_fresh: bool) -> None:
         )
 
 
-def restore_k3s_encryption_keys(backup_path: str) -> bool:
-    """Restore the k3s secrets encryption key file from the data volume if available."""
-    if os.path.exists(K3S_ENCRYPTION_KEY):
+def restore_k3s_encryption_config(backup_path: str) -> bool:
+    """Restore the k3s secrets encryption config from the data volume if available."""
+    if encryption_config_has_keys(K3S_ENCRYPTION_CONFIG):
         return False
-    if not os.path.exists(backup_path):
+    if not encryption_config_has_keys(backup_path):
         return False
-    os.makedirs(os.path.dirname(K3S_ENCRYPTION_KEY), exist_ok=True)
-    log(f"[k3s] Restoring encryption key from {backup_path}", level="INFO")
-    shutil.copy2(backup_path, K3S_ENCRYPTION_KEY)
-    run(f"chmod 600 {K3S_ENCRYPTION_KEY}")
-    run("systemctl restart k3s")
+    os.makedirs(os.path.dirname(K3S_ENCRYPTION_CONFIG), exist_ok=True)
+    log(f"[k3s] Restoring encryption config from {backup_path}", level="INFO")
+    shutil.copy2(backup_path, K3S_ENCRYPTION_CONFIG)
+    run(f"chmod 600 {K3S_ENCRYPTION_CONFIG}")
     return True
 
 
-def backup_k3s_encryption_keys(backup_path: str) -> None:
-    """Persist the active k3s encryption keys onto the data volume."""
-    if not os.path.exists(K3S_ENCRYPTION_KEY):
-        log("[k3s] Encryption key file missing; skipping backup", level="WARN")
+def backup_k3s_encryption_config(backup_path: str) -> None:
+    """Persist the active k3s encryption config onto the data volume."""
+    if not encryption_config_has_keys(K3S_ENCRYPTION_CONFIG):
+        log("[k3s] Encryption config missing or empty; skipping backup", level="WARN")
         return
     os.makedirs(os.path.dirname(backup_path), exist_ok=True)
-    shutil.copy2(K3S_ENCRYPTION_KEY, backup_path)
-    log(f"[k3s] Stored encryption key backup to {backup_path}", level="INFO")
+    shutil.copy2(K3S_ENCRYPTION_CONFIG, backup_path)
+    log(f"[k3s] Stored encryption config backup to {backup_path}", level="INFO")
 
 
 def mark_volume_initialized(marker_path: str = BOOTSTRAP_VOLUME_MARKER) -> None:
@@ -380,9 +397,6 @@ def ensure_secrets_encryption():
     if "disabled" in status.stdout.lower():
         run("k3s secrets-encrypt enable", check=True)
         time.sleep(5)
-    reenc = run_with_retries("k3s secrets-encrypt reencrypt --force", attempts=5, delay=10)
-    if reenc.returncode != 0:
-        raise RuntimeError("K3s secrets-encrypt reencrypt failed; check k3s server logs.")
 
 
 def ensure_data_mount(env_name: str, luks_key_url: str, luks_key_access: str, luks_key_secret: str) -> None:
@@ -528,37 +542,7 @@ def main():
     allow_fresh_env = os.environ.get("ALLOW_FRESH_BOOTSTRAP", "").lower() in ("1", "true", "yes")
     ensure_data_mount(env_name, luks_key_url, luks_key_access, luks_key_secret)
 
-    # Prepare attached data volume (non-root) for stateful data
-    run(
-        r"""bash -euxo pipefail
-ROOT_DEV=$(findmnt -n -o SOURCE / | sed 's/[0-9]*$//')
-if findmnt -n /mnt/data >/dev/null 2>&1; then
-  echo "[INFO] /mnt/data already mounted (likely LUKS handled by cloud-init); skipping format/mount"
-  exit 0
-fi
-DATA_DEV=$(lsblk -ndo NAME,TYPE | awk -v root="${ROOT_DEV##*/}" '$2=="disk" && $1!=root {print "/dev/"$1; exit}')
-if [ -z "${DATA_DEV}" ]; then
-  echo "[WARN] No data device found for mount, skipping /mnt/data setup"
-  exit 0
-fi
-FSTYPE=$(lsblk -no FSTYPE "${DATA_DEV}" || true)
-if [ -z "${FSTYPE}" ]; then
-  mkfs.ext4 -F "${DATA_DEV}"
-elif [ "${FSTYPE}" = "crypto_LUKS" ]; then
-  echo "[INFO] Detected LUKS on ${DATA_DEV}, skipping format"
-  exit 0
-fi
-mkdir -p /mnt/data
-if ! grep -q "${DATA_DEV} /mnt/data" /etc/fstab; then
-  echo "${DATA_DEV} /mnt/data ext4 defaults,nofail 0 2" >> /etc/fstab
-fi
-mount -a
-mkdir -p /mnt/data/mariadb /mnt/data/kimai-var
-""",
-        quiet=True,
-    )
-
-    restore_k3s_encryption_keys(K3S_ENCRYPTION_KEY_BACKUP)
+    restore_k3s_encryption_config(K3S_ENCRYPTION_CONFIG_BACKUP)
     wait_for_k8s()
     ensure_secrets_encryption()
     ensure_namespace("monitoring")
@@ -822,7 +806,7 @@ spec:
     backup_secret("monitoring", "monitoring-grafana", grafana_admin_backup)
     backup_secret("apps-tools", "kimai-db-credentials", kimai_db_backup)
     backup_secret("apps-tools", "kimai-admin-credentials", kimai_admin_backup)
-    backup_k3s_encryption_keys(K3S_ENCRYPTION_KEY_BACKUP)
+    backup_k3s_encryption_config(K3S_ENCRYPTION_CONFIG_BACKUP)
     mark_volume_initialized()
 
 
