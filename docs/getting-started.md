@@ -67,7 +67,21 @@ Reload per session: `cd terraform; . .\env.ps1`
 3) Select workspace (`terraform workspace select prod|test`).
 4) For a brand-new data disk (no snapshot/previous data), set `TF_VAR_allow_fresh_bootstrap=true` in the session for that apply. Otherwise leave it unset/false.
 5) `terraform apply`
-6) Wait for cloud-init, then Flux reconciles (watch: `/var/log/cloud-init-output.log`, `/var/log/bootstrap.log` on the node; `kubectl get pods -A`).
+6) Wait until cloud-init finishes:
+   - `ssh-keygen -R <ip>`; `ssh root@<ip> 'cloud-init status --wait'`
+   - Live logs on the node: `tail -f /var/log/cloud-init-output.log`, `tail -f /var/log/bootstrap.log`
+   - When k3s is up: `k3s kubectl get pods -A`
+
+### Certy (Let’s Encrypt)
+### Certificates (Let’s Encrypt)
+- Check status: `k3s kubectl get certificate -A` and `k3s kubectl get orders.acme.cert-manager.io -A`.
+- Let’s Encrypt rate limits: if you see `order ... errored ... too many certificates ... retry after ...`, wait until the indicated time; cert-manager will retry automatically.
+- TLS per host:
+  - `website/devsh-blog-tls` → blog
+  - `website/devsh-website-tls` → www (can hit rate limits when recreated many times)
+  - `apps-tools/kimai-cert` → kimai2
+  - `monitoring/grafana-cert` → grafana
+  - `flux-system/flux-hook-cert` → flux webhook
 
 ### Quick commands
 - Prod apply:  
