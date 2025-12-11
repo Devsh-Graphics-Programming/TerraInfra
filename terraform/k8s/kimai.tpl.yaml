@@ -93,7 +93,7 @@ spec:
                   name: kimai-db-credentials
                   key: mysql-user-password
           command:
-            - sh
+            - bash
             - -c
             - |
               set -e
