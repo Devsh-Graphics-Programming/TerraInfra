@@ -507,11 +507,10 @@ spec:
         f"  path: ./{config_repo_path}/infra\n"
         "  sourceRef:\n"
         "    kind: GitRepository\n"
-        "    name: terralinfa\n"
+        "    name: terralinfra\n"
         "    namespace: flux-system\n"
         "  dependsOn:\n"
         "    - name: vars\n"
-        "  validation: client\n"
         f"{decryption_section}"
         "  timeout: 2m\n"
     )
