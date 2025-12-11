@@ -631,22 +631,24 @@ spec:
     elif sops_age_key_raw:
         sops_age_key = sops_age_key_raw
 
-    if sops_age_key:
-        add_sensitive(sops_age_key)
-        with tempfile.NamedTemporaryFile(delete=False, mode="w", encoding="utf-8") as keyf:
-            keyf.write(sops_age_key)
-            key_path = keyf.name
+    if not sops_age_key:
+        raise RuntimeError("SOPS_AGE_KEY (or SOPS_AGE_KEY_B64) must be set to decrypt cluster secrets")
+
+    add_sensitive(sops_age_key)
+    with tempfile.NamedTemporaryFile(delete=False, mode="w", encoding="utf-8") as keyf:
+        keyf.write(sops_age_key)
+        key_path = keyf.name
+    try:
+        run("kubectl -n flux-system delete secret sops-age || true")
+        run(
+            "kubectl -n flux-system create secret generic sops-age "
+            f"--from-file=age.agekey={key_path}"
+        )
+    finally:
         try:
-            run("kubectl -n flux-system delete secret sops-age || true")
-            run(
-                "kubectl -n flux-system create secret generic sops-age "
-                f"--from-file=age.agekey={key_path}"
-            )
-        finally:
-            try:
-                os.remove(key_path)
-            except OSError:
-                pass
+            os.remove(key_path)
+        except OSError:
+            pass
 
     flux_source = f"""apiVersion: source.toolkit.fluxcd.io/v1
 kind: GitRepository
@@ -666,8 +668,6 @@ spec:
         "    provider: sops\n"
         "    secretRef:\n"
         "      name: sops-age\n"
-        if sops_age_key
-        else ""
     )
     vars_path = f"{config_repo_path}/vars/{env_name}"
     apps_path = f"{config_repo_path}/apps"
