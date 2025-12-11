@@ -171,7 +171,7 @@ spec:
             - name: kimai-var
               mountPath: /opt/kimai/var
           command:
-            - sh
+            - bash
             - -c
             - |
               set -euo pipefail
