@@ -8,3 +8,4 @@ terraform/*.tfstate
 terraform/*.tfstate.*
 terraform/terraform.auto.tfvars
 terraform/terra.agekey
+kimai-plugin/
