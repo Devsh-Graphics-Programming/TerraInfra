@@ -75,6 +75,7 @@ spec:
       retries: 3
   values:
     grafana:
+      enabled: true
       envFromSecret: notification-smtp
       admin:
         existingSecret: monitoring-grafana
@@ -82,7 +83,6 @@ spec:
         passwordKey: admin-password
       persistence:
         enabled: true
-        type: statefulset
         existingClaim: grafana-pvc
       service:
         type: ClusterIP
