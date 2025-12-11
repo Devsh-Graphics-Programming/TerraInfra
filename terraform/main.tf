@@ -41,6 +41,8 @@ module "k3s_node" {
   snapshot_rotation_hours                  = var.snapshot_rotation_hours
   prevent_destroy_data_volume              = var.prevent_destroy_data_volume
   data_volume_snapshot_id                  = var.data_volume_snapshot_id
+  public_ip_id                             = var.public_ip_id
+  public_ip_address                        = var.public_ip_address
 
   cloud_init = templatefile("${path.root}/cloud-init.yaml", {
     acme_email                               = var.acme_email

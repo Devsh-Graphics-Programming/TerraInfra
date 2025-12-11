@@ -26,6 +26,18 @@ variable "create_daily_snapshot" {
   default     = false
 }
 
+variable "public_ip_id" {
+  type        = string
+  description = "Optional existing Flexible IP ID to attach (skips IP creation)."
+  default     = ""
+}
+
+variable "public_ip_address" {
+  type        = string
+  description = "Optional existing Flexible IP address to attach (skips IP creation)."
+  default     = ""
+}
+
 variable "snapshot_rotation_hours" {
   type        = number
   description = "Rotation window (hours) used by the snapshot trigger."
