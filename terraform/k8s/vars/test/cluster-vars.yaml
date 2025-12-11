@@ -8,3 +8,4 @@ metadata:
 data:
   BASE_DOMAIN: devsh.eu
   ENV_PREFIX: "test."
+  ACME_EMAIL: notification@devsh.eu

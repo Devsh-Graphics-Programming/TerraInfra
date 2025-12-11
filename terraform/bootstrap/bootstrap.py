@@ -213,18 +213,6 @@ def mark_volume_initialized(marker_path: str = BOOTSTRAP_VOLUME_MARKER) -> None:
         log(f"Failed to write volume marker: {exc}", level="WARN")
 
 
-def ensure_namespace(ns: str):
-    run(f"kubectl create namespace {ns} --dry-run=client -o yaml | kubectl apply -f -")
-
-
-def ensure_helm():
-    if subprocess.run("command -v helm", shell=True, stdout=subprocess.DEVNULL).returncode != 0:
-        run("curl -fsSL https://get.helm.sh/helm-v3.15.3-linux-amd64.tar.gz -o /tmp/helm.tar.gz")
-        run("tar -xzf /tmp/helm.tar.gz -C /tmp")
-        run("mv /tmp/linux-amd64/helm /usr/local/bin/helm")
-        run("chmod +x /usr/local/bin/helm")
-
-
 def ensure_flux():
     if subprocess.run("command -v flux", shell=True, stdout=subprocess.DEVNULL).returncode != 0:
         run("curl -s https://fluxcd.io/install.sh | bash")
@@ -415,49 +403,7 @@ def main():
     restore_k3s_encryption_config(K3S_ENCRYPTION_CONFIG_BACKUP)
     wait_for_k8s()
     ensure_secrets_encryption()
-    ensure_namespace("monitoring")
-    ensure_namespace("apps-tools")
-    ensure_namespace("website")
     print("k8s ready")
-
-    ensure_helm()
-
-    run("helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx || true")
-    run("helm repo add jetstack https://charts.jetstack.io || true")
-    run("helm repo add prometheus-community https://prometheus-community.github.io/helm-charts || true")
-    run("helm repo update")
-
-    run(
-        "helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx "
-        "--namespace infra --create-namespace --set controller.publishService.enabled=true"
-    )
-    run(
-        "helm upgrade --install cert-manager jetstack/cert-manager "
-        "--namespace cert-manager --create-namespace --set installCRDs=true"
-    )
-
-    wait_for_deploy("infra", "ingress-nginx-controller")
-    wait_for_deploy("cert-manager", "cert-manager")
-    wait_for_deploy("cert-manager", "cert-manager-webhook")
-    wait_for_crd("certificates.cert-manager.io")
-    wait_for_crd("clusterissuers.cert-manager.io")
-
-    cluster_issuer = f"""apiVersion: cert-manager.io/v1
-kind: ClusterIssuer
-metadata:
-  name: letsencrypt-http
-spec:
-  acme:
-    email: {acme_email}
-    server: https://acme-v02.api.letsencrypt.org/directory
-    privateKeySecretRef:
-      name: letsencrypt-http-private-key
-    solvers:
-    - http01:
-        ingress:
-          class: nginx
-"""
-    apply_yaml(cluster_issuer)
 
     ensure_flux()
     run("kubectl -n flux-system delete secret git-credentials || true")
