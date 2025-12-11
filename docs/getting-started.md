@@ -72,6 +72,16 @@ Reload per session: `cd terraform; . .\env.ps1`
    - Live logs on the node: `tail -f /var/log/cloud-init-output.log`, `tail -f /var/log/bootstrap.log`
    - When k3s is up: `k3s kubectl get pods -A`
 
+### Switching to a new Flexible IP (no rebuild)
+- Create a new Flexible IP in Scaleway (PAR1). Keep the old IP attached until you switch DNS (prevents reuse).
+- In the session for the target workspace set one of:
+  - `$env:TF_VAR_public_ip_address='<new_ip>'` (preferred)
+  - or `$env:TF_VAR_public_ip_id='<ip_uuid>'`
+- Keep data volume protected (prod): `TF_VAR_prevent_destroy_data_volume=true`.
+- `terraform apply` – the server stays up; Terraform detaches the old IP and attaches the new one in place.
+- Update DNS to the new IP (manual for now), wait for propagation; cert-manager will renew automatically (respect LE rate limits). If you want to force re-issue after DNS cutover: `k3s kubectl -n <ns> delete order,challenge -l acme.cert-manager.io/certificate-name=<cert_name>`.
+- After confirming traffic on the new IP, delete the old Flexible IP in Scaleway.
+
 ### Certy (Let’s Encrypt)
 ### Certificates (Let’s Encrypt)
 - Check status: `k3s kubectl get certificate -A` and `k3s kubectl get orders.acme.cert-manager.io -A`.
