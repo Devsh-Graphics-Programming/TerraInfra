@@ -217,58 +217,6 @@ def ensure_namespace(ns: str):
     run(f"kubectl create namespace {ns} --dry-run=client -o yaml | kubectl apply -f -")
 
 
-def upsert_secret(ns: str, name: str, data: dict):
-    yaml_lines = [
-        "apiVersion: v1",
-        "kind: Secret",
-        "type: Opaque",
-        "metadata:",
-        f"  name: {name}",
-        f"  namespace: {ns}",
-        "stringData:",
-    ]
-    for key, value in data.items():
-        yaml_lines.append(f"  {key}: {value}")
-    apply_yaml("\n".join(yaml_lines))
-
-
-def load_secret(ns: str, name: str) -> dict:
-    """
-    Return decoded secret data if it exists, otherwise {}.
-    """
-    cp = subprocess.run(
-        f"kubectl -n {ns} get secret {name} -o json",
-        shell=True,
-        text=True,
-        capture_output=True,
-    )
-    if cp.returncode != 0 or not cp.stdout:
-        return {}
-    try:
-        data = json.loads(cp.stdout).get("data") or {}
-    except json.JSONDecodeError:
-        return {}
-    decoded = {}
-    for key, value in data.items():
-        try:
-            decoded[key] = base64.b64decode(value).decode()
-        except Exception:
-            continue
-    return decoded
-
-
-def secret_exists(ns: str, name: str) -> bool:
-    return (
-        subprocess.run(
-            f"kubectl -n {ns} get secret {name}",
-            shell=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        ).returncode
-        == 0
-    )
-
-
 def ensure_helm():
     if subprocess.run("command -v helm", shell=True, stdout=subprocess.DEVNULL).returncode != 0:
         run("curl -fsSL https://get.helm.sh/helm-v3.15.3-linux-amd64.tar.gz -o /tmp/helm.tar.gz")
