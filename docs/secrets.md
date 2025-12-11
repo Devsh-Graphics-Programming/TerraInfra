@@ -54,3 +54,18 @@ PY
 ### Flux decryption
 - Flux uses secret `sops-age` in `flux-system` (private age key) and `spec.decryption.provider: sops`.
 - Only `data/stringData` are encrypted (see `.sops.yaml`).
+
+### Get credentials from the cluster
+Examples (uses k3s on the node):
+```
+# Kimai admin (apps-tools)
+k3s kubectl -n apps-tools get secret kimai-admin-credentials -o jsonpath='{.data.username}' | base64 -d
+k3s kubectl -n apps-tools get secret kimai-admin-credentials -o jsonpath='{.data.password}' | base64 -d
+
+# Kimai DB password (apps-tools)
+k3s kubectl -n apps-tools get secret kimai-db-credentials -o jsonpath='{.data.mysql-user-password}' | base64 -d
+
+# Grafana admin (monitoring)
+k3s kubectl -n monitoring get secret monitoring-grafana -o jsonpath='{.data.admin-user}' | base64 -d
+k3s kubectl -n monitoring get secret monitoring-grafana -o jsonpath='{.data.admin-password}' | base64 -d
+```
