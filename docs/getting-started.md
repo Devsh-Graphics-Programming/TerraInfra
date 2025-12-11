@@ -72,7 +72,6 @@ Reload per session: `cd terraform; . .\env.ps1`
    - Live logs on the node: `tail -f /var/log/cloud-init-output.log`, `tail -f /var/log/bootstrap.log`
    - When k3s is up: `k3s kubectl get pods -A`
 
-### Certy (Let’s Encrypt)
 ### Certificates (Let’s Encrypt)
 - Check status: `k3s kubectl get certificate -A` and `k3s kubectl get orders.acme.cert-manager.io -A`.
 - Let’s Encrypt rate limits: if you see `order ... errored ... too many certificates ... retry after ...`, wait until the indicated time; cert-manager will retry automatically.
