@@ -10,6 +10,7 @@ Infra for Devsh (k3s on Scaleway) with GitOps via Flux. Branches:
 Docs live in `docs/`:
 - `docs/getting-started.md` – prerequisites, tooling, `.env` template, age key, GitOps flow
 - `docs/environments.md` – prod/test branches & workspaces
+- `docs/how-to-commit.md` – fast-forward workflow (test → prod)
 - `docs/secrets.md` – SOPS/age secrets: create/encrypt/decrypt
 - `docs/snapshots.md` – prod snapshot workflow & restore to test
 - `docs/dns.md` – DNS (manual for now)
