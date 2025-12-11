@@ -1,5 +1,5 @@
 output "public_ip" {
-  value       = scaleway_instance_ip.public_ip.address
+  value       = local.resolved_ip_address
   description = "Public IP of this k3s node"
 }
 

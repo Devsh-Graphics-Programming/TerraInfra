@@ -94,3 +94,15 @@ variable "prevent_destroy_data_volume" {
   description = "Set false only when you intentionally want Terraform to allow destroying the data volume (e.g., wiping/recreating)."
   default     = true
 }
+
+variable "public_ip_id" {
+  type        = string
+  description = "Existing Flexible IP ID to attach (leave empty to let Terraform create one)."
+  default     = ""
+}
+
+variable "public_ip_address" {
+  type        = string
+  description = "Existing Flexible IP address to attach (alternative to public_ip_id)."
+  default     = ""
+}

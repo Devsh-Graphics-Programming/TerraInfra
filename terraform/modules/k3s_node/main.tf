@@ -14,8 +14,28 @@ locals {
   snapshot_enabled = var.create_daily_snapshot && var.env_name == "prod"
 }
 
+data "scaleway_instance_ip" "by_id" {
+  count = var.public_ip_id != "" ? 1 : 0
+  id    = var.public_ip_id
+}
+
+data "scaleway_instance_ip" "by_address" {
+  count   = var.public_ip_id == "" && var.public_ip_address != "" ? 1 : 0
+  address = var.public_ip_address
+}
+
 resource "scaleway_instance_ip" "public_ip" {
+  count     = var.public_ip_id == "" && var.public_ip_address == "" ? 1 : 0
   project_id = var.project_id
+}
+
+locals {
+  resolved_ip_id = var.public_ip_id != "" ? data.scaleway_instance_ip.by_id[0].id : (
+    var.public_ip_address != "" ? data.scaleway_instance_ip.by_address[0].id : scaleway_instance_ip.public_ip[0].id
+  )
+  resolved_ip_address = var.public_ip_id != "" ? data.scaleway_instance_ip.by_id[0].address : (
+    var.public_ip_address != "" ? data.scaleway_instance_ip.by_address[0].address : scaleway_instance_ip.public_ip[0].address
+  )
 }
 
 resource "scaleway_instance_security_group" "web_sg" {
@@ -53,7 +73,7 @@ resource "scaleway_instance_server" "k3s_node_1" {
     volume_type = "l_ssd"
   }
 
-  ip_id             = scaleway_instance_ip.public_ip.id
+  ip_id             = local.resolved_ip_id
   security_group_id = scaleway_instance_security_group.web_sg.id
 
   cloud_init = var.cloud_init
