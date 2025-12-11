@@ -18,12 +18,44 @@ write_files:
     owner: root:root
     encoding: b64
     content: ${base64encode(file("${path_root}/bootstrap/bootstrap.py"))}
+  - path: /usr/local/bin/ensure-data-mount.sh
+    permissions: "0755"
+    owner: root:root
+    encoding: b64
+    content: ${base64encode(file("${path_root}/bootstrap/ensure-data-mount.sh"))}
+  - path: /etc/systemd/system/ensure-data-mount.service
+    permissions: "0644"
+    owner: root:root
+    content: |
+      [Unit]
+      Description=Ensure data volume is unlocked and mounted
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      EnvironmentFile=-/etc/default/terra-data
+      ExecStart=/usr/local/bin/ensure-data-mount.sh
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=multi-user.target
+  - path: /etc/default/terra-data
+    permissions: "0600"
+    owner: root:root
+    content: |
+      LUKS_KEY_URL=${luks_key_url}
+      LUKS_KEY_ACCESS_KEY=${luks_key_access_key}
+      LUKS_KEY_SECRET_KEY=${luks_key_secret_key}
+      ALLOW_LUKS_FORMAT=${allow_fresh_bootstrap}
 
 runcmd:
   - mkdir -p /root/bootstrap
   - curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--disable traefik --secrets-encryption" sh -
   - echo 'alias k=kubectl' >> /root/.bashrc
   - echo 'export KUBECONFIG=/etc/rancher/k3s/k3s.yaml' >> /root/.bashrc
+  - systemctl daemon-reload
+  - systemctl enable --now ensure-data-mount.service
   - |
       bash -c 'set -euo pipefail; \
       ACME_EMAIL=${acme_email} \
@@ -39,3 +71,4 @@ runcmd:
       SOPS_AGE_KEY_B64=${base64encode(sops_age_key)} \
       ALLOW_FRESH_BOOTSTRAP=${allow_fresh_bootstrap} \
       python3 /root/bootstrap/bootstrap.py 2>&1 | tee /var/log/bootstrap.log'
+  - systemctl restart ensure-data-mount.service

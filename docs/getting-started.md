@@ -26,6 +26,11 @@ This repo is GitOps-driven (Flux). You change manifests, push to the right branc
 - SOPS-encrypted YAMLs are fine in git; only the public age key sits in `.sops.yaml`.
 - Provider test fixtures under `provider/` use dummy keys; scanners may flag them—review before whitelisting.
 
+### Data volume unlock (LUKS)
+- Systemd service `ensure-data-mount.service` unlocks and mounts `/mnt/data` on every boot using `LUKS_KEY_URL` or bucket creds from `/etc/default/terra-data`.
+- Formatting (LUKS init) is allowed only when `ALLOW_LUKS_FORMAT=true` (controlled by `allow_fresh_bootstrap` in Terraform).
+- Key material lives on the node in `/etc/default/terra-data` (0600) and is not committed to git.
+
 ### .env template (prod default)
 `terraform/.env` (not committed):
 ```
