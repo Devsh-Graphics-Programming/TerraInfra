@@ -11,7 +11,6 @@ This repo is GitOps-driven (Flux). You change manifests, push to the right branc
 ### Prerequisites
 - Windows PowerShell
 - Terraform
-- `kubectl`
 - `sops` (install: `winget install Mozilla.SOPS`)
 - SSH key (for k3s node)
 
@@ -82,13 +81,14 @@ Reload per session: `cd terraform; . .\env.ps1`
 - Update DNS to the new IP (manual for now), wait for propagation; cert-manager will renew automatically (respect LE rate limits). If you want to force re-issue after DNS cutover: `k3s kubectl -n <ns> delete order,challenge -l acme.cert-manager.io/certificate-name=<cert_name>`.
 - After confirming traffic on the new IP, delete the old Flexible IP in Scaleway.
 
-### Certy (Let’s Encrypt)
 ### Certificates (Let’s Encrypt)
 - Check status: `k3s kubectl get certificate -A` and `k3s kubectl get orders.acme.cert-manager.io -A`.
-- Let’s Encrypt rate limits: if you see `order ... errored ... too many certificates ... retry after ...`, wait until the indicated time; cert-manager will retry automatically.
+- Let’s Encrypt rate limits apply to all hosts; if you see `order ... errored ... too many certificates ... retry after ...`, wait until the indicated time; cert-manager will retry automatically.
+- Force renew all certs after DNS/IP change (from the node):  
+  `(k3s kubectl get order.acme.cert-manager.io -A -o name; k3s kubectl get challenge.acme.cert-manager.io -A -o name) | xargs -r k3s kubectl delete`
 - TLS per host:
   - `website/devsh-blog-tls` → blog
-  - `website/devsh-website-tls` → www (can hit rate limits when recreated many times)
+  - `website/devsh-website-tls` → www
   - `apps-tools/kimai-cert` → kimai2
   - `monitoring/grafana-cert` → grafana
   - `flux-system/flux-hook-cert` → flux webhook
