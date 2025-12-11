@@ -495,6 +495,26 @@ spec:
     namespace: flux-system
 {decryption_section}  timeout: 1m
 """
+    flux_kustomization_infra = (
+        "apiVersion: kustomize.toolkit.fluxcd.io/v1\n"
+        "kind: Kustomization\n"
+        "metadata:\n"
+        "  name: infra\n"
+        "  namespace: flux-system\n"
+        "spec:\n"
+        "  interval: 2m\n"
+        "  prune: true\n"
+        f"  path: ./{config_repo_path}/infra\n"
+        "  sourceRef:\n"
+        "    kind: GitRepository\n"
+        "    name: terralinfa\n"
+        "    namespace: flux-system\n"
+        "  dependsOn:\n"
+        "    - name: vars\n"
+        f"{decryption_section}"
+        "  timeout: 2m\n"
+    )
+
     flux_kustomization_apps = (
         "apiVersion: kustomize.toolkit.fluxcd.io/v1\n"
         "kind: Kustomization\n"
@@ -511,6 +531,7 @@ spec:
         "    namespace: flux-system\n"
         "  dependsOn:\n"
         "    - name: vars\n"
+        "    - name: infra\n"
         f"{decryption_section}"
         "  timeout: 2m\n"
         "  postBuild:\n"
@@ -523,8 +544,10 @@ spec:
 
     apply_yaml(flux_source)
     apply_yaml(flux_kustomization_vars)
+    apply_yaml(flux_kustomization_infra)
     apply_yaml(flux_kustomization_apps)
     run("kubectl -n flux-system wait --for=condition=ready kustomization/vars --timeout=120s")
+    run("kubectl -n flux-system wait --for=condition=ready kustomization/infra --timeout=180s")
     run("kubectl -n flux-system wait --for=condition=ready kustomization/apps --timeout=300s")
     base_domain_cfg = ""
     env_prefix_cfg = ""
