@@ -98,3 +98,10 @@ Reload per session: `cd terraform; . .\env.ps1`
   `cd terraform; . .\env.ps1; $env:TF_VAR_sops_age_key = Get-Content terra.agekey -Raw; terraform workspace select prod; terraform apply`
 - Test apply (example, branch set in env var):  
   `cd terraform; . .\env.ps1; $env:TF_VAR_sops_age_key = Get-Content terra.agekey -Raw; $env:TF_VAR_env_name='test'; $env:TF_VAR_config_repo_branch='env/test'; terraform workspace select test; terraform apply`
+
+### Flux status & logs
+- Kustomizations: `k3s kubectl get kustomizations -A`
+- Receiver/webhook: `k3s kubectl -n flux-system describe receiver github-receiver`
+- Last applied revision: `k3s kubectl -n flux-system get gitrepository terralinfra -o jsonpath='{.status.artifact.revision}'`
+- Logs (webhook + events): `k3s kubectl -n flux-system logs deploy/notification-controller --tail=50`
+- Force reconcile (from node): `k3s kubectl -n flux-system annotate gitrepository terralinfra reconcile.fluxcd.io/requestedAt="$(date --utc +%FT%TZ)" --overwrite`
