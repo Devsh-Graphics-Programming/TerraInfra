@@ -4,6 +4,62 @@ metadata:
   name: apps-tools
 ---
 apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: kimai-mariadb-pv
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: kimai-local
+  hostPath:
+    path: /mnt/data/mariadb
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kimai-mariadb-pvc
+  namespace: apps-tools
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: kimai-local
+  volumeName: kimai-mariadb-pv
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: kimai-var-pv
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: kimai-local
+  hostPath:
+    path: /mnt/data/kimai-var
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kimai-var-pvc
+  namespace: apps-tools
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: kimai-local
+  volumeName: kimai-var-pv
+---
+apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: kimai
@@ -70,9 +126,8 @@ spec:
               mountPath: /var/lib/mysql
       volumes:
         - name: mariadb-data
-          hostPath:
-            path: /mnt/data/mariadb
-            type: DirectoryOrCreate
+          persistentVolumeClaim:
+            claimName: kimai-mariadb-pvc
 ---
 apiVersion: v1
 kind: Service
@@ -176,9 +231,8 @@ spec:
               mountPath: /opt/kimai/var
       volumes:
         - name: kimai-var
-          hostPath:
-            path: /mnt/data/kimai-var
-            type: DirectoryOrCreate
+          persistentVolumeClaim:
+            claimName: kimai-var-pvc
 ---
 apiVersion: batch/v1
 kind: Job
@@ -256,9 +310,8 @@ spec:
               /opt/kimai/bin/console kimai:user:create "$KIMAI_ADMIN_USERNAME" "$ADMIN_EMAIL" ROLE_SUPER_ADMIN "$KIMAI_ADMIN_PASSWORD"
       volumes:
         - name: kimai-var
-          hostPath:
-            path: /mnt/data/kimai-var
-            type: DirectoryOrCreate
+          persistentVolumeClaim:
+            claimName: kimai-var-pvc
 ---
 apiVersion: v1
 kind: Service
