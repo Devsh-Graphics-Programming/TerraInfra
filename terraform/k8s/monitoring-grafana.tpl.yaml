@@ -84,6 +84,8 @@ spec:
     persistence:
       enabled: true
       existingClaim: grafana-pvc
+    initChownData:
+      enabled: false
     envFromSecret: notification-smtp
     securityContext:
       runAsUser: 472
