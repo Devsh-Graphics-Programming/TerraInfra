@@ -139,7 +139,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: kubernetes-dashboard-web
+                name: kubernetes-dashboard-api
                 port:
                   number: 8000
 ---
