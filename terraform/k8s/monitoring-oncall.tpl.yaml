@@ -116,6 +116,7 @@ spec:
           size: 10Gi
     redis:
       enabled: true
+      architecture: standalone
       image:
         tag: latest
       auth:
