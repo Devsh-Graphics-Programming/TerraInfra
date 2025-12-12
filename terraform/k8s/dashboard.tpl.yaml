@@ -170,5 +170,9 @@ spec:
       ports:
         - port: 443
           protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kubernetes-dashboard
   policyTypes:
     - Egress
