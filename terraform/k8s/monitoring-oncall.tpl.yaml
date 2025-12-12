@@ -1,0 +1,398 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: oncall-cert
+  namespace: monitoring-oncall
+spec:
+  secretName: oncall-tls
+  dnsNames:
+    - ${ENV_PREFIX}oncall.${BASE_DOMAIN}
+  issuerRef:
+    name: letsencrypt-http
+    kind: ClusterIssuer
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: oncall-grafana-pv
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: oncall-grafana-local
+  local:
+    path: /mnt/data/oncall-grafana
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - devsh-k3s-prod-node-1
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: oncall-grafana-pvc
+  namespace: monitoring-oncall
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: oncall-grafana-local
+  volumeName: oncall-grafana-pv
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: oncall
+  namespace: monitoring-oncall
+spec:
+  interval: 10m
+  chart:
+    spec:
+      chart: oncall
+      version: 1.16.5
+      sourceRef:
+        kind: HelmRepository
+        name: grafana-charts
+        namespace: flux-system
+      interval: 1h
+  releaseName: oncall
+  targetNamespace: monitoring-oncall
+  install:
+    createNamespace: true
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    base_url: ${ENV_PREFIX}oncall.${BASE_DOMAIN}
+    base_url_protocol: https
+    ingress:
+      enabled: true
+      className: nginx
+      annotations:
+        cert-manager.io/cluster-issuer: letsencrypt-http
+      tls:
+        - hosts:
+            - ${ENV_PREFIX}oncall.${BASE_DOMAIN}
+          secretName: oncall-tls
+    service:
+      enabled: false
+    ingress-nginx:
+      enabled: false
+    cert-manager:
+      enabled: false
+    mariadb:
+      enabled: false
+    database:
+      type: postgresql
+    broker:
+      type: rabbitmq
+    postgresql:
+      enabled: true
+      auth:
+        existingSecret: oncall-postgresql
+        secretKeys:
+          adminPasswordKey: postgres-password
+          userPasswordKey: password
+          replicationPasswordKey: replication-password
+        username: oncall
+        database: oncall
+      primary:
+        persistence:
+          enabled: true
+          size: 10Gi
+    redis:
+      enabled: true
+      auth:
+        existingSecret: oncall-redis
+        existingSecretPasswordKey: redis-password
+    rabbitmq:
+      enabled: true
+      auth:
+        existingPasswordSecret: oncall-rabbitmq
+        username: user
+      persistence:
+        enabled: true
+    grafana:
+      enabled: true
+      admin:
+        existingSecret: monitoring-oncall-grafana
+        userKey: admin-user
+        passwordKey: admin-password
+      persistence:
+        enabled: true
+        existingClaim: oncall-grafana-pvc
+      grafana.ini:
+        server:
+          domain: ${ENV_PREFIX}oncall.${BASE_DOMAIN}
+          root_url: "%(protocol)s://%(domain)s/grafana/"
+          serve_from_sub_path: true
+        feature_toggles:
+          enable: externalServiceAccounts
+          accessControlOnCall: false
+      rbac:
+        pspEnabled: false
+    oncall:
+      secrets:
+        existingSecret: oncall-secrets
+        secretKey: SECRET_KEY
+        mirageSecretKey: MIRAGE_SECRET_KEY
+      smtp:
+        enabled: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: oncall-bootstrap
+  namespace: monitoring-oncall
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: oncall-bootstrap-read-secrets
+  namespace: monitoring
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames:
+      - alertmanager-discord
+      - alertmanager-oncall
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: oncall-bootstrap-read-secrets
+  namespace: monitoring
+subjects:
+  - kind: ServiceAccount
+    name: oncall-bootstrap
+    namespace: monitoring-oncall
+roleRef:
+  kind: Role
+  name: oncall-bootstrap-read-secrets
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: oncall-bootstrap
+  namespace: monitoring-oncall
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      serviceAccountName: oncall-bootstrap
+      restartPolicy: OnFailure
+      containers:
+        - name: bootstrap
+          image: grafana/oncall:1.16.5
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: BASE_URL
+              value: https://${ENV_PREFIX}oncall.${BASE_DOMAIN}
+            - name: DATABASE_TYPE
+              value: postgresql
+            - name: DATABASE_HOST
+              value: oncall-postgresql.monitoring-oncall.svc
+            - name: DATABASE_PORT
+              value: "5432"
+            - name: DATABASE_NAME
+              value: oncall
+            - name: DATABASE_USER
+              value: oncall
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: oncall-postgresql
+                  key: password
+            - name: REDIS_HOST
+              value: oncall-redis-master.monitoring-oncall.svc
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_DATABASE
+              value: "0"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: oncall-redis
+                  key: redis-password
+            - name: BROKER_TYPE
+              value: rabbitmq
+            - name: RABBITMQ_HOST
+              value: oncall-rabbitmq.monitoring-oncall.svc
+            - name: RABBITMQ_PORT
+              value: "5672"
+            - name: RABBITMQ_USERNAME
+              value: user
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: oncall-rabbitmq
+                  key: rabbitmq-password
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: oncall-secrets
+                  key: SECRET_KEY
+            - name: MIRAGE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: oncall-secrets
+                  key: MIRAGE_SECRET_KEY
+            - name: DJANGO_SETTINGS_MODULE
+              value: settings.helm
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          command:
+            - python
+            - -c
+            - |
+              import base64
+              import json
+              import os
+              import sys
+              import time
+              import requests
+              
+              # Kubernetes helper
+              def read_secret(namespace, name):
+                  host = os.environ.get("KUBERNETES_SERVICE_HOST")
+                  port = os.environ.get("KUBERNETES_SERVICE_PORT", "443")
+                  token_path = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+                  ca_path = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+                  with open(token_path, "r", encoding="utf-8") as fh:
+                      token = fh.read().strip()
+                  url = f"https://{host}:{port}/api/v1/namespaces/{namespace}/secrets/{name}"
+                  resp = requests.get(url, headers={"Authorization": f"Bearer {token}"}, verify=ca_path, timeout=10)
+                  resp.raise_for_status()
+                  data = resp.json().get("data", {})
+                  return {k: base64.b64decode(v).decode().strip() for k, v in data.items()}
+              
+              # Fetch shared secrets
+              discord_secret = read_secret("monitoring", "alertmanager-discord")
+              oncall_urls_secret = read_secret("monitoring", "alertmanager-oncall")
+              
+              critical_url = oncall_urls_secret.get("critical_url")
+              warning_url = oncall_urls_secret.get("warning_url")
+              if not critical_url or not warning_url:
+                  print("Missing OnCall integration URLs in alertmanager-oncall secret", file=sys.stderr)
+                  sys.exit(1)
+              
+              def extract_token(url):
+                  parts = url.rstrip("/").split("/")
+                  return parts[-1] if parts else ""
+              
+              critical_token = extract_token(critical_url)
+              warning_token = extract_token(warning_url)
+              
+              discord_critical = discord_secret.get("discord_critical_url")
+              discord_warning = discord_secret.get("discord_warning_url")
+              if not discord_critical or not discord_warning:
+                  print("Missing Discord webhook URLs", file=sys.stderr)
+                  sys.exit(1)
+              
+              # Wait for DB to be ready by trying Django setup a few times
+              os.environ.setdefault("DJANGO_SETTINGS_MODULE", os.environ.get("DJANGO_SETTINGS_MODULE", "settings.helm"))
+              for attempt in range(15):
+                  try:
+                      import django  # noqa: WPS433
+                      django.setup()
+                      break
+                  except Exception as exc:  # noqa: BLE001
+                      print(f"Django setup failed (attempt {attempt+1}/15): {exc}", file=sys.stderr)
+                      time.sleep(10)
+              else:
+                  sys.exit(1)
+              
+              from django.db import transaction  # noqa: E402
+              from apps.alerts.models import AlertReceiveChannel, ChannelFilter  # noqa: E402
+              from apps.user_management.models import Organization, User  # noqa: E402
+              from apps.webhooks.models import Webhook  # noqa: E402
+              
+              org = Organization.objects.order_by("id").first()
+              if not org:
+                  print("No organization found in OnCall DB", file=sys.stderr)
+                  sys.exit(1)
+              user = User.objects.order_by("id").first()
+              
+              discord_template = json.dumps(
+                  {
+                      "content": "[{{ event.type | upper }}][{{ alert_payload.labels.severity | upper if alert_payload.labels.severity else 'UNKNOWN' }}] "
+                                 "{{ alert_payload.labels.alertname | default('Alert') }} - "
+                                 "{{ alert_payload.annotations.summary | default(alert_group.title) }}\\n"
+                                 "Link: {{ alert_group.permalinks.web | default('') }}",
+                  }
+              )
+              
+              def ensure_integration(name, token):
+                  with transaction.atomic():
+                      channel, _ = AlertReceiveChannel.objects.get_or_create(
+                          organization=org,
+                          verbal_name=name,
+                          defaults={
+                              "integration": AlertReceiveChannel.INTEGRATION_ALERTMANAGER,
+                              "author": user,
+                          },
+                      )
+                      changed = False
+                      if channel.integration != AlertReceiveChannel.INTEGRATION_ALERTMANAGER:
+                          channel.integration = AlertReceiveChannel.INTEGRATION_ALERTMANAGER
+                          changed = True
+                      if channel.token != token:
+                          channel.token = token
+                          changed = True
+                      if changed:
+                          channel.save()
+                      if not channel.channel_filters.filter(is_default=True).exists():
+                          ChannelFilter.objects.create(alert_receive_channel=channel, is_default=True, order=0)
+                      return channel
+              
+              def ensure_webhook(name, url, channel):
+                  with transaction.atomic():
+                      webhook, _ = Webhook.objects.get_or_create(
+                          organization=org,
+                          name=name,
+                          defaults={
+                              "url": url,
+                              "http_method": "POST",
+                              "trigger_type": Webhook.TRIGGER_STATUS_CHANGE,
+                              "forward_all": False,
+                              "data": discord_template,
+                              "is_webhook_enabled": True,
+                          },
+                      )
+                      desired = {
+                          "url": url,
+                          "http_method": "POST",
+                          "trigger_type": Webhook.TRIGGER_STATUS_CHANGE,
+                          "forward_all": False,
+                          "data": discord_template,
+                          "is_webhook_enabled": True,
+                      }
+                      dirty = False
+                      for key, val in desired.items():
+                          if getattr(webhook, key) != val:
+                              setattr(webhook, key, val)
+                              dirty = True
+                      if dirty:
+                          webhook.save()
+                      webhook.filtered_integrations.set([channel])
+                      return webhook
+              
+              critical_channel = ensure_integration("alertmanager-critical", critical_token)
+              warning_channel = ensure_integration("alertmanager-warning", warning_token)
+              
+              ensure_webhook("discord-critical", discord_critical, critical_channel)
+              ensure_webhook("discord-warning", discord_warning, warning_channel)
+              
+              print("OnCall integrations and webhooks configured")

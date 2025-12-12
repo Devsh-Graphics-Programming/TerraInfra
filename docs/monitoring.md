@@ -35,3 +35,25 @@ Add a new dashboard
 Notes
 - Datasource is pre-provisioned to Prometheus (`monitoring-kube-prometheus-prometheus.monitoring.svc:9090`); dashboards should reference it as default.
 - If you remove a dashboard JSON from the repo, Grafana will drop it on next reconcile.
+
+## Alerting (Alertmanager → OnCall → Discord)
+- Full flow lives in `monitoring-oncall` (HelmRelease `oncall`). Alertmanager webhooks go to OnCall integrations, which forward to Discord via outgoing webhooks. See `docs/alerts.md` for the flow and test steps.
+- OnCall URLs/tokens: `terraform/k8s/vars/prod/secrets/alertmanager-oncall.yaml`. Discord webhooks: `alertmanager-discord` secrets (prod/test).
+- Bootstrap job (`oncall-bootstrap`) keeps integrations/webhooks in sync; rerun it if you rotate tokens/secrets:
+  `k3s kubectl delete job/oncall-bootstrap -n monitoring-oncall`.
+- Alert rules are defined in `terraform/k8s/monitoring-alerts.tpl.yaml` (Node down, disk pressure, CoreDNS/CP down, PVC 90%, Flux failed/stalled, CrashLoop, HPA max, etc.).
+
+## Image digest rollout (www/blog)
+- Flux polls GHCR (`image.toolkit.fluxcd.io` ImageRepository/ImagePolicy), but git writes are suspended.
+- CronJob `digest-rollout` (namespace `website`) runs every 2m:
+  - reads latest digest for `www-website:latest` and `www-blog:latest`,
+  - compares with deployment annotation,
+  - if changed, patches the deployment annotation to force a restart.
+- Containers use `imagePullPolicy: Always`, so new pods pull the updated digest.
+- Run job manually:
+  ```
+  k3s kubectl create job --from=cronjob/digest-rollout digest-rollout-manual -n website
+  k3s kubectl logs job/digest-rollout-manual -n website
+  k3s kubectl delete job/digest-rollout-manual -n website
+  ```
+- To verify rollout on new image: push `latest` to GHCR, wait ≤2m, then `k3s kubectl rollout status deploy/devsh-website -n website` (same for `devsh-blog`).

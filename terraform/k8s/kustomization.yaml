@@ -8,6 +8,7 @@ resources:
   - kimai.tpl.yaml
   - monitoring-prometheus.tpl.yaml
   - monitoring-grafana.tpl.yaml
+  - monitoring-oncall.tpl.yaml
   - www-sites.tpl.yaml
   - dashboard.tpl.yaml
 generatorOptions:
