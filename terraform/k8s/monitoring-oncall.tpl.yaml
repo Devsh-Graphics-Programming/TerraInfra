@@ -73,6 +73,8 @@ spec:
     remediation:
       retries: 3
   values:
+    image:
+      tag: v1.16.5
     base_url: ${ENV_PREFIX}oncall.${BASE_DOMAIN}
     base_url_protocol: https
     ingress:
@@ -194,7 +196,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: bootstrap
-          image: grafana/oncall:1.16.5
+          image: grafana/oncall:v1.16.5
           imagePullPolicy: IfNotPresent
           env:
             - name: BASE_URL
@@ -226,18 +228,7 @@ spec:
                   name: oncall-redis
                   key: redis-password
             - name: BROKER_TYPE
-              value: rabbitmq
-            - name: RABBITMQ_HOST
-              value: oncall-rabbitmq.monitoring-oncall.svc
-            - name: RABBITMQ_PORT
-              value: "5672"
-            - name: RABBITMQ_USERNAME
-              value: user
-            - name: RABBITMQ_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: oncall-rabbitmq
-                  key: rabbitmq-password
+              value: redis
             - name: SECRET_KEY
               valueFrom:
                 secretKeyRef:
@@ -262,8 +253,7 @@ spec:
               import sys
               import time
               import requests
-              
-              # Kubernetes helper
+
               def read_secret(namespace, name):
                   host = os.environ.get("KUBERNETES_SERVICE_HOST")
                   port = os.environ.get("KUBERNETES_SERVICE_PORT", "443")
@@ -276,11 +266,10 @@ spec:
                   resp.raise_for_status()
                   data = resp.json().get("data", {})
                   return {k: base64.b64decode(v).decode().strip() for k, v in data.items()}
-              
-              # Fetch shared secrets
+
               discord_secret = read_secret("monitoring", "alertmanager-discord")
               oncall_urls_secret = read_secret("monitoring", "alertmanager-oncall")
-              
+
               critical_url = oncall_urls_secret.get("critical_url")
               warning_url = oncall_urls_secret.get("warning_url")
               if not critical_url or not warning_url:
@@ -299,25 +288,24 @@ spec:
               if not discord_critical or not discord_warning:
                   print("Missing Discord webhook URLs", file=sys.stderr)
                   sys.exit(1)
-              
-              # Wait for DB to be ready by trying Django setup a few times
+
               os.environ.setdefault("DJANGO_SETTINGS_MODULE", os.environ.get("DJANGO_SETTINGS_MODULE", "settings.helm"))
               for attempt in range(15):
                   try:
-                      import django  # noqa: WPS433
+                      import django
                       django.setup()
                       break
-                  except Exception as exc:  # noqa: BLE001
+                  except Exception as exc:
                       print(f"Django setup failed (attempt {attempt+1}/15): {exc}", file=sys.stderr)
                       time.sleep(10)
               else:
                   sys.exit(1)
-              
-              from django.db import transaction  # noqa: E402
-              from apps.alerts.models import AlertReceiveChannel, ChannelFilter  # noqa: E402
-              from apps.user_management.models import Organization, User  # noqa: E402
-              from apps.webhooks.models import Webhook  # noqa: E402
-              
+
+              from django.db import transaction
+              from apps.alerts.models import AlertReceiveChannel, ChannelFilter
+              from apps.user_management.models import Organization, User
+              from apps.webhooks.models import Webhook
+
               org = Organization.objects.order_by("id").first()
               if not org:
                   print("No organization found in OnCall DB", file=sys.stderr)
