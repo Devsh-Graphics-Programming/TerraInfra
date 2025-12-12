@@ -15,3 +15,4 @@ Docs live in `docs/`:
 - `docs/snapshots.md` – prod snapshot workflow & restore to test
 - `docs/dns.md` – DNS (manual for now)
 - `docs/security.md` – hardening matrix, how to add services with current security baseline
+- `docs/ui.md` – Kubernetes Dashboard (read-only) access
