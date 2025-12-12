@@ -3,6 +3,18 @@ kind: Namespace
 metadata:
   name: apps-tools
 ---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kimai
+  namespace: apps-tools
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kimai-mariadb
+  namespace: apps-tools
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -20,6 +32,7 @@ spec:
       labels:
         app: kimai-mariadb
     spec:
+      serviceAccountName: kimai-mariadb
       initContainers:
         - name: fix-mariadb-perms
           image: busybox:1.36
@@ -90,6 +103,7 @@ spec:
       labels:
         app: kimai
     spec:
+      serviceAccountName: kimai
       initContainers:
         - name: fix-kimai-perms
           image: busybox:1.36
@@ -175,6 +189,7 @@ spec:
   ttlSecondsAfterFinished: 86400
   template:
     spec:
+      serviceAccountName: kimai
       restartPolicy: Never
       initContainers:
         - name: fix-kimai-perms

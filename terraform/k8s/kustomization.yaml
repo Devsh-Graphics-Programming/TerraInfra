@@ -4,6 +4,7 @@ resources:
   - flux-networkpolicies.tpl.yaml
   - flux-receiver.tpl.yaml
   - cert-manager-ingress.tpl.yaml
+  - app-networkpolicies.tpl.yaml
   - kimai.tpl.yaml
   - monitoring-grafana.tpl.yaml
   - www-sites.tpl.yaml
