@@ -14,11 +14,11 @@ spec:
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
 metadata:
-  name: prometheus-community
+  name: grafana-charts
   namespace: flux-system
 spec:
   interval: 1h
-  url: https://prometheus-community.github.io/helm-charts
+  url: https://grafana.github.io/helm-charts
 ---
 apiVersion: v1
 kind: PersistentVolume
@@ -51,20 +51,20 @@ spec:
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
-  name: monitoring
+  name: grafana
   namespace: monitoring-grafana
 spec:
   interval: 10m
   chart:
     spec:
-      chart: kube-prometheus-stack
-      version: 80.2.0
+      chart: grafana
+      version: 8.5.7
       sourceRef:
         kind: HelmRepository
-        name: prometheus-community
+        name: grafana-charts
         namespace: flux-system
       interval: 1h
-  releaseName: monitoring
+  releaseName: grafana
   targetNamespace: monitoring-grafana
   install:
     createNamespace: true
@@ -74,53 +74,38 @@ spec:
     remediation:
       retries: 3
   values:
-    grafana:
+    serviceAccount:
+      create: true
+      name: monitoring-grafana
+    admin:
+      existingSecret: monitoring-grafana
+      userKey: admin-user
+      passwordKey: admin-password
+    persistence:
       enabled: true
-      envFromSecret: notification-smtp
-      serviceAccount:
-        create: true
-        name: monitoring-grafana
-      securityContext:
-        runAsUser: 472
-        runAsGroup: 472
-        fsGroup: 472
-      containerSecurityContext:
-        runAsUser: 472
-        runAsGroup: 472
-        runAsNonRoot: true
-        allowPrivilegeEscalation: false
-        readOnlyRootFilesystem: true
-      admin:
-        existingSecret: monitoring-grafana
-        userKey: admin-user
-        passwordKey: admin-password
-      persistence:
-        enabled: true
-        existingClaim: grafana-pvc
-      service:
-        type: ClusterIP
-      ingress:
-        enabled: false
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: grafana-ingress
-  namespace: monitoring-grafana
-spec:
-  ingressClassName: nginx
-  tls:
-    - hosts:
+      existingClaim: grafana-pvc
+    envFromSecret: notification-smtp
+    securityContext:
+      runAsUser: 472
+      runAsGroup: 472
+      fsGroup: 472
+    containerSecurityContext:
+      runAsUser: 472
+      runAsGroup: 472
+      runAsNonRoot: true
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+    ingress:
+      enabled: true
+      ingressClassName: nginx
+      hosts:
         - ${ENV_PREFIX}monitoring.${BASE_DOMAIN}
-      secretName: grafana-tls
-  rules:
-    - host: ${ENV_PREFIX}monitoring.${BASE_DOMAIN}
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: monitoring-grafana
-                port:
-                  number: 80
+      tls:
+        - secretName: grafana-tls
+          hosts:
+            - ${ENV_PREFIX}monitoring.${BASE_DOMAIN}
+    sidecar:
+      datasources:
+        enabled: false
+      dashboards:
+        enabled: false

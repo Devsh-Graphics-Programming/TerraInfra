@@ -6,5 +6,6 @@ resources:
   - cert-manager-ingress.tpl.yaml
   - app-networkpolicies.tpl.yaml
   - kimai.tpl.yaml
+  - monitoring-prometheus.tpl.yaml
   - monitoring-grafana.tpl.yaml
   - www-sites.tpl.yaml
