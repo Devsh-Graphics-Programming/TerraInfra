@@ -31,8 +31,16 @@ spec:
     - ReadWriteOnce
   persistentVolumeReclaimPolicy: Retain
   storageClassName: grafana-local
-  hostPath:
+  local:
     path: /mnt/data/grafana
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - devsh-k3s-prod-node-1
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
