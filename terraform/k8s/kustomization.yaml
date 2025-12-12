@@ -9,3 +9,4 @@ resources:
   - monitoring-prometheus.tpl.yaml
   - monitoring-grafana.tpl.yaml
   - www-sites.tpl.yaml
+  - dashboard.tpl.yaml

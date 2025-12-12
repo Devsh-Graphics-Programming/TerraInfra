@@ -1,0 +1,125 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kubernetes-dashboard
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: dashboard-cert
+  namespace: kubernetes-dashboard
+spec:
+  secretName: dashboard-tls
+  dnsNames:
+    - ${ENV_PREFIX}k8s.${BASE_DOMAIN}
+  issuerRef:
+    name: letsencrypt-http
+    kind: ClusterIssuer
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: kubernetes-dashboard
+  namespace: flux-system
+spec:
+  interval: 1h
+  url: https://kubernetes.github.io/dashboard/
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: kubernetes-dashboard
+  namespace: kubernetes-dashboard
+spec:
+  interval: 10m
+  chart:
+    spec:
+      chart: kubernetes-dashboard
+      version: 7.10.0
+      sourceRef:
+        kind: HelmRepository
+        name: kubernetes-dashboard
+        namespace: flux-system
+      interval: 1h
+  releaseName: kubernetes-dashboard
+  targetNamespace: kubernetes-dashboard
+  install:
+    createNamespace: true
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    serviceAccount:
+      create: true
+      name: dashboard-sa
+    rbac:
+      clusterReadOnlyRole: true
+    protocolHttp: false
+    ingress:
+      enabled: true
+      ingressClassName: nginx
+      hosts:
+        - ${ENV_PREFIX}k8s.${BASE_DOMAIN}
+      tls:
+        - secretName: dashboard-tls
+          hosts:
+            - ${ENV_PREFIX}k8s.${BASE_DOMAIN}
+    extraArgs:
+      - --token-ttl=0
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: dashboard-readonly
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+  - kind: ServiceAccount
+    name: dashboard-sa
+    namespace: kubernetes-dashboard
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: dashboard-ingress
+  namespace: kubernetes-dashboard
+spec:
+  podSelector: {}
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: infra
+  policyTypes:
+    - Ingress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: dashboard-egress
+  namespace: kubernetes-dashboard
+spec:
+  podSelector: {}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+  policyTypes:
+    - Egress
