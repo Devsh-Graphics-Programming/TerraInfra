@@ -251,6 +251,7 @@ spec:
               import base64
               import json
               import os
+              import secrets
               import sys
               import time
               import requests
@@ -307,11 +308,34 @@ spec:
               from apps.user_management.models import Organization, User
               from apps.webhooks.models import Webhook
 
+              base_url = os.environ.get("BASE_URL", "https://oncall.devsh.eu").rstrip("/")
+              grafana_url = f"{base_url}/grafana"
+
               org = Organization.objects.order_by("id").first()
               if not org:
-                  print("No organization found in OnCall DB", file=sys.stderr)
-                  sys.exit(1)
-              user = User.objects.order_by("id").first()
+                  org = Organization.objects.create(
+                      stack_id=1,
+                      org_id=1,
+                      stack_slug="devsh",
+                      org_slug="devsh",
+                      org_title="Devsh",
+                      grafana_url=grafana_url,
+                      api_token=secrets.token_urlsafe(32),
+                      api_token_status=Organization.API_TOKEN_STATUS_OK,
+                  )
+
+              user = User.objects.filter(organization=org).order_by("id").first()
+              if not user:
+                  user = User.objects.create(
+                      organization=org,
+                      user_id=1,
+                      email="admin@oncall.local",
+                      name="OnCall Admin",
+                      username="oncall-admin",
+                      role=0,
+                      avatar_url=f"{base_url}/static/img/avatars/avatar.png",
+                      is_active=True,
+                  )
               
               discord_template = json.dumps(
                   {
