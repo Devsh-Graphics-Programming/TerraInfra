@@ -1,4 +1,4 @@
-apiVersion: image.toolkit.fluxcd.io/v1beta2
+apiVersion: image.toolkit.fluxcd.io/v1
 kind: ImageRepository
 metadata:
   name: www-website
@@ -7,7 +7,7 @@ spec:
   image: ghcr.io/devsh-graphics-programming/www-website
   interval: 1m
 ---
-apiVersion: image.toolkit.fluxcd.io/v1beta2
+apiVersion: image.toolkit.fluxcd.io/v1
 kind: ImagePolicy
 metadata:
   name: www-website
@@ -15,14 +15,14 @@ metadata:
 spec:
   imageRepositoryRef:
     name: www-website
+  filterTags:
+    pattern: "^sha-(?P<ts>.*)$"
+    extract: "$ts"
   policy:
     alphabetical:
       order: desc
-    filterTags:
-      pattern: "^sha-(?P<ts>.*)$"
-      extract: "$ts"
 ---
-apiVersion: image.toolkit.fluxcd.io/v1beta2
+apiVersion: image.toolkit.fluxcd.io/v1
 kind: ImageRepository
 metadata:
   name: www-blog
@@ -31,7 +31,7 @@ spec:
   image: ghcr.io/devsh-graphics-programming/www-blog
   interval: 1m
 ---
-apiVersion: image.toolkit.fluxcd.io/v1beta2
+apiVersion: image.toolkit.fluxcd.io/v1
 kind: ImagePolicy
 metadata:
   name: www-blog
@@ -39,12 +39,12 @@ metadata:
 spec:
   imageRepositoryRef:
     name: www-blog
+  filterTags:
+    pattern: "^sha-(?P<ts>.*)$"
+    extract: "$ts"
   policy:
     alphabetical:
       order: desc
-    filterTags:
-      pattern: "^sha-(?P<ts>.*)$"
-      extract: "$ts"
 ---
 apiVersion: image.toolkit.fluxcd.io/v1beta2
 kind: ImageUpdateAutomation
