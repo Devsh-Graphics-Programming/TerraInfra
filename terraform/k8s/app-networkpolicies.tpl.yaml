@@ -71,7 +71,7 @@ spec:
         - port: 3306
     - to:
         - ipBlock:
-            cidr: 163.172.128.247/32
+            cidr: 0.0.0.0/0
       ports:
         - port: 587
           protocol: TCP
@@ -119,7 +119,7 @@ spec:
           protocol: TCP
     - to:
         - ipBlock:
-            cidr: 163.172.128.247/32
+            cidr: 0.0.0.0/0
       ports:
         - port: 587
           protocol: TCP
@@ -148,7 +148,7 @@ spec:
           protocol: TCP
     - to:
         - ipBlock:
-            cidr: 163.172.128.247/32
+            cidr: 0.0.0.0/0
       ports:
         - port: 587
           protocol: TCP
