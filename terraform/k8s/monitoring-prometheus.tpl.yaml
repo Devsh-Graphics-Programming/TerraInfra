@@ -77,18 +77,18 @@ spec:
       templateFiles:
         devsh.tmpl: |
           {{ define "devsh.title" -}}
-          [{{ .Status | toUpper }}][{{ .CommonLabels.severity | default "unknown" | toUpper }}] {{ .CommonLabels.alertname }}
+          [{{ .Status | toUpper }}][{{ if .CommonLabels.severity }}{{ .CommonLabels.severity | toUpper }}{{ else }}UNKNOWN{{ end }}] {{ .CommonLabels.alertname }}
           {{- end }}
           {{ define "devsh.body" -}}
-          *Cluster:* {{ .CommonLabels.cluster | default "prod" }}
-          *Namespace:* {{ .CommonLabels.namespace | default "n/a" }}
-          *Name:* {{ .CommonLabels.pod | default .CommonLabels.deployment | default .CommonLabels.job | default "n/a" }}
-          *Summary:* {{ .CommonAnnotations.summary | default "n/a" }}
-          *Description:* {{ .CommonAnnotations.description | default "n/a" }}
+          *Cluster:* {{ if .CommonLabels.cluster }}{{ .CommonLabels.cluster }}{{ else }}prod{{ end }}
+          *Namespace:* {{ if .CommonLabels.namespace }}{{ .CommonLabels.namespace }}{{ else }}n/a{{ end }}
+          *Name:* {{ if .CommonLabels.pod }}{{ .CommonLabels.pod }}{{ else if .CommonLabels.deployment }}{{ .CommonLabels.deployment }}{{ else if .CommonLabels.job }}{{ .CommonLabels.job }}{{ else }}n/a{{ end }}
+          *Summary:* {{ if .CommonAnnotations.summary }}{{ .CommonAnnotations.summary }}{{ else }}n/a{{ end }}
+          *Description:* {{ if .CommonAnnotations.description }}{{ .CommonAnnotations.description }}{{ else }}n/a{{ end }}
           {{- if .Alerts.Firing }}
           *Firing:*
           {{- range .Alerts.Firing }}
-          - {{ .Labels.alertname }} ({{ .Labels.severity | default "n/a" }}) {{ .Annotations.summary | default "" }}
+          - {{ .Labels.alertname }} ({{ if .Labels.severity }}{{ .Labels.severity }}{{ else }}n/a{{ end }}) {{ if .Annotations.summary }}{{ .Annotations.summary }}{{ end }}
           {{- end }}
           {{- end }}
           {{- if .Alerts.Resolved }}
