@@ -77,6 +77,11 @@ spec:
     grafana:
       enabled: true
       envFromSecret: notification-smtp
+      initChownData:
+        enabled: true
+        runAsUser: 0
+        runAsGroup: 0
+        runAsNonRoot: false
       serviceAccount:
         create: true
         name: monitoring-grafana
