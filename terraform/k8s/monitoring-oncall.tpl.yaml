@@ -95,11 +95,11 @@ spec:
     database:
       type: postgresql
     broker:
-      type: rabbitmq
+      type: redis
     postgresql:
       enabled: true
       image:
-        tag: 17.6.0-debian-12-r4
+        tag: latest
       auth:
         existingSecret: oncall-postgresql
         secretKeys:
@@ -115,19 +115,12 @@ spec:
     redis:
       enabled: true
       image:
-        tag: 7.4.0-debian-12-r3
+        tag: latest
       auth:
         existingSecret: oncall-redis
         existingSecretPasswordKey: redis-password
     rabbitmq:
-      enabled: true
-      image:
-        tag: 4.0.5-debian-12-r0
-      auth:
-        existingPasswordSecret: oncall-rabbitmq
-        username: user
-      persistence:
-        enabled: true
+      enabled: false
     grafana:
       enabled: true
       admin:
