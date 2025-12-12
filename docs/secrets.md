@@ -66,6 +66,6 @@ k3s kubectl -n apps-tools get secret kimai-admin-credentials -o jsonpath='{.data
 k3s kubectl -n apps-tools get secret kimai-db-credentials -o jsonpath='{.data.mysql-user-password}' | base64 -d
 
 # Grafana admin (monitoring)
-k3s kubectl -n monitoring get secret monitoring-grafana -o jsonpath='{.data.admin-user}' | base64 -d
-k3s kubectl -n monitoring get secret monitoring-grafana -o jsonpath='{.data.admin-password}' | base64 -d
+k3s kubectl -n monitoring-grafana get secret monitoring-grafana -o jsonpath='{.data.admin-user}' | base64 -d
+k3s kubectl -n monitoring-grafana get secret monitoring-grafana -o jsonpath='{.data.admin-password}' | base64 -d
 ```

@@ -7,7 +7,7 @@ Current hardening state per service/namespace:
 | Website / Blog (website)     | restricted  | ✓            | ✓         | ephemeral (tmpfs/emptyDir, no PV)     | DNS only                                        |
 | Kimai app (apps-tools)       | restricted  | ✓            | ✗         | PVC → local PV `/mnt/data/kimai-var`  | DNS, MariaDB 3306, SMTP mail.devsh.eu:587 (IP-whitelisted) |
 | MariaDB (apps-tools)         | restricted  | ✓            | ✗         | PVC → local PV `/mnt/data/mariadb`    | DNS only                                        |
-| Grafana (monitoring-grafana) | restricted  | ✓            | ✓         | PVC → local PV `/mnt/data/grafana`    | DNS, SMTP mail.devsh.eu:587 (IP-whitelisted)    |
+| Grafana (monitoring-grafana) | restricted  | ✓            | ✓         | PVC → local PV `/mnt/data/grafana`    | DNS, SMTP mail.devsh.eu:587                     |
 | Prom stack (monitoring)      | privileged* | chart defaults | chart defaults | chart-provisioned PVs            | DNS, SMTP mail.devsh.eu:587 (IP-whitelisted)    |
 | Flux/infra/cert-manager      | baseline    | n/a          | n/a       | n/a                                   | controller defaults                             |
 
