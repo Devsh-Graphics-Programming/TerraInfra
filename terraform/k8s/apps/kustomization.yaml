@@ -10,3 +10,4 @@ resources:
   - ../monitoring-prometheus.tpl.yaml
   - ../dashboard.tpl.yaml
   - ../www-sites.tpl.yaml
+  - ../grafana-dashboards
