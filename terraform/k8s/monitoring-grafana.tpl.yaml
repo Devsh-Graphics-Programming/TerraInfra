@@ -77,6 +77,17 @@ spec:
     grafana:
       enabled: true
       envFromSecret: notification-smtp
+      securityContext:
+        runAsUser: 472
+        runAsGroup: 472
+        fsGroup: 472
+        runAsNonRoot: true
+      containerSecurityContext:
+        runAsUser: 472
+        runAsGroup: 472
+        runAsNonRoot: true
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
       admin:
         existingSecret: monitoring-grafana
         userKey: admin-user
