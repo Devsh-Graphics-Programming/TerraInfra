@@ -24,7 +24,7 @@ Current hardening state per service/namespace:
   - Keep reclaimPolicy `Retain` to preserve data across node recreations/snapshots.
 - Network:
   - Ingress only from `infra` namespace (see existing NetPolicies).
-  - Egress: whitelist DNS + only required hosts/ports. If SMTP is needed, lock to `163.172.128.247:587`; otherwise keep DNS-only.
+- Egress: whitelist DNS + only required hosts/ports. If SMTP is needed, lock to `mail.devsh.eu:587` (NetPol uses the resolved IP); otherwise keep DNS-only.
 - Secrets:
   - Store as SOPS-encrypted YAML under `k8s/vars/<env>/secrets/`.
   - Reference via `envFromSecret` or `secretKeyRef`; no plaintext in manifests.
@@ -37,7 +37,7 @@ Current hardening state per service/namespace:
   - `k3s kubectl get pods -A` to ensure workloads are Running.
 - Network policies:
   - DNS reachability: `k3s kubectl exec -n <ns> <pod> -- nslookup google.com`
-  - SMTP (if allowed): `k3s kubectl exec -n monitoring-grafana deploy/grafana -- nc -zv 163.172.128.247 587`
+- SMTP (if allowed): `k3s kubectl exec -n monitoring-grafana deploy/grafana -- nc -zv mail.devsh.eu 587`
   - Confirm blocked paths by expecting failure (no nc) in namespaces without egress to the target.
 - Services from outside:
   - `curl -Ik https://www.devsh.eu`, `https://blog.devsh.eu`, `https://kimai2.devsh.eu`, `https://monitoring.devsh.eu`.
