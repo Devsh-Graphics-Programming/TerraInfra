@@ -1,8 +1,8 @@
 ## DNS
 
 Manual for now (TODO: automate via DNS API):
-- Prod A records → prod node IP (current): `51.158.77.108`
-- Test A records → test node IP (current): `51.158.67.237`
+- Prod A records → prod node IP (use current IP from Terraform outputs)
+- Test A records → test node IP (use current IP from Terraform outputs)
 
 Hosts:
 - Prod: `www.devsh.eu`, `blog.devsh.eu`, `kimai2.devsh.eu`, `monitoring.devsh.eu`, `flux-hook.devsh.eu`

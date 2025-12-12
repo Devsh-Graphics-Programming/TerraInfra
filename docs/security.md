@@ -24,7 +24,7 @@ Current hardening state per service/namespace:
   - Keep reclaimPolicy `Retain` to preserve data across node recreations/snapshots.
 - Network:
   - Ingress only from `infra` namespace (see existing NetPolicies).
-- Egress: whitelist DNS + only required hosts/ports. If SMTP is needed, lock to `mail.devsh.eu:587` (NetPol uses the resolved IP); otherwise keep DNS-only.
+  - Egress: whitelist DNS + only required hosts/ports. If SMTP is needed, lock to `mail.devsh.eu:587` (NetPol uses the resolved IP); otherwise keep DNS-only.
 - Secrets:
   - Store as SOPS-encrypted YAML under `k8s/vars/<env>/secrets/`.
   - Reference via `envFromSecret` or `secretKeyRef`; no plaintext in manifests.

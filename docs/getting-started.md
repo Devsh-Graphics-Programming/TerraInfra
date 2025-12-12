@@ -1,12 +1,7 @@
 ## Getting Started
 
-This repo is GitOps-driven (Flux). You change manifests, push to the right branch, Flux syncs clusters (prod=test code on different branches). Terraform builds the k3s node and bootstraps Flux; day‑2 is via Git.
-
-### Git branches (quick reminder)
-- Prod: `env/prod`
-- Test: `env/test`
-- Workflow: commit to `env/test` → verify in test → merge to `env/prod`.
-- WARNING: pushing to these branches triggers Flux to reconcile the cluster that tracks them (prod watches `env/prod`, test watches `env/test`).
+GitOps-first: manifests live in this repo, Flux syncs per branch (`env/prod`, `env/test`). Terraform only builds the node and bootstraps Flux; day‑2 is Git-only. (Branch details: `docs/environments.md`. Fast-forward rules: `docs/how-to-commit.md`.)
+> Pushing to `env/prod` updates live prod. Pushing to `env/test` updates the test cluster.
 
 ### Prerequisites
 - Windows PowerShell
@@ -15,7 +10,7 @@ This repo is GitOps-driven (Flux). You change manifests, push to the right branc
 - SSH key (for k3s node)
 
 ### Age key
-- Private key file (e.g., `terraform/terra.agekey`) – keep it securely (password manager/secure storage), never commit.
+- Private key file (e.g., `terraform/terra.agekey`) – keep it securely, never commit.
 - Set per session:  
   `cd terraform; $env:SOPS_AGE_KEY = Get-Content terra.agekey -Raw`
 
@@ -78,20 +73,15 @@ Reload per session: `cd terraform; . .\env.ps1`
   - or `$env:TF_VAR_public_ip_id='<ip_uuid>'`
 - Keep data volume protected (prod): `TF_VAR_prevent_destroy_data_volume=true`.
 - `terraform apply` – the server stays up; Terraform detaches the old IP and attaches the new one in place.
-- Update DNS to the new IP (manual for now), wait for propagation; cert-manager will renew automatically (respect LE rate limits). If you want to force re-issue after DNS cutover: `k3s kubectl -n <ns> delete order,challenge -l acme.cert-manager.io/certificate-name=<cert_name>`.
+- Update DNS to the new IP (manual for now; see `docs/dns.md`), wait for propagation; cert-manager will renew automatically (respect LE rate limits). If you want to force re-issue after DNS cutover: `k3s kubectl -n <ns> delete order,challenge -l acme.cert-manager.io/certificate-name=<cert_name>`.
 - After confirming traffic on the new IP, delete the old Flexible IP in Scaleway.
 
 ### Certificates (Let’s Encrypt)
 - Check status: `k3s kubectl get certificate -A` and `k3s kubectl get orders.acme.cert-manager.io -A`.
-- Let’s Encrypt rate limits apply to all hosts; if you see `order ... errored ... too many certificates ... retry after ...`, wait until the indicated time; cert-manager will retry automatically.
+- LE rate limits apply to all hosts; if you see `order ... errored ... too many certificates ... retry after ...`, wait until the indicated time; cert-manager will retry automatically.
 - Force renew all certs after DNS/IP change (from the node):  
   `(k3s kubectl get order.acme.cert-manager.io -A -o name; k3s kubectl get challenge.acme.cert-manager.io -A -o name) | xargs -r k3s kubectl delete`
-- TLS per host:
-  - `website/devsh-blog-tls` → blog
-  - `website/devsh-website-tls` → www
-  - `apps-tools/kimai-cert` → kimai2
-  - `monitoring/grafana-cert` → grafana
-  - `flux-system/flux-hook-cert` → flux webhook
+- TLS per host (prod/test): www, blog, kimai2, monitoring, flux-hook (namespaces: website, apps-tools, monitoring-grafana, flux-system).
 
 ### Quick commands
 - Prod apply:  
