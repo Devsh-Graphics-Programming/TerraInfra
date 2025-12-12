@@ -35,7 +35,7 @@ spec:
       serviceAccountName: website
       containers:
         - name: website
-          image: ghcr.io/devsh-graphics-programming/www-website:latest
+          image: ghcr.io/devsh-graphics-programming/www-website:latest # {"$imagepolicy": "flux-system:www-website:tag"}
           ports:
             - containerPort: 3000
           securityContext:
@@ -145,7 +145,7 @@ spec:
       serviceAccountName: blog
       containers:
         - name: blog
-          image: ghcr.io/devsh-graphics-programming/www-blog:latest
+          image: ghcr.io/devsh-graphics-programming/www-blog:latest # {"$imagepolicy": "flux-system:www-blog:tag"}
           ports:
             - containerPort: 3000
           securityContext:

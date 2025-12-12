@@ -8,6 +8,8 @@ resources:
   - ../kimai.tpl.yaml
   - ../monitoring-grafana.tpl.yaml
   - ../monitoring-prometheus.tpl.yaml
+  - ../monitoring-alerts.tpl.yaml
   - ../dashboard.tpl.yaml
   - ../www-sites.tpl.yaml
   - ../grafana-dashboards
+  - ../image-automation.yaml

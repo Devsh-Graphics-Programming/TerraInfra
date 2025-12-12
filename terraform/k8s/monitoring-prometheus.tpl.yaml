@@ -35,3 +35,66 @@ spec:
   values:
     grafana:
       enabled: false
+    alertmanager:
+      alertmanagerSpec:
+        secrets:
+          - alertmanager-discord
+      config:
+        global:
+          resolve_timeout: 5m
+        inhibit_rules:
+          - source_matchers: ['severity="critical"']
+            target_matchers: ['severity="warning"']
+            equal: ['alertname', 'namespace', 'cluster', 'resource']
+        route:
+          receiver: discord-warning
+          group_by: ['alertname', 'namespace', 'cluster', 'resource']
+          group_wait: 30s
+          group_interval: 5m
+          repeat_interval: 2h
+          routes:
+            - matchers:
+                - severity="critical"
+              receiver: discord-critical
+            - matchers:
+                - severity="warning"
+              receiver: discord-warning
+        receivers:
+          - name: discord-critical
+            slack_configs:
+              - api_url_file: /etc/alertmanager/secrets/discord_critical_url
+                send_resolved: true
+                title: '{{ template "devsh.title" . }}'
+                text: '{{ template "devsh.body" . }}'
+          - name: discord-warning
+            slack_configs:
+              - api_url_file: /etc/alertmanager/secrets/discord_warning_url
+                send_resolved: true
+                title: '{{ template "devsh.title" . }}'
+                text: '{{ template "devsh.body" . }}'
+        templates:
+          - /etc/alertmanager/config/*.tmpl
+      templateFiles:
+        devsh.tmpl: |
+          {{ define "devsh.title" -}}
+          [{{ .Status | toUpper }}][{{ .CommonLabels.severity | default "unknown" | toUpper }}] {{ .CommonLabels.alertname }}
+          {{- end }}
+          {{ define "devsh.body" -}}
+          *Cluster:* {{ .CommonLabels.cluster | default "prod" }}
+          *Namespace:* {{ .CommonLabels.namespace | default "n/a" }}
+          *Name:* {{ .CommonLabels.pod | default .CommonLabels.deployment | default .CommonLabels.job | default "n/a" }}
+          *Summary:* {{ .CommonAnnotations.summary | default "n/a" }}
+          *Description:* {{ .CommonAnnotations.description | default "n/a" }}
+          {{- if .Alerts.Firing }}
+          *Firing:*
+          {{- range .Alerts.Firing }}
+          - {{ .Labels.alertname }} ({{ .Labels.severity | default "n/a" }}) {{ .Annotations.summary | default "" }}
+          {{- end }}
+          {{- end }}
+          {{- if .Alerts.Resolved }}
+          *Resolved:*
+          {{- range .Alerts.Resolved }}
+          - {{ .Labels.alertname }}
+          {{- end }}
+          {{- end }}
+          {{- end }}

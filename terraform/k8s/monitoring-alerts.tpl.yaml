@@ -1,0 +1,110 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: custom-alerts
+  namespace: monitoring
+spec:
+  groups:
+    - name: devsh-critical
+      rules:
+        - alert: NodeNotReady
+          expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+          for: 5m
+          labels:
+            severity: critical
+            team: devops
+          annotations:
+            summary: Node not ready
+            description: Node {{ $labels.node }} is NotReady for more than 5 minutes.
+        - alert: NodeDiskPressure
+          expr: (100 - (node_filesystem_avail_bytes{fstype!~"tmpfs|ramfs",mountpoint="/"} * 100 / node_filesystem_size_bytes{fstype!~"tmpfs|ramfs",mountpoint="/"})) >= 90
+          for: 5m
+          labels:
+            severity: critical
+            team: devops
+          annotations:
+            summary: Node disk usage >= 90%
+            description: Disk usage on {{ $labels.instance }} is above 90% for 5 minutes.
+        - alert: CoreDNSDown
+          expr: sum(up{job="kube-dns"} == 0) > 0
+          for: 2m
+          labels:
+            severity: critical
+            team: devops
+          annotations:
+            summary: CoreDNS down
+            description: CoreDNS endpoints are not responding.
+        - alert: ControlPlaneDown
+          expr: sum(up{job=~"apiserver|kube-controller-manager|kube-scheduler"} == 0) > 0
+          for: 5m
+          labels:
+            severity: critical
+            team: devops
+          annotations:
+            summary: Control plane component down
+            description: One of the control plane components is down for over 5 minutes.
+        - alert: PersistentVolumeFull
+          expr: (kubelet_volume_stats_available_bytes / kubelet_volume_stats_capacity_bytes) * 100 < 10
+          for: 10m
+          labels:
+            severity: critical
+            team: devops
+          annotations:
+            summary: Volume capacity below 10%
+            description: Volume {{ $labels.persistentvolumeclaim }} usage above 90% for 10 minutes.
+        - alert: FluxKustomizationFailed
+          expr: gotk_reconcile_condition{type="Ready",status="False",exported_namespace="flux-system"} == 1
+          for: 10m
+          labels:
+            severity: critical
+            team: devops
+          annotations:
+            summary: Flux reconciliation failed
+            description: Flux resource {{ $labels.name }} in namespace {{ $labels.exported_namespace }} is not Ready.
+    - name: devsh-warning
+      rules:
+        - alert: CrashLoopBackOff
+          expr: rate(kube_pod_container_status_restarts_total[10m]) > 3
+          for: 10m
+          labels:
+            severity: warning
+            team: devops
+          annotations:
+            summary: Container crash looping
+            description: Container {{ $labels.container }} in pod {{ $labels.pod }} is restarting frequently.
+        - alert: DeploymentUnavailable
+          expr: (kube_deployment_status_replicas_available < kube_deployment_spec_replicas) and (kube_deployment_spec_replicas > 0)
+          for: 10m
+          labels:
+            severity: warning
+            team: devops
+          annotations:
+            summary: Deployment unavailable
+            description: Deployment {{ $labels.deployment }} has unavailable replicas.
+        - alert: FluxStalled
+          expr: gotk_reconcile_condition{type="Stalled",status="True",exported_namespace="flux-system"} == 1
+          for: 15m
+          labels:
+            severity: warning
+            team: devops
+          annotations:
+            summary: Flux reconciliation stalled
+            description: Flux resource {{ $labels.name }} is stalled for more than 15 minutes.
+        - alert: RestartStorm
+          expr: rate(kube_pod_container_status_restarts_total[10m]) > 5
+          for: 10m
+          labels:
+            severity: warning
+            team: devops
+          annotations:
+            summary: High restart rate
+            description: Pod {{ $labels.pod }} is restarting excessively.
+        - alert: HpaMaxedOut
+          expr: (kube_hpa_status_current_replicas == kube_hpa_spec_max_replicas) and (kube_hpa_spec_max_replicas > 1)
+          for: 15m
+          labels:
+            severity: warning
+            team: devops
+          annotations:
+            summary: HPA at maximum replicas
+            description: HPA {{ $labels.hpa }} reached its max replicas for more than 15 minutes.
