@@ -70,6 +70,9 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: kube-system
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
   policyTypes:
     - Egress
 ---
