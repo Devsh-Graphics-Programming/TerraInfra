@@ -135,11 +135,18 @@ spec:
     - host: ${ENV_PREFIX}k8s.${BASE_DOMAIN}
       http:
         paths:
-          - path: /
+          - path: /api(/|$)(.*)
             pathType: Prefix
             backend:
               service:
                 name: kubernetes-dashboard-api
+                port:
+                  number: 8000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: kubernetes-dashboard-web
                 port:
                   number: 8000
 ---
