@@ -98,6 +98,8 @@ spec:
       type: rabbitmq
     postgresql:
       enabled: true
+      image:
+        tag: 17.6.0-debian-12-r4
       auth:
         existingSecret: oncall-postgresql
         secretKeys:
@@ -112,11 +114,15 @@ spec:
           size: 10Gi
     redis:
       enabled: true
+      image:
+        tag: 7.4.0-debian-12-r3
       auth:
         existingSecret: oncall-redis
         existingSecretPasswordKey: redis-password
     rabbitmq:
       enabled: true
+      image:
+        tag: 4.0.5-debian-12-r0
       auth:
         existingPasswordSecret: oncall-rabbitmq
         username: user
