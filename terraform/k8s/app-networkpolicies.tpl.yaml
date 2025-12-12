@@ -143,7 +143,7 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: grafana-ingress-from-ingress
-  namespace: monitoring
+  namespace: monitoring-grafana
 spec:
   podSelector:
     matchLabels:
@@ -163,6 +163,35 @@ kind: NetworkPolicy
 metadata:
   name: monitoring-egress
   namespace: monitoring
+spec:
+  podSelector: {}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 163.172.128.247/32
+      ports:
+        - port: 587
+          protocol: TCP
+  policyTypes:
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: monitoring-grafana-egress
+  namespace: monitoring-grafana
 spec:
   podSelector: {}
   egress:
