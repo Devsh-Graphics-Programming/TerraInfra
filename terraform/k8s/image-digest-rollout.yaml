@@ -1,0 +1,75 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: digest-rollout
+  namespace: website
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: digest-rollout
+  namespace: website
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames: ["devsh-website", "devsh-blog"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: digest-rollout
+  namespace: website
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: digest-rollout
+subjects:
+  - kind: ServiceAccount
+    name: digest-rollout
+    namespace: website
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: digest-rollout
+  namespace: website
+spec:
+  schedule: "*/2 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: digest-rollout
+          restartPolicy: Never
+          containers:
+            - name: digest-rollout
+              image: alpine:3.20
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -euo pipefail
+                  apk add --no-cache curl jq skopeo kubectl >/dev/null
+
+                  check() {
+                    name="$1"
+                    image="$2"
+                    deploy="$3"
+                    desired="$(skopeo inspect --override-os linux "docker://${image}" | jq -r '.Digest')"
+                    current="$(kubectl -n website get deployment "${deploy}" -o jsonpath='{.spec.template.metadata.annotations["rollout.devsh.eu/'"${name}"'"]}' 2>/dev/null || true)"
+                    if [ "${desired}" != "${current}" ]; then
+                      ts="$(date -u +%Y%m%dT%H%M%SZ)"
+                      kubectl -n website patch deployment "${deploy}" --type merge -p "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"rollout.devsh.eu/${name}\":\"${desired}-${ts}\"}}}}}"
+                      echo "patched ${deploy} to digest ${desired}"
+                    else
+                      echo "no change for ${deploy} (digest ${desired})"
+                    fi
+                  }
+
+                  check "devsh-website" "ghcr.io/devsh-graphics-programming/www-website:latest" "devsh-website"
+                  check "devsh-blog" "ghcr.io/devsh-graphics-programming/www-blog:latest" "devsh-blog"
