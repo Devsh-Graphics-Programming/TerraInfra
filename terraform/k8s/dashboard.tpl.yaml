@@ -176,6 +176,10 @@ spec:
         - port: 443
           protocol: TCP
     - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      # allow kube-apiserver endpoints (k3s uses node IP:6443) and any other required control-plane calls
+    - to:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: kubernetes-dashboard
