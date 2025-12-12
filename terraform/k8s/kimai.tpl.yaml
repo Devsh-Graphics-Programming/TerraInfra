@@ -237,7 +237,7 @@ spec:
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: kimai-bootstrap-admin-v3
+  name: kimai-bootstrap-admin-v4
   namespace: apps-tools
 spec:
   ttlSecondsAfterFinished: 86400
