@@ -16,3 +16,4 @@ Docs live in `docs/`:
 - `docs/dns.md` – DNS (manual for now)
 - `docs/security.md` – hardening matrix, how to add services with current security baseline
 - `docs/ui.md` – Kubernetes Dashboard (read-only) access
+- `docs/monitoring.md` – Grafana dashboard provisioning and updates
