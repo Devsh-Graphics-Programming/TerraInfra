@@ -6,7 +6,11 @@ We ship Kubernetes Dashboard (read-only) via Helm:
 
 Login (token):
 ```
+# short-lived (default, ~1h)
 k3s kubectl -n kubernetes-dashboard create token dashboard-sa
+
+# longer (example: 24h)
+k3s kubectl -n kubernetes-dashboard create token dashboard-sa --duration=24h
 ```
 Use the token in the Dashboard login screen.
 
