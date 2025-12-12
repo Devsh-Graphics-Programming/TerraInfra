@@ -5,10 +5,10 @@ Current hardening state per service/namespace:
 | Service / Namespace          | PSA         | runAsNonRoot | RO rootfs | Storage (via PVC)                     | Egress                                          |
 | ---------------------------- | ----------- | ------------ | --------- | ------------------------------------- | ----------------------------------------------- |
 | Website / Blog (website)     | restricted  | ✓            | ✓         | ephemeral (tmpfs/emptyDir, no PV)     | DNS only                                        |
-| Kimai app (apps-tools)       | restricted  | ✓            | ✗         | PVC → local PV `/mnt/data/kimai-var`  | DNS, MariaDB 3306, SMTP mail.devsh.eu:587 (IP-whitelisted) |
+| Kimai app (apps-tools)       | restricted  | ✓            | ✗         | PVC → local PV `/mnt/data/kimai-var`  | DNS, MariaDB 3306, SMTP mail.devsh.eu:587 |
 | MariaDB (apps-tools)         | restricted  | ✓            | ✗         | PVC → local PV `/mnt/data/mariadb`    | DNS only                                        |
 | Grafana (monitoring-grafana) | restricted  | ✓            | ✓         | PVC → local PV `/mnt/data/grafana`    | DNS, SMTP mail.devsh.eu:587                     |
-| Prom stack (monitoring)      | privileged* | chart defaults | chart defaults | chart-provisioned PVs            | DNS, SMTP mail.devsh.eu:587 (IP-whitelisted)    |
+| Prom stack (monitoring)      | privileged* | chart defaults | chart defaults | chart-provisioned PVs            | DNS, SMTP mail.devsh.eu:587    |
 | Flux/infra/cert-manager      | baseline    | n/a          | n/a       | n/a                                   | controller defaults                             |
 
 \*Prometheus node-exporter needs privileged host access; the namespace PSA is set to `privileged` for that DaemonSet.
@@ -24,7 +24,7 @@ Current hardening state per service/namespace:
   - Keep reclaimPolicy `Retain` to preserve data across node recreations/snapshots.
 - Network:
   - Ingress only from `infra` namespace (see existing NetPolicies).
-  - Egress: whitelist DNS + only required hosts/ports. If SMTP is needed, lock to `mail.devsh.eu:587` (NetPol uses the resolved IP); otherwise keep DNS-only.
+  - Egress: whitelist DNS + only required hosts/ports. If SMTP is needed, lock to `mail.devsh.eu:587` (bez twardego IP); otherwise keep DNS-only.
 - Secrets:
   - Store as SOPS-encrypted YAML under `k8s/vars/<env>/secrets/`.
   - Reference via `envFromSecret` or `secretKeyRef`; no plaintext in manifests.

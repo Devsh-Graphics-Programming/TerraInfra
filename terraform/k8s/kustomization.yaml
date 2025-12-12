@@ -10,3 +10,15 @@ resources:
   - monitoring-grafana.tpl.yaml
   - www-sites.tpl.yaml
   - dashboard.tpl.yaml
+generatorOptions:
+  disableNameSuffixHash: true
+configMapGenerator:
+  - name: grafana-dashboards
+    namespace: monitoring-grafana
+    files:
+      - grafana-dashboards/node-exporter-full.json
+      - grafana-dashboards/kubernetes-cluster-monitoring.json
+      - grafana-dashboards/prometheus-2-overview.json
+    options:
+      labels:
+        grafana_dashboard: "1"

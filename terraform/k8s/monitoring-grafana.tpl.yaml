@@ -118,4 +118,16 @@ spec:
       datasources:
         enabled: false
       dashboards:
-        enabled: false
+        enabled: true
+        label: grafana_dashboard
+        searchNamespace: ALL
+    datasources:
+      datasources.yaml:
+        apiVersion: 1
+        datasources:
+          - name: Prometheus
+            type: prometheus
+            access: proxy
+            url: http://monitoring-kube-prometheus-prometheus.monitoring.svc:9090
+            isDefault: true
+            editable: false
