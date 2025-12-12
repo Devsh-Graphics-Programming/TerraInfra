@@ -16,8 +16,11 @@ spec:
   imageRepositoryRef:
     name: www-website
   policy:
-    semver:
-      range: ">=0.0.0"
+    alphabetical:
+      order: desc
+    filterTags:
+      pattern: "^sha-(?P<ts>.*)$"
+      extract: "$ts"
 ---
 apiVersion: image.toolkit.fluxcd.io/v1beta2
 kind: ImageRepository
@@ -37,8 +40,11 @@ spec:
   imageRepositoryRef:
     name: www-blog
   policy:
-    semver:
-      range: ">=0.0.0"
+    alphabetical:
+      order: desc
+    filterTags:
+      pattern: "^sha-(?P<ts>.*)$"
+      extract: "$ts"
 ---
 apiVersion: image.toolkit.fluxcd.io/v1beta2
 kind: ImageUpdateAutomation
