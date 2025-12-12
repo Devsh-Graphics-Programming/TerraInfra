@@ -4,6 +4,9 @@ resources:
   - ../cluster-issuer.yaml
   - ../flux-networkpolicies.tpl.yaml
   - ../flux-receiver.tpl.yaml
+  - ../app-networkpolicies.tpl.yaml
   - ../kimai.tpl.yaml
   - ../monitoring-grafana.tpl.yaml
+  - ../monitoring-prometheus.tpl.yaml
+  - ../dashboard.tpl.yaml
   - ../www-sites.tpl.yaml
