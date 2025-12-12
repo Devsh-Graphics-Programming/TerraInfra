@@ -193,6 +193,8 @@ spec:
   backoffLimit: 3
   template:
     spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
       serviceAccountName: oncall-bootstrap
       restartPolicy: OnFailure
       containers:
