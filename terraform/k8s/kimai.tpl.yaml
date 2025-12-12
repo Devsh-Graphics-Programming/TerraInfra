@@ -239,6 +239,8 @@ kind: Job
 metadata:
   name: kimai-bootstrap-admin-v4
   namespace: apps-tools
+  annotations:
+    kustomize.toolkit.fluxcd.io/force: "enabled"
 spec:
   ttlSecondsAfterFinished: 86400
   template:
