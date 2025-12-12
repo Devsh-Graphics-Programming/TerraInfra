@@ -87,10 +87,7 @@ spec:
         create: true
         name: monitoring-grafana
       securityContext:
-        runAsUser: 472
-        runAsGroup: 472
         fsGroup: 472
-        runAsNonRoot: true
       containerSecurityContext:
         runAsUser: 472
         runAsGroup: 472
