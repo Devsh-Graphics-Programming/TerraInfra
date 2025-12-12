@@ -55,8 +55,9 @@ spec:
       ref:
         branch: env/prod
     commit:
-      authorName: FluxCD
-      authorEmail: flux@example.com
+      author:
+        name: FluxCD
+        email: flux@example.com
       messageTemplate: "chore: update website/blog images"
     push:
       branch: env/prod
