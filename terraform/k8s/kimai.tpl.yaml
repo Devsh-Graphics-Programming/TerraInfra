@@ -88,14 +88,9 @@ spec:
       labels:
         app: kimai-mariadb
     spec:
+      securityContext:
+        fsGroup: 999
       serviceAccountName: kimai-mariadb
-      initContainers:
-        - name: fix-mariadb-perms
-          image: busybox:1.36
-          command: ["sh", "-c", "chown -R 999:999 /var/lib/mysql"]
-          volumeMounts:
-            - name: mariadb-data
-              mountPath: /var/lib/mysql
       containers:
         - name: mariadb
           image: mariadb:11
@@ -158,16 +153,17 @@ spec:
       labels:
         app: kimai
     spec:
+      securityContext:
+        fsGroup: 33
       serviceAccountName: kimai
       initContainers:
-        - name: fix-kimai-perms
-          image: busybox:1.36
-          command: ["sh", "-c", "chown -R 33:33 /opt/kimai/var"]
-          volumeMounts:
-            - name: kimai-var
-              mountPath: /opt/kimai/var
         - name: ensure-db
           image: mariadb:11
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
+            allowPrivilegeEscalation: false
           env:
             - name: MYSQL_ROOT_PASSWORD
               valueFrom:
@@ -245,15 +241,10 @@ spec:
   ttlSecondsAfterFinished: 86400
   template:
     spec:
+      securityContext:
+        fsGroup: 33
       serviceAccountName: kimai
       restartPolicy: Never
-      initContainers:
-        - name: fix-kimai-perms
-          image: busybox:1.36
-          command: ["sh", "-c", "chown -R 33:33 /opt/kimai/var"]
-          volumeMounts:
-            - name: kimai-var
-              mountPath: /opt/kimai/var
       containers:
         - name: create-admin
           image: kimai/kimai2:apache
