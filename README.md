@@ -14,3 +14,4 @@ Docs live in `docs/`:
 - `docs/secrets.md` – SOPS/age secrets: create/encrypt/decrypt
 - `docs/snapshots.md` – prod snapshot workflow & restore to test
 - `docs/dns.md` – DNS (manual for now)
+- `docs/security.md` – hardening matrix, how to add services with current security baseline
