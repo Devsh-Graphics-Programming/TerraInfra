@@ -2,14 +2,14 @@
 
 Current hardening state per service/namespace:
 
-| Service / Namespace          | PSA         | runAsNonRoot | RO rootfs | Storage                          | Egress                                          |
-| ---------------------------- | ----------- | ------------ | --------- | -------------------------------- | ----------------------------------------------- |
-| Website / Blog (website)     | restricted  | ✓            | ✓         | hostPath per app                 | DNS only                                        |
-| Kimai app (apps-tools)       | restricted  | ✓            | ✗         | local PV `/mnt/data/kimai-var`   | DNS, MariaDB 3306, SMTP 163.172.128.247:587     |
-| MariaDB (apps-tools)         | restricted  | ✓            | ✗         | local PV `/mnt/data/mariadb`     | DNS only                                        |
-| Grafana (monitoring-grafana) | restricted  | ✓            | ✓         | local PV `/mnt/data/grafana`     | DNS, SMTP 163.172.128.247:587                   |
-| Prom stack (monitoring)      | privileged* | chart defaults | chart defaults | chart-provisioned PVs          | DNS, SMTP 163.172.128.247:587                   |
-| Flux/infra/cert-manager      | baseline    | n/a          | n/a       | n/a                              | controller defaults                             |
+| Service / Namespace          | PSA         | runAsNonRoot | RO rootfs | Storage (via PVC)                     | Egress                                          |
+| ---------------------------- | ----------- | ------------ | --------- | ------------------------------------- | ----------------------------------------------- |
+| Website / Blog (website)     | restricted  | ✓            | ✓         | ephemeral (tmpfs/emptyDir, no PV)     | DNS only                                        |
+| Kimai app (apps-tools)       | restricted  | ✓            | ✗         | PVC → local PV `/mnt/data/kimai-var`  | DNS, MariaDB 3306, SMTP mail.devsh.eu:587 (IP-whitelisted) |
+| MariaDB (apps-tools)         | restricted  | ✓            | ✗         | PVC → local PV `/mnt/data/mariadb`    | DNS only                                        |
+| Grafana (monitoring-grafana) | restricted  | ✓            | ✓         | PVC → local PV `/mnt/data/grafana`    | DNS, SMTP mail.devsh.eu:587 (IP-whitelisted)    |
+| Prom stack (monitoring)      | privileged* | chart defaults | chart defaults | chart-provisioned PVs            | DNS, SMTP mail.devsh.eu:587 (IP-whitelisted)    |
+| Flux/infra/cert-manager      | baseline    | n/a          | n/a       | n/a                                   | controller defaults                             |
 
 \*Prometheus node-exporter needs privileged host access; the namespace PSA is set to `privileged` for that DaemonSet.
 
