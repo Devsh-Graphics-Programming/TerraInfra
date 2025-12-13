@@ -334,6 +334,7 @@ spec:
               
               discord_critical = discord_secret.get("discord_critical_url")
               discord_warning = discord_secret.get("discord_warning_url")
+              discord_oncall_role = discord_secret.get("discord_oncall_role_id", "").strip()
               if not discord_critical or not discord_warning:
                   print("Missing Discord webhook URLs", file=sys.stderr)
                   sys.exit(1)
@@ -383,17 +384,41 @@ spec:
                       avatar_url=f"{base_url}/static/img/avatars/avatar.png",
                       is_active=True,
                   )
-              
-              discord_template = json.dumps(
-                  {
-                      "content": "[{{ event.type | upper }}][{{ alert_payload.commonLabels.severity | upper if alert_payload.commonLabels and alert_payload.commonLabels.severity else 'UNKNOWN' }}] "
-                                 "{{ alert_payload.commonLabels.alertname | default('Alert') }} - "
-                                 "{{ alert_payload.commonAnnotations.summary | default(alert_group.title) }}\\n"
-                                 "Link: {{ alert_group.permalinks.web or '' }}",
-                      "allowed_mentions": {"parse": []},
-                  }
-              )
-              
+
+              allowed_mentions = {"parse": []}
+              if discord_oncall_role:
+                  allowed_mentions["roles"] = [discord_oncall_role]
+
+              mention_prefix = f"<@&{discord_oncall_role}>" if discord_oncall_role else "@OnCall"
+              discord_template = """
+{
+  "content": "%s — {{ event.type | upper }} · {{ alert_payload.commonLabels.severity | upper if alert_payload.commonLabels and alert_payload.commonLabels.severity else 'UNKNOWN' }} · {{ alert_payload.commonLabels.alertname | default('Alert') }}",
+  "embeds": [
+    {
+      "title": "{{ alert_payload.commonAnnotations.summary | default(alert_group.title) }}",
+      "url": "{{ alert_group.permalinks.web or '' }}",
+      "color": {{ {
+        'CRITICAL': 16731427,
+        'WARNING': 16763904,
+        'INFO': 3447003,
+        'NONE': 10070709
+      }.get((alert_payload.commonLabels.severity | upper if alert_payload.commonLabels and alert_payload.commonLabels.severity else 'NONE'), 10070709) }},
+      "fields": [
+        {"name": "Status", "value": "{{ 'FIRING' if event.type == 'alert group created' else event.type | upper }}", "inline": true},
+        {"name": "Severity", "value": "{{ alert_payload.commonLabels.severity | upper if alert_payload.commonLabels and alert_payload.commonLabels.severity else 'UNKNOWN' }}", "inline": true},
+        {"name": "Cluster", "value": "{{ alert_payload.commonLabels.cluster | default('n/a') }}", "inline": true},
+        {"name": "Namespace", "value": "{{ alert_payload.commonLabels.namespace | default('n/a') }}", "inline": true},
+        {"name": "Resource", "value": "{{ alert_payload.commonLabels.alertname | default('Alert') }}", "inline": true},
+        {"name": "Instance", "value": "{{ alert_payload.commonLabels.instance | default('n/a') }}", "inline": true},
+        {"name": "Link", "value": "{{ alert_group.permalinks.web or '' }}", "inline": false}
+      ]
+    }
+  ],
+  "allowed_mentions": %s
+}
+""" % (mention_prefix, json.dumps(allowed_mentions))
+              discord_template = "\n".join(line.rstrip() for line in discord_template.splitlines()).strip()
+
               def ensure_integration(name, token):
                   with transaction.atomic():
                       channel, _ = AlertReceiveChannel.objects.get_or_create(
