@@ -388,16 +388,16 @@ spec:
                       is_active=True,
                   )
 
-              allowed_mentions = {"parse": ["roles"]}
+              allowed_mentions = {"parse": ["roles", "everyone"]}
               if discord_oncall_role:
                   allowed_mentions["roles"] = [discord_oncall_role]
 
               environment_label = os.environ.get("ENVIRONMENT_LABEL", "prod").strip() or "prod"
-              mention_prefix = f"<@&{discord_oncall_role}>" if discord_oncall_role else "@OnCall"
+              mention_prefix = f"<@&{discord_oncall_role}>" if discord_oncall_role else "@here"
               discord_template = textwrap.dedent(
                   """
                   {
-                    "content": "%s — {{ event.type | upper }} · {{ alert_payload.commonLabels.severity | upper if alert_payload.commonLabels and alert_payload.commonLabels.severity else 'UNKNOWN' }} · {{ alert_payload.commonLabels.alertname | default('Alert') }} · [%s]",
+                    "content": "# %s — {{ event.type | upper }} · {{ alert_payload.commonLabels.severity | upper if alert_payload.commonLabels and alert_payload.commonLabels.severity else 'UNKNOWN' }} · {{ alert_payload.commonLabels.alertname | default('Alert') }} · [%s]",
                     "embeds": [
                       {
                         "title": "{{ ('✅' if event.type == 'resolve' else '⚠️' if (alert_payload.commonLabels.severity | upper if alert_payload.commonLabels and alert_payload.commonLabels.severity else 'NONE') in ['WARNING','NONE'] else '🔴') }} {{ alert_payload.commonAnnotations.summary | default(alert_group.title) }}",
