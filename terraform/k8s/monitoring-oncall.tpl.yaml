@@ -75,6 +75,9 @@ spec:
   values:
     image:
       tag: v1.16.5
+    env:
+      MIRAGE_CIPHER_MODE: ECB
+      MIRAGE_CIPHER_IV: 1234567890abcdef
     base_url: ${ENV_PREFIX}oncall.${BASE_DOMAIN}
     base_url_protocol: https
     ingress:
@@ -242,6 +245,10 @@ spec:
                 secretKeyRef:
                   name: oncall-secrets
                   key: MIRAGE_SECRET_KEY
+            - name: MIRAGE_CIPHER_MODE
+              value: ECB
+            - name: MIRAGE_CIPHER_IV
+              value: "1234567890abcdef"
             - name: DJANGO_SETTINGS_MODULE
               value: settings.helm
             - name: PYTHONUNBUFFERED
