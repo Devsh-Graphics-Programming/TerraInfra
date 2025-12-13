@@ -393,11 +393,11 @@ spec:
                   allowed_mentions["roles"] = [discord_oncall_role]
 
               environment_label = os.environ.get("ENVIRONMENT_LABEL", "prod").strip() or "prod"
-              mention_prefix = f"<@&{discord_oncall_role}>" if discord_oncall_role else "@here"
+              mention_prefix = f"<@&{discord_oncall_role}>" if discord_oncall_role else "@everyone"
               discord_template = textwrap.dedent(
                   """
                   {
-                    "content": "# %s — {{ event.type | upper }} · {{ alert_payload.commonLabels.severity | upper if alert_payload.commonLabels and alert_payload.commonLabels.severity else 'UNKNOWN' }} · {{ alert_payload.commonLabels.alertname | default('Alert') }} · [%s]",
+                    "content": "# %s",
                     "embeds": [
                       {
                         "title": "{{ ('✅' if event.type == 'resolve' else '⚠️' if (alert_payload.commonLabels.severity | upper if alert_payload.commonLabels and alert_payload.commonLabels.severity else 'NONE') in ['WARNING','NONE'] else '🔴') }} {{ alert_payload.commonAnnotations.summary | default(alert_group.title) }}",
@@ -409,6 +409,7 @@ spec:
                           'NONE': 10070709
                         }.get((alert_payload.commonLabels.severity | upper if alert_payload.commonLabels and alert_payload.commonLabels.severity else 'NONE'), 10070709) }},
                         "fields": [
+                          {"name": "Event", "value": "{{ event.type | upper }}", "inline": true},
                           {"name": "Status", "value": "{{ '✅ RESOLVED' if event.type == 'resolve' else '🚨 FIRING' if event.type == 'alert group created' else event.type | upper }}", "inline": true},
                           {"name": "Severity", "value": "{{ ('🟥 ' if (alert_payload.commonLabels.severity | upper if alert_payload.commonLabels and alert_payload.commonLabels.severity else 'UNKNOWN') == 'CRITICAL' else '🟠 ' if (alert_payload.commonLabels.severity | upper if alert_payload.commonLabels and alert_payload.commonLabels.severity else 'UNKNOWN') == 'WARNING' else '🟦 ' if (alert_payload.commonLabels.severity | upper if alert_payload.commonLabels and alert_payload.commonLabels.severity else 'UNKNOWN') == 'INFO' else '⚪ ') }}{{ alert_payload.commonLabels.severity | upper if alert_payload.commonLabels and alert_payload.commonLabels.severity else 'UNKNOWN' }}", "inline": true},
                           {"name": "Env", "value": "%s", "inline": true},
