@@ -341,6 +341,7 @@ spec:
               if not discord_critical or not discord_warning:
                   print("Missing Discord webhook URLs", file=sys.stderr)
                   sys.exit(1)
+              proxy_url = "http://oncall-discord-proxy.monitoring-oncall.svc:8080/webhook"
 
               os.environ.setdefault("DJANGO_SETTINGS_MODULE", os.environ.get("DJANGO_SETTINGS_MODULE", "settings.helm"))
               for attempt in range(15):
@@ -486,9 +487,237 @@ spec:
               critical_channel = ensure_integration("alertmanager-critical", critical_token)
               warning_channel = ensure_integration("alertmanager-warning", warning_token)
               
-              ensure_webhook("discord-critical", discord_critical, critical_channel, Webhook.TRIGGER_ALERT_GROUP_CREATED)
-              ensure_webhook("discord-critical-resolve", discord_critical, critical_channel, Webhook.TRIGGER_RESOLVE)
-              ensure_webhook("discord-warning", discord_warning, warning_channel, Webhook.TRIGGER_ALERT_GROUP_CREATED)
-              ensure_webhook("discord-warning-resolve", discord_warning, warning_channel, Webhook.TRIGGER_RESOLVE)
-              
+              ensure_webhook("discord-critical", proxy_url, critical_channel, Webhook.TRIGGER_ALERT_GROUP_CREATED)
+              ensure_webhook("discord-critical-resolve", proxy_url, critical_channel, Webhook.TRIGGER_RESOLVE)
+              ensure_webhook("discord-warning", proxy_url, warning_channel, Webhook.TRIGGER_ALERT_GROUP_CREATED)
+              ensure_webhook("discord-warning-resolve", proxy_url, warning_channel, Webhook.TRIGGER_RESOLVE)
+
               print("OnCall integrations and webhooks configured")
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oncall-discord-proxy
+  namespace: monitoring-oncall
+data:
+  app.py: |
+    import json
+    import os
+    import time
+    from typing import Tuple
+
+    import redis
+    import requests
+    from flask import Flask, jsonify, request
+
+    app = Flask(__name__)
+
+    def clean_webhook(url: str) -> str:
+        clean = (url or "").rstrip("/")
+        if clean.endswith("/slack"):
+            clean = clean[: -len("/slack")]
+        return clean
+
+    DISCORD_CRITICAL = clean_webhook(os.environ.get("DISCORD_CRITICAL_URL", ""))
+    DISCORD_WARNING = clean_webhook(os.environ.get("DISCORD_WARNING_URL", ""))
+    ONCALL_ROLE_ID = os.environ.get("DISCORD_ONCALL_ROLE_ID", "").strip()
+
+    REDIS_HOST = os.environ.get("REDIS_HOST", "oncall-redis-master.monitoring-oncall.svc")
+    REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
+    REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD", "")
+    redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASSWORD, decode_responses=True)
+
+    def choose_webhook(severity: str) -> str:
+        sev = (severity or "").upper()
+        if sev == "CRITICAL":
+            return DISCORD_CRITICAL
+        return DISCORD_WARNING
+
+    def build_payload(data: dict) -> dict:
+        event = data.get("event", {})
+        alert_payload = data.get("alert_payload", {})
+        common_labels = alert_payload.get("commonLabels") or {}
+        common_annotations = alert_payload.get("commonAnnotations") or {}
+
+        severity = (common_labels.get("severity") or "UNKNOWN").upper()
+        cluster = common_labels.get("cluster") or "prod"
+        namespace = common_labels.get("namespace") or "n/a"
+        resource = common_labels.get("alertname") or "Alert"
+        instance = common_labels.get("instance") or "n/a"
+        summary = common_annotations.get("summary") or (data.get("alert_group", {}) or {}).get("title") or "Alert"
+        status_label = "✅ RESOLVED" if event.get("type") == "resolve" else "🚨 FIRING"
+
+        severity_emoji = {
+            "CRITICAL": "🟥 ",
+            "WARNING": "🟠 ",
+            "INFO": "🟦 ",
+        }.get(severity, "⚪ ")
+
+        embed = {
+            "title": summary,
+            "url": (data.get("alert_group") or {}).get("permalinks", {}).get("web") or "",
+            "color": {
+                "CRITICAL": 16731427,
+                "WARNING": 16763904,
+                "INFO": 3447003,
+                "NONE": 10070709,
+            }.get(severity, 10070709),
+            "fields": [
+                {"name": "Event", "value": (event.get("type") or "").upper(), "inline": True},
+                {"name": "Status", "value": status_label, "inline": True},
+                {"name": "Severity", "value": f"{severity_emoji}{severity}", "inline": True},
+                {"name": "Cluster", "value": cluster, "inline": True},
+                {"name": "Namespace", "value": namespace, "inline": True},
+                {"name": "Resource", "value": resource, "inline": True},
+                {"name": "Instance", "value": instance, "inline": True},
+            ],
+        }
+
+        mentions = {"parse": ["roles"], "roles": [ONCALL_ROLE_ID]} if ONCALL_ROLE_ID else {"parse": []}
+        return {
+            "content": "# @OnCall",
+            "embeds": [embed],
+            "allowed_mentions": mentions,
+        }
+
+    def send_discord(webhook: str, payload: dict, message_id: str = None) -> Tuple[int, dict]:
+        if not webhook:
+            return 400, {}
+        headers = {"Content-Type": "application/json"}
+        target = webhook
+        method = requests.post
+        if message_id:
+            target = f"{webhook}/messages/{message_id}"
+            method = requests.patch
+        resp = method(target, headers=headers, data=json.dumps(payload), timeout=10)
+        try:
+            body = resp.json()
+        except Exception:
+            body = {}
+        return resp.status_code, body
+
+    def record_message(alert_group_id: str, message_id: str, ttl: int = 7 * 24 * 3600):
+        if alert_group_id and message_id:
+            redis_client.setex(f"oncall:discord:{alert_group_id}", ttl, message_id)
+
+    def read_message(alert_group_id: str) -> str:
+        if not alert_group_id:
+            return ""
+        return redis_client.get(f"oncall:discord:{alert_group_id}") or ""
+
+    @app.route("/healthz")
+    def healthz():
+        return "ok"
+
+    @app.route("/webhook", methods=["POST"])
+    def webhook():
+        data = request.get_json(force=True, silent=True) or {}
+        alert_group = data.get("alert_group") or {}
+        alert_group_id = str(alert_group.get("id") or "")
+        alert_payload = data.get("alert_payload") or {}
+        severity = (alert_payload.get("commonLabels") or {}).get("severity") or "warning"
+
+        target_webhook = choose_webhook(severity)
+        payload = build_payload(data)
+
+        event_type = (data.get("event") or {}).get("type") or ""
+        if event_type == "resolve":
+            msg_id = read_message(alert_group_id)
+            if msg_id:
+                status, body = send_discord(target_webhook, payload, message_id=msg_id)
+                if status in (200, 204):
+                    return jsonify({"status": "patched", "message_id": msg_id}), 200
+            status, body = send_discord(target_webhook, payload)
+            if status == 200 and "id" in body:
+                record_message(alert_group_id, body["id"])
+            return jsonify({"status": "posted_resolve", "discord_status": status}), status
+
+        status, body = send_discord(target_webhook, payload)
+        if status == 200 and "id" in body:
+            record_message(alert_group_id, body["id"])
+            return jsonify({"status": "posted_create", "message_id": body["id"]}), 200
+        return jsonify({"status": "error", "discord_status": status, "body": body}), status
+
+
+    if __name__ == "__main__":
+        port = int(os.environ.get("PORT", "8080"))
+        app.run(host="0.0.0.0", port=port)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oncall-discord-proxy
+  namespace: monitoring-oncall
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oncall-discord-proxy
+  template:
+    metadata:
+      labels:
+        app: oncall-discord-proxy
+    spec:
+      serviceAccountName: oncall-bootstrap
+      containers:
+        - name: proxy
+          image: python:3.12-slim
+          args: ["python", "/opt/app/app.py"]
+          env:
+            - name: DISCORD_CRITICAL_URL
+              valueFrom:
+                secretKeyRef:
+                  name: alertmanager-discord
+                  key: discord_critical_url
+            - name: DISCORD_WARNING_URL
+              valueFrom:
+                secretKeyRef:
+                  name: alertmanager-discord
+                  key: discord_warning_url
+            - name: DISCORD_ONCALL_ROLE_ID
+              valueFrom:
+                secretKeyRef:
+                  name: alertmanager-discord
+                  key: discord_oncall_role_id
+            - name: REDIS_HOST
+              value: oncall-redis-master.monitoring-oncall.svc
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: oncall-redis
+                  key: redis-password
+          ports:
+            - name: http
+              containerPort: 8080
+          volumeMounts:
+            - name: app-code
+              mountPath: /opt/app
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+      volumes:
+        - name: app-code
+          configMap:
+            name: oncall-discord-proxy
+            items:
+              - key: app.py
+                path: app.py
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oncall-discord-proxy
+  namespace: monitoring-oncall
+spec:
+  selector:
+    app: oncall-discord-proxy
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
