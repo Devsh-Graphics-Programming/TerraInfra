@@ -25,7 +25,7 @@ data "scaleway_instance_ip" "by_address" {
 }
 
 resource "scaleway_instance_ip" "public_ip" {
-  count     = var.public_ip_id == "" && var.public_ip_address == "" ? 1 : 0
+  count      = var.public_ip_id == "" && var.public_ip_address == "" ? 1 : 0
   project_id = var.project_id
 }
 
@@ -39,9 +39,9 @@ locals {
 }
 
 resource "scaleway_instance_security_group" "web_sg" {
-  project_id = var.project_id
-  name       = "devsh-k3s-sg-${var.env_name}"
-  stateful   = true
+  project_id              = var.project_id
+  name                    = "devsh-k3s-sg-${var.env_name}"
+  stateful                = true
   enable_default_security = false
 
   inbound_default_policy  = "drop"
