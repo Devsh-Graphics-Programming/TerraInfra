@@ -589,7 +589,7 @@ data:
             ],
         }
 
-        mentions = {"parse": ["roles"], "roles": [ONCALL_ROLE_ID]} if ONCALL_ROLE_ID else {"parse": []}
+        mentions = {"parse": [], "roles": [ONCALL_ROLE_ID]} if ONCALL_ROLE_ID else {"parse": []}
         return alert_group_id, {
             "content": "# @OnCall",
             "embeds": [embed],
