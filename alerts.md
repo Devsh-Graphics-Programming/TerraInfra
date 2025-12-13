@@ -1,43 +1,103 @@
-## Alerting flow
+# Alerts
 
-- Alertmanager (monitoring) routes webhooks by `severity`: `critical` → Grafana OnCall receiver `alertmanager-critical`, `warning` → `alertmanager-warning`.
-- Grafana OnCall delivers notifications to Discord webhooks: `#alerts-critical` and `#alerts-warning`.
-- Dedicated OnCall stack lives in namespace `monitoring-oncall` (separate Grafana + engine + Redis + Postgres).
+- Flow: Alertmanager -> OnCall (Alertmanager integrations for critical and warning) -> OnCall outgoing webhook -> Discord proxy -> #alerts-critical / #alerts-warning with `@OnCall` mention; one message per alert group is patched on resolve.
+- Routing: `severity` label picks the Discord channel; `cluster`, `instance`, `namespace`, and `alertname` show up in the card, and the title links to the OnCall alert group.
+- Stack: dedicated OnCall namespace `monitoring-oncall` (Grafana + OnCall engine + Redis + Postgres + Discord proxy).
 
-## How to test
+## Smoke test (prod)
+1) Get integration URLs:
+```
+critical=$(k3s kubectl -n monitoring get secret alertmanager-oncall -o jsonpath='{.data.critical_url}' | base64 -d)
+warning=$(k3s kubectl -n monitoring get secret alertmanager-oncall -o jsonpath='{.data.warning_url}' | base64 -d)
+```
+2) Fire and resolve (warning example):
+```
+k3s kubectl -n monitoring-oncall run --rm -i alert-smoke --restart=Never --image=curlimages/curl -- sh -c '
+set -e
+cat >/tmp/firing.json <<EOF
+{
+  "receiver": "oncall-smoke",
+  "status": "firing",
+  "alerts": [
+    {
+      "status": "firing",
+      "labels": {
+        "alertname": "oncall-smoke",
+        "severity": "warning",
+        "cluster": "prod",
+        "namespace": "monitoring",
+        "instance": "51.158.67.237:9100"
+      },
+      "annotations": {
+        "summary": "OnCall Discord smoke test",
+        "description": "Expect one Discord message that updates on resolve"
+      },
+      "startsAt": "2025-01-01T00:00:00Z",
+      "endsAt": "0001-01-01T00:00:00Z",
+      "generatorURL": "http://prometheus/graph"
+    }
+  ],
+  "commonLabels": {
+    "alertname": "oncall-smoke",
+    "severity": "warning",
+    "cluster": "prod",
+    "namespace": "monitoring",
+    "instance": "51.158.67.237:9100"
+  },
+  "commonAnnotations": {
+    "summary": "OnCall Discord smoke test",
+    "description": "Expect one Discord message that updates on resolve"
+  },
+  "externalURL": "http://alertmanager",
+  "version": "4"
+}
+EOF
+cat >/tmp/resolved.json <<EOF
+{
+  "receiver": "oncall-smoke",
+  "status": "resolved",
+  "alerts": [
+    {
+      "status": "resolved",
+      "labels": {
+        "alertname": "oncall-smoke",
+        "severity": "warning",
+        "cluster": "prod",
+        "namespace": "monitoring",
+        "instance": "51.158.67.237:9100"
+      },
+      "annotations": {
+        "summary": "OnCall Discord smoke test",
+        "description": "Expect one Discord message that updates on resolve"
+      },
+      "startsAt": "2025-01-01T00:00:00Z",
+      "endsAt": "2025-01-01T00:10:00Z",
+      "generatorURL": "http://prometheus/graph"
+    }
+  ],
+  "commonLabels": {
+    "alertname": "oncall-smoke",
+    "severity": "warning",
+    "cluster": "prod",
+    "namespace": "monitoring",
+    "instance": "51.158.67.237:9100"
+  },
+  "commonAnnotations": {
+    "summary": "OnCall Discord smoke test",
+    "description": "Expect one Discord message that updates on resolve"
+  },
+  "externalURL": "http://alertmanager",
+  "version": "4"
+}
+EOF
+curl -XPOST -H "Content-Type: application/json" -d @/tmp/firing.json "$warning"
+sleep 15
+curl -XPOST -H "Content-Type: application/json" -d @/tmp/resolved.json "$warning"
+'
+```
+3) Expected: a single message in #alerts-warning with `@OnCall` mention; status flips to RESOLVED without creating a new message; the title links to the alert group in OnCall.
 
-1. Upewnij się, że flux jest wznowiony (`flux resume kustomization apps -n flux-system`) i pody są `Running` w `monitoring-oncall`.
-2. Wyślij testowe ALERTY:
-
-   ```sh
-   kubectl exec -n monitoring-oncall toolbox -- sh -c '
-     cat > /tmp/alert-test.json <<EOF
-     [
-       {"labels":{"alertname":"oncall-test-critical","severity":"critical","instance":"manual"},"annotations":{"summary":"Test critical via OnCall"}},
-       {"labels":{"alertname":"oncall-test-warning","severity":"warning","instance":"manual"},"annotations":{"summary":"Test warning via OnCall"}}
-     ]
-     EOF
-     apk add --no-cache curl >/dev/null
-     curl -s -XPOST -H "Content-Type: application/json" --data @/tmp/alert-test.json \
-       http://monitoring-kube-prometheus-alertmanager.monitoring.svc:9093/api/v2/alerts
-   '
-   ```
-
-3. Zweryfikuj w OnCall UI, że powstał jeden incident z dwoma alertami i że Discord otrzymał powiadomienia na właściwe kanały.
-4. Wyślij RESOLVED dla obu:
-
-   ```sh
-   kubectl exec -n monitoring-oncall toolbox -- sh -c '
-     cat > /tmp/alert-test-resolve.json <<EOF
-     [
-       {"status":"resolved","labels":{"alertname":"oncall-test-critical","severity":"critical","instance":"manual"}},
-       {"status":"resolved","labels":{"alertname":"oncall-test-warning","severity":"warning","instance":"manual"}}
-     ]
-     EOF
-     curl -s -XPOST -H "Content-Type: application/json" --data @/tmp/alert-test-resolve.json \
-       http://monitoring-kube-prometheus-alertmanager.monitoring.svc:9093/api/v2/alerts
-   '
-   ```
-
-5. Sprawdź w logach Alertmanagera, że webhooki dostają `Notify success` oraz że Discord pokazał zdarzenia `FIRING` i `RESOLVED` bez spamu.
-
+## Logs and checks
+- Proxy Discord: `k3s kubectl -n monitoring-oncall logs deploy/oncall-discord-proxy`
+- OnCall webhook responses: `k3s kubectl -n monitoring-oncall logs deploy/oncall-engine | grep webhook`
+- Flux apply state: `k3s kubectl -n flux-system get kustomizations,helmreleases` and `k3s kubectl -n flux-system logs deploy/helm-controller`

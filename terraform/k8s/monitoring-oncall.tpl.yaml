@@ -77,6 +77,7 @@ spec:
     image:
       tag: v1.16.5
     env:
+      DANGEROUS_WEBHOOKS_ENABLED: "true"
       MIRAGE_CIPHER_MODE: ECB
       MIRAGE_CIPHER_IV: 1234567890abcdef
     base_url: ${ENV_PREFIX}oncall.${BASE_DOMAIN}
@@ -283,6 +284,8 @@ spec:
                 secretKeyRef:
                   name: oncall-secrets
                   key: MIRAGE_SECRET_KEY
+            - name: DANGEROUS_WEBHOOKS_ENABLED
+              value: "true"
             - name: MIRAGE_CIPHER_MODE
               value: ECB
             - name: MIRAGE_CIPHER_IV
@@ -589,9 +592,10 @@ data:
             ],
         }
 
+        mention = f"<@&{ONCALL_ROLE_ID}>" if ONCALL_ROLE_ID else "@OnCall"
         mentions = {"parse": [], "roles": [ONCALL_ROLE_ID]} if ONCALL_ROLE_ID else {"parse": []}
         return alert_group_id, {
-            "content": "# @OnCall",
+            "content": f"# {mention}",
             "embeds": [embed],
             "allowed_mentions": mentions,
         }
