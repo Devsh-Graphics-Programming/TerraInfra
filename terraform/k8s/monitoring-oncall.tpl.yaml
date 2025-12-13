@@ -461,8 +461,8 @@ spec:
                               "url": clean_url,
                               "http_method": "POST",
                               "trigger_type": trigger_type,
-                              "forward_all": False,
-                              "data": discord_template,
+                              "forward_all": True,
+                              "data": "",
                               "is_webhook_enabled": True,
                           },
                       )
@@ -470,8 +470,8 @@ spec:
                           "url": clean_url,
                           "http_method": "POST",
                           "trigger_type": trigger_type,
-                          "forward_all": False,
-                          "data": discord_template,
+                          "forward_all": True,
+                          "data": "",
                           "is_webhook_enabled": True,
                       }
                       dirty = False
