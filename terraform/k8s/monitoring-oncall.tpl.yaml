@@ -533,19 +533,35 @@ data:
             return DISCORD_CRITICAL
         return DISCORD_WARNING
 
-    def build_payload(data: dict) -> dict:
-        event = data.get("event", {})
-        alert_payload = data.get("alert_payload", {})
-        common_labels = alert_payload.get("commonLabels") or {}
-        common_annotations = alert_payload.get("commonAnnotations") or {}
+    def normalize(data: dict):
+        if "alert_group_id" in data:
+            common_labels = json.loads(data.get("common_labels") or "{}")
+            common_annotations = json.loads(data.get("common_annotations") or "{}")
+            alert_group_id = str(data.get("alert_group_id") or "")
+            alert_group_title = data.get("alert_group_title") or ""
+            alert_group_link = data.get("alert_group_permalink") or ""
+            event_type = data.get("event") or ""
+        else:
+            alert_payload = data.get("alert_payload", {})
+            alert_group = data.get("alert_group", {}) or {}
+            common_labels = alert_payload.get("commonLabels") or {}
+            common_annotations = alert_payload.get("commonAnnotations") or {}
+            alert_group_id = str(alert_group.get("id") or "")
+            alert_group_title = alert_group.get("title") or ""
+            alert_group_link = (alert_group.get("permalinks") or {}).get("web") or ""
+            event_type = (data.get("event") or {}).get("type") or ""
+        return event_type, alert_group_id, alert_group_title, alert_group_link, common_labels, common_annotations
+
+    def build_payload(data: dict) -> Tuple[str, str, dict]:
+        event_type, alert_group_id, alert_group_title, alert_group_link, common_labels, common_annotations = normalize(data)
 
         severity = (common_labels.get("severity") or "UNKNOWN").upper()
         cluster = common_labels.get("cluster") or "prod"
         namespace = common_labels.get("namespace") or "n/a"
         resource = common_labels.get("alertname") or "Alert"
         instance = common_labels.get("instance") or "n/a"
-        summary = common_annotations.get("summary") or (data.get("alert_group", {}) or {}).get("title") or "Alert"
-        status_label = "✅ RESOLVED" if event.get("type") == "resolve" else "🚨 FIRING"
+        summary = common_annotations.get("summary") or alert_group_title or "Alert"
+        status_label = "✅ RESOLVED" if str(event_type).lower() == "resolve" else "🚨 FIRING"
 
         severity_emoji = {
             "CRITICAL": "🟥 ",
@@ -563,7 +579,7 @@ data:
                 "NONE": 10070709,
             }.get(severity, 10070709),
             "fields": [
-                {"name": "Event", "value": (event.get("type") or "").upper(), "inline": True},
+                {"name": "Event", "value": str(event_type).upper(), "inline": True},
                 {"name": "Status", "value": status_label, "inline": True},
                 {"name": "Severity", "value": f"{severity_emoji}{severity}", "inline": True},
                 {"name": "Cluster", "value": cluster, "inline": True},
@@ -574,11 +590,14 @@ data:
         }
 
         mentions = {"parse": ["roles"], "roles": [ONCALL_ROLE_ID]} if ONCALL_ROLE_ID else {"parse": []}
-        return {
+        return alert_group_id, {
             "content": "# @OnCall",
             "embeds": [embed],
             "allowed_mentions": mentions,
         }
+
+    def log(msg: str):
+        print(msg, flush=True)
 
     def send_discord(webhook: str, payload: dict, message_id: str = None) -> Tuple[int, dict]:
         if not webhook:
@@ -594,6 +613,7 @@ data:
             body = resp.json()
         except Exception:
             body = {}
+        log(f"discord status={resp.status_code} message_id={body.get('id') if isinstance(body, dict) else ''}")
         return resp.status_code, body
 
     def record_message(alert_group_id: str, message_id: str, ttl: int = 7 * 24 * 3600):
@@ -618,9 +638,13 @@ data:
         severity = (alert_payload.get("commonLabels") or {}).get("severity") or "warning"
 
         target_webhook = choose_webhook(severity)
-        payload = build_payload(data)
+        alert_group_id, payload = build_payload(data)
 
-        event_type = (data.get("event") or {}).get("type") or ""
+        event_type = data.get("event") or ""
+        if isinstance(event_type, dict):
+            event_type = event_type.get("type") or ""
+        event_type = str(event_type).lower()
+        log(f"recv event={event_type} group={alert_group_id} severity={severity}")
         if event_type == "resolve":
             msg_id = read_message(alert_group_id)
             if msg_id:
