@@ -388,7 +388,7 @@ spec:
                       is_active=True,
                   )
 
-              allowed_mentions = {"parse": ["roles", "users", "everyone"]}
+              allowed_mentions = {"parse": ["roles"]}
               if discord_oncall_role:
                   allowed_mentions["roles"] = [discord_oncall_role]
 
