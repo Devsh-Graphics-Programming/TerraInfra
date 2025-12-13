@@ -291,6 +291,8 @@ spec:
               value: settings.helm
             - name: PYTHONUNBUFFERED
               value: "1"
+            - name: ENVIRONMENT_LABEL
+              value: prod
           command:
             - python
             - -c
@@ -386,18 +388,19 @@ spec:
                       is_active=True,
                   )
 
-              allowed_mentions = {"parse": []}
+              allowed_mentions = {"parse": ["roles"]}
               if discord_oncall_role:
                   allowed_mentions["roles"] = [discord_oncall_role]
 
+              environment_label = os.environ.get("ENVIRONMENT_LABEL", "prod").strip() or "prod"
               mention_prefix = f"<@&{discord_oncall_role}>" if discord_oncall_role else "@OnCall"
               discord_template = textwrap.dedent(
                   """
                   {
-                    "content": "%s — {{ event.type | upper }} · {{ alert_payload.commonLabels.severity | upper if alert_payload.commonLabels and alert_payload.commonLabels.severity else 'UNKNOWN' }} · {{ alert_payload.commonLabels.alertname | default('Alert') }}",
+                    "content": "%s — {{ event.type | upper }} · {{ alert_payload.commonLabels.severity | upper if alert_payload.commonLabels and alert_payload.commonLabels.severity else 'UNKNOWN' }} · {{ alert_payload.commonLabels.alertname | default('Alert') }} · [%s]",
                     "embeds": [
                       {
-                        "title": "{{ alert_payload.commonAnnotations.summary | default(alert_group.title) }}",
+                        "title": "{{ ('✅' if event.type == 'resolve' else '⚠️' if (alert_payload.commonLabels.severity | upper if alert_payload.commonLabels and alert_payload.commonLabels.severity else 'NONE') in ['WARNING','NONE'] else '🔴') }} {{ alert_payload.commonAnnotations.summary | default(alert_group.title) }}",
                         "url": "{{ alert_group.permalinks.web or '' }}",
                         "color": {{ {
                           'CRITICAL': 16731427,
@@ -406,9 +409,10 @@ spec:
                           'NONE': 10070709
                         }.get((alert_payload.commonLabels.severity | upper if alert_payload.commonLabels and alert_payload.commonLabels.severity else 'NONE'), 10070709) }},
                         "fields": [
-                          {"name": "Status", "value": "{{ 'FIRING' if event.type == 'alert group created' else event.type | upper }}", "inline": true},
-                          {"name": "Severity", "value": "{{ alert_payload.commonLabels.severity | upper if alert_payload.commonLabels and alert_payload.commonLabels.severity else 'UNKNOWN' }}", "inline": true},
-                          {"name": "Cluster", "value": "{{ alert_payload.commonLabels.cluster | default('n/a') }}", "inline": true},
+                          {"name": "Status", "value": "{{ '✅ RESOLVED' if event.type == 'resolve' else '🚨 FIRING' if event.type == 'alert group created' else event.type | upper }}", "inline": true},
+                          {"name": "Severity", "value": "{{ ('🟥 ' if (alert_payload.commonLabels.severity | upper if alert_payload.commonLabels and alert_payload.commonLabels.severity else 'UNKNOWN') == 'CRITICAL' else '🟠 ' if (alert_payload.commonLabels.severity | upper if alert_payload.commonLabels and alert_payload.commonLabels.severity else 'UNKNOWN') == 'WARNING' else '🟦 ' if (alert_payload.commonLabels.severity | upper if alert_payload.commonLabels and alert_payload.commonLabels.severity else 'UNKNOWN') == 'INFO' else '⚪ ') }}{{ alert_payload.commonLabels.severity | upper if alert_payload.commonLabels and alert_payload.commonLabels.severity else 'UNKNOWN' }}", "inline": true},
+                          {"name": "Env", "value": "%s", "inline": true},
+                          {"name": "Cluster", "value": "{{ alert_payload.commonLabels.cluster | default('%s') }}", "inline": true},
                           {"name": "Namespace", "value": "{{ alert_payload.commonLabels.namespace | default('n/a') }}", "inline": true},
                           {"name": "Resource", "value": "{{ alert_payload.commonLabels.alertname | default('Alert') }}", "inline": true},
                           {"name": "Instance", "value": "{{ alert_payload.commonLabels.instance | default('n/a') }}", "inline": true},
@@ -419,7 +423,7 @@ spec:
                     "allowed_mentions": %s
                   }
                   """
-              ) % (mention_prefix, json.dumps(allowed_mentions))
+              ) % (mention_prefix, environment_label, environment_label, environment_label, json.dumps(allowed_mentions))
               discord_template = "\n".join(line.rstrip() for line in discord_template.splitlines()).strip()
 
               def ensure_integration(name, token):
