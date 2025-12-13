@@ -388,7 +388,7 @@ spec:
                       is_active=True,
                   )
 
-              allowed_mentions = {"parse": ["roles"]}
+              allowed_mentions = {"parse": ["roles", "users", "everyone"]}
               if discord_oncall_role:
                   allowed_mentions["roles"] = [discord_oncall_role]
 
@@ -400,7 +400,7 @@ spec:
                     "content": "# %s",
                     "embeds": [
                       {
-                        "title": "{{ ('✅' if event.type == 'resolve' else '⚠️' if (alert_payload.commonLabels.severity | upper if alert_payload.commonLabels and alert_payload.commonLabels.severity else 'NONE') in ['WARNING','NONE'] else '🔴') }} {{ alert_payload.commonAnnotations.summary | default(alert_group.title) }}",
+                        "title": "{{ alert_payload.commonAnnotations.summary | default(alert_group.title) }}",
                         "url": "{{ alert_group.permalinks.web or '' }}",
                         "color": {{ {
                           'CRITICAL': 16731427,
@@ -412,19 +412,17 @@ spec:
                           {"name": "Event", "value": "{{ event.type | upper }}", "inline": true},
                           {"name": "Status", "value": "{{ '✅ RESOLVED' if event.type == 'resolve' else '🚨 FIRING' if event.type == 'alert group created' else event.type | upper }}", "inline": true},
                           {"name": "Severity", "value": "{{ ('🟥 ' if (alert_payload.commonLabels.severity | upper if alert_payload.commonLabels and alert_payload.commonLabels.severity else 'UNKNOWN') == 'CRITICAL' else '🟠 ' if (alert_payload.commonLabels.severity | upper if alert_payload.commonLabels and alert_payload.commonLabels.severity else 'UNKNOWN') == 'WARNING' else '🟦 ' if (alert_payload.commonLabels.severity | upper if alert_payload.commonLabels and alert_payload.commonLabels.severity else 'UNKNOWN') == 'INFO' else '⚪ ') }}{{ alert_payload.commonLabels.severity | upper if alert_payload.commonLabels and alert_payload.commonLabels.severity else 'UNKNOWN' }}", "inline": true},
-                          {"name": "Env", "value": "%s", "inline": true},
                           {"name": "Cluster", "value": "{{ alert_payload.commonLabels.cluster | default('%s') }}", "inline": true},
                           {"name": "Namespace", "value": "{{ alert_payload.commonLabels.namespace | default('n/a') }}", "inline": true},
                           {"name": "Resource", "value": "{{ alert_payload.commonLabels.alertname | default('Alert') }}", "inline": true},
-                          {"name": "Instance", "value": "{{ alert_payload.commonLabels.instance | default('n/a') }}", "inline": true},
-                          {"name": "Link", "value": "{{ alert_group.permalinks.web or '' }}", "inline": false}
+                          {"name": "Instance", "value": "{{ alert_payload.commonLabels.instance | default('n/a') }}", "inline": true}
                         ]
                       }
                     ],
                     "allowed_mentions": %s
                   }
                   """
-              ) % (mention_prefix, environment_label, environment_label, json.dumps(allowed_mentions))
+              ) % (mention_prefix, environment_label, json.dumps(allowed_mentions))
               discord_template = "\n".join(line.rstrip() for line in discord_template.splitlines()).strip()
 
               def ensure_integration(name, token):
