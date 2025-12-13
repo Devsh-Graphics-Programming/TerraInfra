@@ -107,6 +107,8 @@ spec:
       securityContext:
         fsGroup: 999
       serviceAccountName: kimai-mariadb
+      priorityClassName: prod-app-critical
+      terminationGracePeriodSeconds: 60
       containers:
         - name: mariadb
           image: mariadb:11
@@ -132,6 +134,40 @@ spec:
                   key: mysql-user-password
           ports:
             - containerPort: 3306
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          startupProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - mariadb-admin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" --silent
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - mariadb-admin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" --silent
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - mariadb-admin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" --silent
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
           volumeMounts:
             - name: mariadb-data
               mountPath: /var/lib/mysql
@@ -172,6 +208,8 @@ spec:
       securityContext:
         fsGroup: 33
       serviceAccountName: kimai
+      priorityClassName: prod-app-critical
+      terminationGracePeriodSeconds: 60
       initContainers:
         - name: ensure-db
           image: mariadb:11
@@ -191,6 +229,13 @@ spec:
                 secretKeyRef:
                   name: kimai-db-credentials
                   key: mysql-user-password
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
           command:
             - bash
             - -c
@@ -217,6 +262,34 @@ spec:
             allowPrivilegeEscalation: false
           ports:
             - containerPort: 8001
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 750m
+              memory: 768Mi
+          startupProbe:
+            httpGet:
+              path: /
+              port: 8001
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8001
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8001
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
           env:
             - name: MAILER_URL
               valueFrom:

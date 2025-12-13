@@ -23,7 +23,7 @@ metadata:
   labels:
     app: devsh-website
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: devsh-website
@@ -33,11 +33,41 @@ spec:
         app: devsh-website
     spec:
       serviceAccountName: website
+      priorityClassName: prod-app-critical
       containers:
         - name: website
           image: ghcr.io/devsh-graphics-programming/www-website:latest # {"$imagepolicy": "flux-system:www-website:tag"}
+          imagePullPolicy: Always
           ports:
             - containerPort: 3000
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          startupProbe:
+            httpGet:
+              path: /
+              port: 3000
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            periodSeconds: 20
+            timeoutSeconds: 2
+            failureThreshold: 3
           securityContext:
             readOnlyRootFilesystem: true
             runAsNonRoot: true
@@ -133,7 +163,7 @@ metadata:
   labels:
     app: devsh-blog
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: devsh-blog
@@ -143,11 +173,41 @@ spec:
         app: devsh-blog
     spec:
       serviceAccountName: blog
+      priorityClassName: prod-app-critical
       containers:
         - name: blog
           image: ghcr.io/devsh-graphics-programming/www-blog:latest # {"$imagepolicy": "flux-system:www-blog:tag"}
+          imagePullPolicy: Always
           ports:
             - containerPort: 3000
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          startupProbe:
+            httpGet:
+              path: /
+              port: 3000
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            periodSeconds: 20
+            timeoutSeconds: 2
+            failureThreshold: 3
           securityContext:
             readOnlyRootFilesystem: true
             runAsNonRoot: true

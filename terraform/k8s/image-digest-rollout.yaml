@@ -39,16 +39,31 @@ metadata:
   namespace: website
 spec:
   schedule: "*/2 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 120
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
   jobTemplate:
     spec:
+      backoffLimit: 0
+      ttlSecondsAfterFinished: 600
+      activeDeadlineSeconds: 300
       template:
         spec:
+          priorityClassName: prod-batch-low
           serviceAccountName: digest-rollout
           restartPolicy: Never
           containers:
             - name: digest-rollout
               image: alpine:3.20
               imagePullPolicy: IfNotPresent
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 64Mi
+                limits:
+                  cpu: 200m
+                  memory: 256Mi
               command:
                 - /bin/sh
                 - -c

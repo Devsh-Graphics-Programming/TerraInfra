@@ -1,0 +1,17 @@
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: prod-app-critical
+value: 1000000
+globalDefault: false
+preemptionPolicy: PreemptLowerPriority
+description: Critical user-facing applications
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: prod-batch-low
+value: 1000
+globalDefault: false
+preemptionPolicy: PreemptLowerPriority
+description: Non-critical batch workloads
