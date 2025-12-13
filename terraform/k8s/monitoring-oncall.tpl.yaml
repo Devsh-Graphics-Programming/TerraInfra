@@ -72,6 +72,7 @@ spec:
   upgrade:
     remediation:
       retries: 3
+    force: true
   values:
     image:
       tag: v1.16.5
