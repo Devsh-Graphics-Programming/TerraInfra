@@ -96,6 +96,8 @@ metadata:
     app: kimai-mariadb
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: kimai-mariadb
@@ -197,6 +199,8 @@ metadata:
     app: kimai
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: kimai
