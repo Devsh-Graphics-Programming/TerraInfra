@@ -1,43 +1,116 @@
 # Alerting flow (OnCall)
 
-- Routing: Prometheus Alertmanager → Grafana OnCall (two integrations: critical/warning) → Discord webhooks (`#alerts-critical`, `#alerts-warning`).
-- OnCall stack lives at `monitoring-oncall` (`oncall` HelmRelease) with a dedicated Grafana UI: `https://${ENV_PREFIX}oncall.${BASE_DOMAIN}/grafana`.
-- Webhook URLs for Alertmanager live in `terraform/k8s/vars/prod/secrets/alertmanager-oncall.yaml`; OnCall bootstrap job aligns integration tokens to these URLs and wires outgoing webhooks using the Discord secrets (`alertmanager-discord`).
-- OnCall storage: Postgres/RabbitMQ/Redis as subcharts (passwords in `oncall-*` SOPS secrets), Grafana state on a local PV (`/mnt/data/oncall-grafana`).
+- Routing: Prometheus Alertmanager → Grafana OnCall (two integrations: `critical`/`warning`) → OnCall outgoing webhook → `oncall-discord-proxy` → Discord webhooks (`#alerts-critical`, `#alerts-warning`).
+- Discord: one message per alert group, updated in-place on resolve; every message includes the `@OnCall` role mention.
+- OnCall stack lives in `monitoring-oncall` (HelmRelease `oncall`) with a dedicated Grafana UI: `https://${ENV_PREFIX}oncall.${BASE_DOMAIN}/grafana`.
+- Storage: Postgres + Redis subcharts (RabbitMQ is disabled); Grafana state on a local PV (`/mnt/data/oncall-grafana`).
 
-## How the bootstrap works
+## Bootstrap and wiring
 - Job `oncall-bootstrap` (namespace `monitoring-oncall`) runs on reconcile:
-  - reads `alertmanager-oncall` + `alertmanager-discord` secrets,
+  - reads `alertmanager-oncall` and `alertmanager-discord-proxy` secrets,
   - creates/updates two Alertmanager integrations with fixed tokens (`alertmanager-critical`, `alertmanager-warning`),
-  - attaches outgoing webhooks filtered per integration to the matching Discord webhook, trigger type `status change` (fires on both firing/resolved).
-- If you rotate tokens/webhooks, update the SOPS secrets and rerun the job: `k3s kubectl delete job/oncall-bootstrap -n monitoring-oncall`.
+  - configures outgoing webhooks (trigger: status change) to call the in-cluster Discord proxy.
+- If you rotate tokens/webhooks, update SOPS secrets and rerun the job:
+  `k3s kubectl delete job/oncall-bootstrap -n monitoring-oncall`.
 
-## Test FIRING & RESOLVED (no spam)
-Use Alertmanager’s API so grouping/dedupe stays intact.
+## Smoke test (FIRING → RESOLVED, 15s, no spam)
+This hits the OnCall Alertmanager integration endpoint directly (deterministic; good for formatting and “edit-on-resolve”).
 
+1) Get integration URLs (from the node):
 ```
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
-k3s kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-alertmanager 9093:9093 >/tmp/am-fw.log 2>&1 &
-FW_PID=$!
-sleep 2
+critical=$(k3s kubectl -n monitoring get secret alertmanager-oncall -o jsonpath='{.data.critical_url}' | base64 -d)
+warning=$(k3s kubectl -n monitoring get secret alertmanager-oncall -o jsonpath='{.data.warning_url}' | base64 -d)
+```
 
-curl -XPOST -H "Content-Type: application/json" \
-  -d '[{"labels":{"alertname":"OnCallTest","severity":"warning","job":"manual"},"annotations":{"summary":"oncall test alert"}}]' \
-  http://127.0.0.1:9093/api/v2/alerts
-
-# Resolve the same alert group (reuses alertname+severity to avoid duplicates)
-curl -XPOST -H "Content-Type: application/json" \
-  -d '[{"labels":{"alertname":"OnCallTest","severity":"warning","job":"manual"},"annotations":{"summary":"oncall test alert"},"endsAt":"'"$(date -Iseconds)"'"}]' \
-  http://127.0.0.1:9093/api/v2/alerts
-
-kill $FW_PID
+2) Fire and resolve:
+```
+k3s kubectl -n monitoring-oncall run --rm -i alert-smoke --restart=Never --image=curlimages/curl -- sh -c '
+set -euo pipefail
+cat >/tmp/firing.json <<EOF
+{
+  "receiver": "oncall-smoke",
+  "status": "firing",
+  "alerts": [
+    {
+      "status": "firing",
+      "labels": {
+        "alertname": "oncall-smoke-delay15",
+        "severity": "warning",
+        "cluster": "prod",
+        "namespace": "monitoring",
+        "instance": "51.158.67.237:9100"
+      },
+      "annotations": {
+        "summary": "OnCall Discord smoke test",
+        "description": "Expect one Discord message that updates on resolve"
+      },
+      "startsAt": "2025-01-01T00:00:00Z",
+      "endsAt": "0001-01-01T00:00:00Z"
+    }
+  ],
+  "commonLabels": {
+    "alertname": "oncall-smoke-delay15",
+    "severity": "warning",
+    "cluster": "prod",
+    "namespace": "monitoring",
+    "instance": "51.158.67.237:9100"
+  },
+  "commonAnnotations": {
+    "summary": "OnCall Discord smoke test",
+    "description": "Expect one Discord message that updates on resolve"
+  },
+  "version": "4"
+}
+EOF
+cat >/tmp/resolved.json <<EOF
+{
+  "receiver": "oncall-smoke",
+  "status": "resolved",
+  "alerts": [
+    {
+      "status": "resolved",
+      "labels": {
+        "alertname": "oncall-smoke-delay15",
+        "severity": "warning",
+        "cluster": "prod",
+        "namespace": "monitoring",
+        "instance": "51.158.67.237:9100"
+      },
+      "annotations": {
+        "summary": "OnCall Discord smoke test",
+        "description": "Expect one Discord message that updates on resolve"
+      },
+      "startsAt": "2025-01-01T00:00:00Z",
+      "endsAt": "2025-01-01T00:00:15Z"
+    }
+  ],
+  "commonLabels": {
+    "alertname": "oncall-smoke-delay15",
+    "severity": "warning",
+    "cluster": "prod",
+    "namespace": "monitoring",
+    "instance": "51.158.67.237:9100"
+  },
+  "commonAnnotations": {
+    "summary": "OnCall Discord smoke test",
+    "description": "Expect one Discord message that updates on resolve"
+  },
+  "version": "4"
+}
+EOF
+curl -sS -XPOST -H "Content-Type: application/json" -d @/tmp/firing.json "$warning"
+sleep 15
+curl -sS -XPOST -H "Content-Type: application/json" -d @/tmp/resolved.json "$warning"
+'
 ```
 
 Expected:
-- Exactly one Discord message per firing and one per resolved in the proper channel by severity.
-- Alert visible in OnCall UI (`Alert Groups`) with state transitioning to resolved.
+- Exactly one Discord message in `#alerts-warning` with the `@OnCall` mention.
+- The message is edited in-place on resolve (no second message).
+- The title links to the OnCall alert group.
 
-## Operations cheatsheet
-- OnCall UI: `https://${ENV_PREFIX}oncall.${BASE_DOMAIN}` (Grafana admin creds in `monitoring-oncall-grafana` secret).
-- Outgoing webhooks live on the OnCall side (names `discord-critical`/`discord-warning`) and are filtered by integration; routing changes are handled by the bootstrap job script.
-- To rotate secrets/tokens: update SOPS secrets (`oncall-*`, `alertmanager-oncall`, `alertmanager-discord`), reconcile Flux, rerun `oncall-bootstrap`.
+## Logs
+- Discord proxy: `k3s kubectl -n monitoring-oncall logs deploy/oncall-discord-proxy --tail=200`
+- OnCall engine: `k3s kubectl -n monitoring-oncall logs deploy/oncall-engine --tail=200`
+- Alertmanager: `k3s kubectl -n monitoring logs sts/alertmanager-monitoring-kube-prometheus-alertmanager --tail=200`

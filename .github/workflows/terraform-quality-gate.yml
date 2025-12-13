@@ -1,0 +1,81 @@
+name: terraform-quality-gate
+
+on:
+  pull_request:
+    branches: ["env/prod", "env/test"]
+  push:
+    branches: ["env/prod", "env/test"]
+
+concurrency:
+  group: terraform-quality-gate-${{ github.event.pull_request.base.ref || github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    env:
+      TF_IN_AUTOMATION: "true"
+    defaults:
+      run:
+        shell: bash
+        working-directory: terraform
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 1
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.6
+
+      - name: Terraform fmt
+        run: terraform fmt -check -recursive
+
+      - name: Terraform init (no backend)
+        run: terraform init -backend=false -input=false
+
+      - name: Terraform validate
+        run: terraform validate -no-color
+
+  generate:
+    needs: qa
+    if: github.event_name == 'push' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 0
+
+      - uses: terraform-docs/gh-actions@v1.3.0
+        with:
+          working-dir: terraform
+          output-file: ../TERRAFORM.md
+          output-method: replace
+
+      - name: Generate Kube diagram
+        run: |
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE":/work \
+            philippemerle/kubediagrams \
+            kube-diagrams -o KUBEDIAGRAM.png terraform/k8s/apps/kustomization.yaml
+
+      - name: Commit and push if changed
+        run: |
+          set -euo pipefail
+          if [ -z "$(git status --porcelain -- TERRAFORM.md KUBEDIAGRAM.png)" ]; then
+            echo "No changes to generated files."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add TERRAFORM.md KUBEDIAGRAM.png
+          git commit -m "chore(ci): update generated files [skip ci]"
+          git push
