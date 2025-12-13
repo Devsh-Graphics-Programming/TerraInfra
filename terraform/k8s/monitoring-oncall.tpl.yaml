@@ -667,17 +667,17 @@ spec:
             - name: DISCORD_CRITICAL_URL
               valueFrom:
                 secretKeyRef:
-                  name: alertmanager-discord
+                  name: alertmanager-discord-proxy
                   key: discord_critical_url
             - name: DISCORD_WARNING_URL
               valueFrom:
                 secretKeyRef:
-                  name: alertmanager-discord
+                  name: alertmanager-discord-proxy
                   key: discord_warning_url
             - name: DISCORD_ONCALL_ROLE_ID
               valueFrom:
                 secretKeyRef:
-                  name: alertmanager-discord
+                  name: alertmanager-discord-proxy
                   key: discord_oncall_role_id
             - name: REDIS_HOST
               value: oncall-redis-master.monitoring-oncall.svc
