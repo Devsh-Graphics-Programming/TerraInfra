@@ -424,7 +424,7 @@ spec:
                     "allowed_mentions": %s
                   }
                   """
-              ) % (mention_prefix, environment_label, environment_label, environment_label, json.dumps(allowed_mentions))
+              ) % (mention_prefix, environment_label, environment_label, json.dumps(allowed_mentions))
               discord_template = "\n".join(line.rstrip() for line in discord_template.splitlines()).strip()
 
               def ensure_integration(name, token):
