@@ -509,6 +509,7 @@ data:
     import json
     import os
     import time
+    from datetime import datetime, timezone
     from typing import Tuple
 
     import redis
@@ -547,47 +548,173 @@ data:
             return DISCORD_CRITICAL
         return DISCORD_WARNING
 
-    def normalize(data: dict):
-        if "alert_group_id" in data:
-            common_labels = json.loads(data.get("common_labels") or "{}")
-            common_annotations = json.loads(data.get("common_annotations") or "{}")
-            alert_group_id = str(data.get("alert_group_id") or "")
-            alert_group_title = data.get("alert_group_title") or ""
-            alert_group_link = data.get("alert_group_permalink") or ""
-            event_type = data.get("event") or ""
-        else:
-            alert_payload = data.get("alert_payload", {})
-            alert_group = data.get("alert_group", {}) or {}
+    def parse_iso(value: str):
+        if not value:
+            return None
+        raw = str(value).strip()
+        if not raw:
+            return None
+        if raw.endswith("Z"):
+            raw = f"{raw[:-1]}+00:00"
+        try:
+            return datetime.fromisoformat(raw)
+        except Exception:
+            return None
+
+    def fmt_time(value: str) -> str:
+        dt = parse_iso(value)
+        if not dt:
+            return "n/a"
+        if not dt.tzinfo:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    def fmt_duration(start: str, end: str) -> str:
+        start_dt = parse_iso(start)
+        end_dt = parse_iso(end)
+        if not start_dt or not end_dt:
+            return "—"
+        if not start_dt.tzinfo:
+            start_dt = start_dt.replace(tzinfo=timezone.utc)
+        if not end_dt.tzinfo:
+            end_dt = end_dt.replace(tzinfo=timezone.utc)
+        seconds = int((end_dt - start_dt).total_seconds())
+        if seconds < 0:
+            seconds = -seconds
+        days, rem = divmod(seconds, 86400)
+        hours, rem = divmod(rem, 3600)
+        minutes, secs = divmod(rem, 60)
+        parts = []
+        if days:
+            parts.append(f"{days}d")
+        if hours:
+            parts.append(f"{hours}h")
+        if minutes:
+            parts.append(f"{minutes}m")
+        parts.append(f"{secs}s")
+        return " ".join(parts)
+
+    def normalize(data: dict) -> dict:
+        event = data.get("event") or {}
+        event_type = ""
+        event_time = ""
+        if isinstance(event, dict):
+            event_type = event.get("type") or event.get("TYPE") or ""
+            event_time = event.get("time") or event.get("TIME") or ""
+        elif isinstance(event, str):
+            event_type = event
+
+        alert_group = data.get("alert_group") if isinstance(data.get("alert_group"), dict) else {}
+        alert_group_id = str(alert_group.get("id") or data.get("alert_group_id") or "")
+        alert_group_title = str(alert_group.get("title") or data.get("alert_group_title") or "")
+        alert_group_link = str((alert_group.get("permalinks") or {}).get("web") or data.get("alert_group_permalink") or "")
+        alert_group_created_at = str(alert_group.get("created_at") or "")
+        alert_group_resolved_at = str(alert_group.get("resolved_at") or "")
+        alert_group_state = str(alert_group.get("state") or "")
+
+        alert_payload = data.get("alert_payload") or {}
+        if isinstance(alert_payload, str):
+            try:
+                alert_payload = json.loads(alert_payload) if alert_payload else {}
+            except Exception:
+                alert_payload = {}
+
+        common_labels = {}
+        common_annotations = {}
+        if isinstance(alert_payload, dict):
             common_labels = alert_payload.get("commonLabels") or {}
             common_annotations = alert_payload.get("commonAnnotations") or {}
-            alert_group_id = str(alert_group.get("id") or "")
-            alert_group_title = alert_group.get("title") or ""
-            alert_group_link = (alert_group.get("permalinks") or {}).get("web") or ""
-            event_type = (data.get("event") or {}).get("type") or ""
-        if isinstance(event_type, dict):
-            event_type = event_type.get("type") or event_type.get("TYPE") or ""
-        return event_type, alert_group_id, alert_group_title, alert_group_link, common_labels, common_annotations
+            if not common_labels:
+                alerts = alert_payload.get("alerts") or []
+                if alerts and isinstance(alerts[0], dict):
+                    common_labels = alerts[0].get("labels") or {}
+                    if not common_annotations:
+                        common_annotations = alerts[0].get("annotations") or {}
 
-    def build_payload(data: dict) -> Tuple[str, str, dict]:
-        event_type, alert_group_id, alert_group_title, alert_group_link, common_labels, common_annotations = normalize(data)
+        if not common_labels and isinstance(data.get("common_labels"), str):
+            try:
+                common_labels = json.loads(data.get("common_labels") or "{}")
+            except Exception:
+                common_labels = {}
 
-        severity = (common_labels.get("severity") or "UNKNOWN").upper()
-        cluster = common_labels.get("cluster") or "prod"
-        namespace = common_labels.get("namespace") or "n/a"
-        resource = common_labels.get("alertname") or "Alert"
-        instance = common_labels.get("instance") or "n/a"
-        summary = common_annotations.get("summary") or alert_group_title or "Alert"
-        status_label = "✅ RESOLVED" if str(event_type).lower() == "resolve" else "🚨 FIRING"
+        if not common_annotations and isinstance(data.get("common_annotations"), str):
+            try:
+                common_annotations = json.loads(data.get("common_annotations") or "{}")
+            except Exception:
+                common_annotations = {}
+
+        return {
+            "event_type": str(event_type or ""),
+            "event_time": str(event_time or ""),
+            "alert_group_id": alert_group_id,
+            "alert_group_title": alert_group_title,
+            "alert_group_link": alert_group_link,
+            "alert_group_created_at": alert_group_created_at,
+            "alert_group_resolved_at": alert_group_resolved_at,
+            "alert_group_state": alert_group_state,
+            "common_labels": common_labels if isinstance(common_labels, dict) else {},
+            "common_annotations": common_annotations if isinstance(common_annotations, dict) else {},
+        }
+
+    def pick_target(labels: dict) -> Tuple[str, str]:
+        for key in ("node", "pod", "deployment", "daemonset", "statefulset", "job", "service", "ingress", "instance"):
+            val = labels.get(key)
+            if val:
+                return key, str(val)
+        return "", ""
+
+    def build_payload(data: dict) -> Tuple[str, str, str, dict]:
+        ctx = normalize(data)
+
+        event_type = ctx["event_type"].strip()
+        event_key = event_type.lower()
+
+        common_labels = ctx["common_labels"]
+        common_annotations = ctx["common_annotations"]
+
+        raw_severity = str(common_labels.get("severity") or "").strip()
+        severity = raw_severity.upper() if raw_severity else "UNKNOWN"
+
+        alertname = str(common_labels.get("alertname") or "").strip()
+        summary = str(common_annotations.get("summary") or ctx["alert_group_title"] or alertname or "Alert").strip()
+        description = str(common_annotations.get("description") or "").strip()
+
+        cluster = str(common_labels.get("cluster") or "prod").strip() or "prod"
+        namespace = str(common_labels.get("namespace") or "n/a").strip() or "n/a"
+        target_key, target_val = pick_target(common_labels)
+        target = f"{target_key}={target_val}" if target_key and target_val else "n/a"
+
+        created_at = ctx["alert_group_created_at"] or (ctx["event_time"] if event_key == "alert group created" else "")
+        resolved_at = ctx["alert_group_resolved_at"] or (ctx["event_time"] if event_key == "resolve" else "")
+        is_resolved = bool(resolved_at) or event_key == "resolve" or ctx["alert_group_state"].lower() == "resolved"
+
+        status_label = "✅ RESOLVED" if is_resolved else "🚨 FIRING"
 
         severity_emoji = {
             "CRITICAL": "🟥 ",
             "WARNING": "🟠 ",
             "INFO": "🟦 ",
         }.get(severity, "⚪ ")
+        severity_value = (
+            f"{severity_emoji}UNKNOWN (missing severity label)" if severity == "UNKNOWN" else f"{severity_emoji}{severity}"
+        )
+
+        event_label = {
+            "alert group created": "🆕 ALERT GROUP CREATED",
+            "resolve": "✅ RESOLVED",
+            "acknowledge": "🙋 ACKNOWLEDGED",
+            "silence": "🔕 SILENCED",
+            "unsilence": "🔔 UNSILENCED",
+        }.get(event_key, f"🔔 {event_type.upper()}" if event_type else "❓ UNKNOWN")
+
+        timeline = [f"🕒 Triggered: {fmt_time(created_at)}"]
+        timeline.append(f"✅ Resolved: {fmt_time(resolved_at)}" if is_resolved else "✅ Resolved: —")
+        timeline.append(f"⏱ Duration: {fmt_duration(created_at, resolved_at)}" if is_resolved else "⏱ Duration: —")
 
         embed = {
             "title": summary,
-            "url": (data.get("alert_group") or {}).get("permalinks", {}).get("web") or "",
+            "url": ctx["alert_group_link"],
+            "description": description[:1000] if description else None,
             "color": {
                 "CRITICAL": 16731427,
                 "WARNING": 16763904,
@@ -595,19 +722,20 @@ data:
                 "NONE": 10070709,
             }.get(severity, 10070709),
             "fields": [
-                {"name": "Event", "value": str(event_type).upper(), "inline": True},
                 {"name": "Status", "value": status_label, "inline": True},
-                {"name": "Severity", "value": f"{severity_emoji}{severity}", "inline": True},
-                {"name": "Cluster", "value": cluster, "inline": True},
-                {"name": "Namespace", "value": namespace, "inline": True},
-                {"name": "Resource", "value": resource, "inline": True},
-                {"name": "Instance", "value": instance, "inline": True},
+                {"name": "Severity", "value": severity_value, "inline": True},
+                {"name": "Alert", "value": alertname or "n/a", "inline": True},
+                {"name": "Event", "value": event_label, "inline": False},
+                {"name": "Timeline", "value": "\n".join(timeline), "inline": False},
+                {"name": "Where", "value": f"🧭 Cluster: {cluster}\n📦 Namespace: {namespace}\n🎯 Target: {target}", "inline": False},
             ],
         }
+        if not embed["description"]:
+            embed.pop("description", None)
 
         mention = f"<@&{ONCALL_ROLE_ID}>" if ONCALL_ROLE_ID else "@OnCall"
         mentions = {"parse": [], "roles": [ONCALL_ROLE_ID]} if ONCALL_ROLE_ID else {"parse": []}
-        return alert_group_id, {
+        return ctx["alert_group_id"], event_key, severity, {
             "content": f"# {mention}",
             "embeds": [embed],
             "allowed_mentions": mentions,
@@ -649,18 +777,8 @@ data:
     @app.route("/webhook", methods=["POST"])
     def webhook():
         data = request.get_json(force=True, silent=True) or {}
-        alert_group = data.get("alert_group") or {}
-        alert_group_id = str(alert_group.get("id") or "")
-        alert_payload = data.get("alert_payload") or {}
-        severity = (alert_payload.get("commonLabels") or {}).get("severity") or "warning"
-
+        alert_group_id, event_type, severity, payload = build_payload(data)
         target_webhook = choose_webhook(severity)
-        alert_group_id, payload = build_payload(data)
-
-        event_type = data.get("event") or ""
-        if isinstance(event_type, dict):
-            event_type = event_type.get("type") or ""
-        event_type = str(event_type).lower()
         log(f"recv event={event_type} group={alert_group_id} severity={severity}")
         if event_type == "resolve":
             msg_id = read_message(alert_group_id)
