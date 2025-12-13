@@ -523,6 +523,15 @@ data:
             clean = clean[: -len("/slack")]
         return clean
 
+    def with_wait(url: str) -> str:
+        if not url:
+            return ""
+        if "?" in url:
+            if "wait=true" in url.split("?", 1)[1]:
+                return url
+            return f"{url}&wait=true"
+        return f"{url}?wait=true"
+
     DISCORD_CRITICAL = clean_webhook(os.environ.get("DISCORD_CRITICAL_URL", ""))
     DISCORD_WARNING = clean_webhook(os.environ.get("DISCORD_WARNING_URL", ""))
     ONCALL_ROLE_ID = os.environ.get("DISCORD_ONCALL_ROLE_ID", "").strip()
@@ -609,7 +618,7 @@ data:
         if not webhook:
             return 400, {}
         headers = {"Content-Type": "application/json"}
-        target = webhook
+        target = with_wait(webhook)
         method = requests.post
         if message_id:
             target = f"{webhook}/messages/{message_id}"
