@@ -709,7 +709,12 @@ data:
 
         triggered_abs = discord_ts(created_at, "f")
         triggered_rel = discord_ts(created_at, "R")
-        timeline = [f"🕒 Triggered: {triggered_abs} ({triggered_rel})" if triggered_abs != "n/a" else "🕒 Triggered: n/a"]
+        if is_resolved:
+            timeline = [f"🕒 Triggered: {triggered_abs}" if triggered_abs != "n/a" else "🕒 Triggered: n/a"]
+        else:
+            timeline = [
+                f"🕒 Triggered: {triggered_abs} ({triggered_rel})" if triggered_abs != "n/a" else "🕒 Triggered: n/a"
+            ]
         if is_resolved:
             resolved_abs = discord_ts(resolved_at, "f")
             resolved_rel = discord_ts(resolved_at, "R")
@@ -717,12 +722,9 @@ data:
                 f"✅ Resolved: {resolved_abs} ({resolved_rel})" if resolved_abs != "n/a" else "✅ Resolved: n/a"
             )
             duration = fmt_duration(created_at, resolved_at)
-            timeline.append(f"✅ Duration: {duration if duration != '—' else 'n/a'}")
+            timeline.append(f"⏱ Duration: {duration if duration != '—' else 'n/a'}")
         else:
             timeline.append("⏳ Resolved: pending")
-            timeline.append(
-                f"⏳ Duration: pending ({triggered_rel})" if triggered_rel != "n/a" else "⏳ Duration: pending"
-            )
 
         embed = {
             "title": summary,
