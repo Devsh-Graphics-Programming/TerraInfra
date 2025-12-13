@@ -63,9 +63,9 @@ spec:
         receivers:
           - name: oncall-critical
             webhook_configs:
-              - url: https://${ENV_PREFIX}oncall.${BASE_DOMAIN}/integrations/v1/alertmanager/6EF3MGHHAAexGibfe6zchVEI/
+              - url: http://oncall-engine.monitoring-oncall.svc:8080/integrations/v1/alertmanager/6EF3MGHHAAexGibfe6zchVEI/
                 send_resolved: true
           - name: oncall-warning
             webhook_configs:
-              - url: https://${ENV_PREFIX}oncall.${BASE_DOMAIN}/integrations/v1/alertmanager/qp8pwFDnoYG25D5UI778wzBG/
+              - url: http://oncall-engine.monitoring-oncall.svc:8080/integrations/v1/alertmanager/qp8pwFDnoYG25D5UI778wzBG/
                 send_resolved: true
