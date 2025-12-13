@@ -564,6 +564,8 @@ data:
             alert_group_title = alert_group.get("title") or ""
             alert_group_link = (alert_group.get("permalinks") or {}).get("web") or ""
             event_type = (data.get("event") or {}).get("type") or ""
+        if isinstance(event_type, dict):
+            event_type = event_type.get("type") or event_type.get("TYPE") or ""
         return event_type, alert_group_id, alert_group_title, alert_group_link, common_labels, common_annotations
 
     def build_payload(data: dict) -> Tuple[str, str, dict]:
