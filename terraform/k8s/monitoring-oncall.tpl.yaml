@@ -81,9 +81,6 @@ spec:
       MIRAGE_CIPHER_IV: 1234567890abcdef
     base_url: ${ENV_PREFIX}oncall.${BASE_DOMAIN}
     base_url_protocol: https
-    engine:
-      updateStrategy:
-        type: Recreate
     ingress:
       enabled: true
       className: nginx
