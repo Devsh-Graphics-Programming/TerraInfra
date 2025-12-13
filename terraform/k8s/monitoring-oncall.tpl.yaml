@@ -77,7 +77,7 @@ spec:
     image:
       tag: v1.16.5
     env:
-      DANGEROUS_WEBHOOKS_ENABLED: "true"
+      DANGEROUS_WEBHOOKS_ENABLED: '"true"'
       MIRAGE_CIPHER_MODE: ECB
       MIRAGE_CIPHER_IV: 1234567890abcdef
     base_url: ${ENV_PREFIX}oncall.${BASE_DOMAIN}
