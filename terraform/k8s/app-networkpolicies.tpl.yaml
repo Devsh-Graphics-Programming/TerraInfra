@@ -118,6 +118,22 @@ spec:
         - port: 53
           protocol: TCP
     - to:
+        - ipBlock:
+            cidr: 10.43.0.1/32
+      ports:
+        - port: 443
+          protocol: TCP
+        - port: 6443
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 51.158.67.237/32
+      ports:
+        - port: 443
+          protocol: TCP
+        - port: 6443
+          protocol: TCP
+    - to:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: monitoring
