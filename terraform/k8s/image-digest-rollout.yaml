@@ -75,14 +75,14 @@ spec:
                     name="$1"
                     image="$2"
                     deploy="$3"
-                    desired="$(skopeo inspect --override-os linux "docker://${image}" | jq -r '.Digest')"
-                    current="$(kubectl -n website get deployment "${deploy}" -o jsonpath='{.spec.template.metadata.annotations["rollout.devsh.eu/'"${name}"'"]}' 2>/dev/null || true)"
-                    if [ "${desired}" != "${current}" ]; then
+                    desired="$(skopeo inspect --override-os linux "docker://$image" | jq -r '.Digest')"
+                    current="$(kubectl -n website get deployment "$deploy" -o jsonpath='{.spec.template.metadata.annotations["rollout.devsh.eu/'"$name"'"]}' 2>/dev/null || true)"
+                    if [ "$desired" != "$current" ]; then
                       ts="$(date -u +%Y%m%dT%H%M%SZ)"
-                      kubectl -n website patch deployment "${deploy}" --type merge -p "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"rollout.devsh.eu/${name}\":\"${desired}-${ts}\"}}}}}"
-                      echo "patched ${deploy} to digest ${desired}"
+                      kubectl -n website patch deployment "$deploy" --type merge -p "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"rollout.devsh.eu/$name\":\"$desired-$ts\"}}}}}"
+                      echo "patched $deploy to digest $desired"
                     else
-                      echo "no change for ${deploy} (digest ${desired})"
+                      echo "no change for $deploy (digest $desired)"
                     fi
                   }
 
