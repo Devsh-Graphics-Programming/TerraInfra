@@ -705,13 +705,7 @@ data:
             f"{severity_emoji}UNKNOWN (missing severity label)" if severity == "UNKNOWN" else f"{severity_emoji}{severity}"
         )
 
-        event_label = {
-            "alert group created": "🆕 ALERT GROUP CREATED",
-            "resolve": "✅ RESOLVED",
-            "acknowledge": "🙋 ACKNOWLEDGED",
-            "silence": "🔕 SILENCED",
-            "unsilence": "🔔 UNSILENCED",
-        }.get(event_key, f"🔔 {event_type.upper()}" if event_type else "❓ UNKNOWN")
+        event_label = "🆕 ALERT GROUP CREATED"
 
         triggered_abs = discord_ts(created_at, "f")
         triggered_rel = discord_ts(created_at, "R")
