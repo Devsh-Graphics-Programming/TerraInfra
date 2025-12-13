@@ -61,10 +61,25 @@ jobs:
 
       - name: Generate Kube diagram
         run: |
-          docker run --rm \
+          set -euo pipefail
+          files="$(git ls-files \
+            'terraform/k8s/**/*.yaml' \
+            'terraform/k8s/**/*.tpl.yaml' \
+            | grep -v '/kustomization.yaml$' \
+            | grep -v '/.sops.yaml$' \
+            | grep -v '^terraform/k8s/vars/.*/secrets/' \
+            | tr '\n' ' ')"
+
+          if [ -z "$files" ]; then
+            echo "No Kubernetes manifest files found."
+            exit 1
+          fi
+
+          cat $files | docker run --rm -i \
             -v "$GITHUB_WORKSPACE":/work \
+            -w /work \
             philippemerle/kubediagrams \
-            kube-diagrams -o KUBEDIAGRAM.png terraform/k8s/apps/kustomization.yaml
+            kube-diagrams - -o KUBEDIAGRAM.png
 
       - name: Commit and push if changed
         run: |
