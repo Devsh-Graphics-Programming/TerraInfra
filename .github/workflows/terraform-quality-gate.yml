@@ -63,6 +63,8 @@ jobs:
         run: |
           set -euo pipefail
           files="$(git ls-files \
+            'terraform/k8s/*.yaml' \
+            'terraform/k8s/*.tpl.yaml' \
             'terraform/k8s/**/*.yaml' \
             'terraform/k8s/**/*.tpl.yaml' \
             | grep -v '/kustomization.yaml$' \
