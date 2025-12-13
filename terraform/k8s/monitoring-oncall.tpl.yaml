@@ -388,12 +388,12 @@ spec:
                       is_active=True,
                   )
 
-              allowed_mentions = {"parse": ["roles", "everyone"]}
+              allowed_mentions = {"parse": ["roles"]}
               if discord_oncall_role:
                   allowed_mentions["roles"] = [discord_oncall_role]
 
               environment_label = os.environ.get("ENVIRONMENT_LABEL", "prod").strip() or "prod"
-              mention_prefix = f"<@&{discord_oncall_role}>" if discord_oncall_role else "@everyone"
+              mention_prefix = f"<@&{discord_oncall_role}>" if discord_oncall_role else "@OnCall"
               discord_template = textwrap.dedent(
                   """
                   {
