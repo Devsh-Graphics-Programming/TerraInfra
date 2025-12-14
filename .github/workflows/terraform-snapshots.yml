@@ -93,6 +93,7 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.6.6
+          terraform_wrapper: false
 
       - name: Terraform init (remote state)
         run: |
@@ -112,17 +113,33 @@ jobs:
         run: |
           set -euo pipefail
 
-          manual_snapshots="$(terraform output -json manual_snapshots 2>/dev/null | jq -c . || echo '{}')"
-          auto_snapshot_trigger="$(terraform output -raw auto_snapshot_trigger 2>/dev/null || echo '')"
+          manual_snapshots="{}"
+          if raw="$(terraform output -json manual_snapshots 2>/dev/null)"; then
+            if parsed="$(echo "${raw}" | jq -c . 2>/dev/null)"; then
+              if [[ "${parsed}" != "null" && -n "${parsed}" ]]; then
+                manual_snapshots="${parsed}"
+              fi
+            fi
+          fi
+
+          auto_snapshot_trigger=""
+          if out="$(terraform output -raw auto_snapshot_trigger 2>/dev/null)"; then
+            auto_snapshot_trigger="${out}"
+          fi
 
           if [[ -z "${auto_snapshot_trigger}" ]]; then
-            auto_snapshot_trigger="$(terraform state show -no-color time_static.snapshot_trigger 2>/dev/null | awk -F'= ' '/^bucket[[:space:]]*=/{gsub(/"/,"",$2); print $2; exit}' || true)"
+            auto_snapshot_trigger="$(terraform state pull 2>/dev/null | jq -r '
+              .resources[]
+              | select(.type == "time_static" and .name == "snapshot_trigger")
+              | .instances[0].attributes.triggers.bucket
+              // empty
+            ' 2>/dev/null || true)"
           fi
 
-          if [[ "${manual_snapshots}" == "null" || -z "${manual_snapshots}" ]]; then
-            manual_snapshots="{}"
-          fi
           if [[ "${auto_snapshot_trigger}" == "null" ]]; then
+            auto_snapshot_trigger=""
+          fi
+          if [[ -n "${auto_snapshot_trigger}" ]] && ! [[ "${auto_snapshot_trigger}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
             auto_snapshot_trigger=""
           fi
 
@@ -147,6 +164,9 @@ jobs:
             auto_snapshot_trigger="$(date -u +%Y-%m-%d)"
           fi
           if [[ -z "${auto_snapshot_trigger}" ]]; then
+            auto_snapshot_trigger="$(date -u +%Y-%m-%d)"
+          fi
+          if ! [[ "${auto_snapshot_trigger}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
             auto_snapshot_trigger="$(date -u +%Y-%m-%d)"
           fi
 
@@ -181,10 +201,15 @@ jobs:
             > ci.auto.tfvars.json
 
           echo "skip_apply=${skip_apply}" >> "${GITHUB_OUTPUT}"
+          echo "auto_snapshot_trigger=${auto_snapshot_trigger}" >> "${GITHUB_OUTPUT}"
+          echo "requested_manual_snapshot_name=${requested_manual_snapshot_name}" >> "${GITHUB_OUTPUT}"
 
       - name: Terraform apply
         if: steps.vars.outputs.skip_apply != 'true'
-        run: terraform apply -auto-approve -no-color -var-file=ci.auto.tfvars.json
+        id: apply
+        run: |
+          set -euo pipefail
+          terraform apply -auto-approve -no-color -parallelism=1 -var-file=ci.auto.tfvars.json 2>&1 | tee terraform-apply.log
 
       - name: Capture snapshot info
         id: snapshot
@@ -230,14 +255,18 @@ jobs:
           echo "Snapshot ID: ${SNAPSHOT_ID}"
           echo "Retention: ${RETENTION}"
 
-      - name: Notify Discord (snapshot created)
-        if: ${{ success() && env.SNAPSHOTS_DISCORD_WEBHOOK_URL != '' && steps.vars.outputs.skip_apply != 'true' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && github.event.schedule == '0 3 * * *')) }}
+      - name: Notify Discord (snapshot status)
+        if: ${{ always() && env.SNAPSHOTS_DISCORD_WEBHOOK_URL != '' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && github.event.schedule == '0 3 * * *')) }}
         env:
+          JOB_STATUS: ${{ job.status }}
+          APPLY_OUTCOME: ${{ steps.apply.outcome }}
           SNAPSHOT_ID: ${{ steps.snapshot.outputs.snapshot_id }}
           SNAPSHOT_NAME: ${{ steps.snapshot.outputs.snapshot_name }}
           SNAPSHOT_KIND: ${{ steps.snapshot.outputs.snapshot_kind }}
           RETENTION: ${{ steps.snapshot.outputs.retention }}
           VOLUME_ID: ${{ steps.snapshot.outputs.volume_id }}
+          AUTO_SNAPSHOT_TRIGGER: ${{ steps.vars.outputs.auto_snapshot_trigger }}
+          REQUESTED_MANUAL_SNAPSHOT_KEY: ${{ steps.vars.outputs.requested_manual_snapshot_name }}
         run: |
           set -euo pipefail
 
@@ -255,27 +284,61 @@ jobs:
             trigger_label="dispatch"
           fi
 
-          color=3066993
-          if [[ "${SNAPSHOT_KIND}" == "auto" ]]; then
-            color=3447003
+          status="${JOB_STATUS}"
+          status_label="${status}"
+          color=9807270
+          title="Scaleway snapshot ${status_label}"
+
+          snapshot_kind="${SNAPSHOT_KIND}"
+          snapshot_id="${SNAPSHOT_ID}"
+          snapshot_name="${SNAPSHOT_NAME}"
+          retention="${RETENTION}"
+
+          if [[ "${trigger}" == "workflow_dispatch" ]]; then
+            snapshot_kind="${snapshot_kind:-manual}"
+            if [[ -z "${snapshot_name}" && -n "${REQUESTED_MANUAL_SNAPSHOT_KEY}" ]]; then
+              snapshot_name="devsh-k3s-prod-data-manual-${REQUESTED_MANUAL_SNAPSHOT_KEY}"
+            fi
+            retention="${retention:-${SNAPSHOTS_MANUAL_TTL_HOURS}h (Terraform-managed)}"
+          else
+            snapshot_kind="${snapshot_kind:-auto}"
+            retention="${retention:-24h (rotating, max 1 kept)}"
           fi
 
-          title="Scaleway snapshot created (${SNAPSHOT_KIND})"
+          if [[ "${status}" == "success" ]]; then
+            color=3066993
+            title="Scaleway snapshot created (${snapshot_kind})"
+            if [[ "${snapshot_kind}" == "auto" ]]; then
+              color=3447003
+            fi
+          else
+            color=15158332
+            title="Scaleway snapshot failed (${snapshot_kind})"
+          fi
+
+          log_tail=""
+          if [[ "${status}" != "success" && -f terraform-apply.log ]]; then
+            log_tail="$(tail -n 60 terraform-apply.log | sed -e 's/\r$//' | tail -n 30)"
+            log_tail="${log_tail:0:900}"
+          fi
 
           payload="$(jq -n \
             --arg title "${title}" \
-            --arg kind "${SNAPSHOT_KIND}" \
+            --arg status "${status}" \
+            --arg kind "${snapshot_kind}" \
             --arg trigger "${trigger_label}" \
             --arg branch "${branch}" \
             --arg actor "${actor}" \
-            --arg snapshot_name "${SNAPSHOT_NAME}" \
-            --arg snapshot_id "${SNAPSHOT_ID}" \
+            --arg snapshot_name "${snapshot_name}" \
+            --arg snapshot_id "${snapshot_id}" \
             --arg volume_name "${SNAPSHOTS_VOLUME_NAME}" \
             --arg volume_id "${VOLUME_ID}" \
             --arg project_id "${SNAPSHOTS_PROJECT_ID}" \
-            --arg retention "${RETENTION}" \
+            --arg retention "${retention}" \
             --arg run_url "${run_url}" \
             --arg timestamp "${ts}" \
+            --arg log_tail "${log_tail}" \
+            --arg auto_trigger "${AUTO_SNAPSHOT_TRIGGER}" \
             --argjson color "${color}" \
             '{
               username: "TerraInfra",
@@ -284,11 +347,12 @@ jobs:
                   title: $title,
                   color: $color,
                   fields: [
+                    {name: "Status", value: $status, inline: true},
                     {name: "Type", value: $kind, inline: true},
                     {name: "Trigger", value: $trigger, inline: true},
                     {name: "Branch", value: $branch, inline: true},
-                    {name: "Snapshot", value: ("`" + $snapshot_name + "`"), inline: false},
-                    {name: "Snapshot ID", value: ("`" + $snapshot_id + "`"), inline: false},
+                    {name: "Snapshot", value: (if ($snapshot_name | length) > 0 then ("`" + $snapshot_name + "`") else "n/a" end), inline: false},
+                    {name: "Snapshot ID", value: (if ($snapshot_id | length) > 0 then ("`" + $snapshot_id + "`") else "n/a" end), inline: false},
                     {name: "Volume", value: ("`" + $volume_name + "`\n`" + $volume_id + "`"), inline: false},
                     {name: "Project", value: ("`" + $project_id + "`"), inline: false},
                     {name: "Retention", value: $retention, inline: true},
@@ -299,5 +363,18 @@ jobs:
                 }
               ]
             }')"
+
+          if [[ "${status}" != "success" ]]; then
+            payload="$(echo "${payload}" | jq -c --arg log_tail "${log_tail}" --arg auto_trigger "${AUTO_SNAPSHOT_TRIGGER}" '
+              .embeds[0].fields += [
+                {name: "Auto trigger", value: (if ($auto_trigger | length) > 0 then ("`" + $auto_trigger + "`") else "n/a" end), inline: true}
+              ] |
+              (if ($log_tail | length) > 0 then
+                .embeds[0].fields += [{name: "Terraform (tail)", value: ("```" + $log_tail + "```"), inline: false}]
+              else
+                .
+              end)
+            ')"
+          fi
 
           curl -fsS -H 'Content-Type: application/json' -d "${payload}" "${SNAPSHOTS_DISCORD_WEBHOOK_URL}" || echo "Discord webhook notification failed" >&2
