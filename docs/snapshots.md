@@ -14,7 +14,7 @@ Create a manual snapshot (default TTL 24h):
 cd terraform
 .\manual-snapshot.ps1
 terraform workspace select prod
-terraform apply -auto-approve -var-file=manual-snapshots.auto.tfvars.json
+terraform apply -auto-approve
 ```
 
 Create a manual snapshot with a custom TTL:
@@ -22,7 +22,7 @@ Create a manual snapshot with a custom TTL:
 cd terraform
 .\manual-snapshot.ps1 -Name incident-2025-12-14 -TtlHours 72
 terraform workspace select prod
-terraform apply -auto-approve -var-file=manual-snapshots.auto.tfvars.json
+terraform apply -auto-approve
 ```
 
 ### Create prod snapshot

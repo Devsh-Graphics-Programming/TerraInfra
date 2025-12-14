@@ -5,7 +5,7 @@ param(
 
 $createdAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 if (-not $Name) {
-  $Name = "manual-" + (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssZ")
+  $Name = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssZ")
 }
 
 $path = Join-Path $PSScriptRoot "manual-snapshots.auto.tfvars.json"

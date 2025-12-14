@@ -181,7 +181,7 @@ resource "scaleway_block_snapshot" "manual_data_volume" {
   for_each   = local.manual_snapshots_active
   project_id = var.project_id
   volume_id  = scaleway_block_volume.data_volume.id
-  name       = format("devsh-k3s-%s-data-manual-%s", var.env_name, each.key)
+  name       = format("devsh-k3s-%s-data-manual-%s", var.env_name, trimprefix(each.key, "manual-"))
   tags = [
     "devsh",
     "k3s",
