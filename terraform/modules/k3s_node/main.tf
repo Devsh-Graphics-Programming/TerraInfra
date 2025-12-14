@@ -133,9 +133,12 @@ resource "scaleway_block_volume" "data_volume" {
   lifecycle {}
 }
 
-resource "time_rotating" "snapshot_trigger" {
-  count          = local.snapshot_enabled ? 1 : 0
-  rotation_hours = var.snapshot_rotation_hours
+resource "time_static" "snapshot_trigger" {
+  count = local.snapshot_enabled ? 1 : 0
+  triggers = {
+    rotation_hours = tostring(var.snapshot_rotation_hours)
+    bucket         = formatdate("YYYY-MM-DD", timestamp())
+  }
 }
 
 resource "scaleway_block_snapshot" "data_volume" {
@@ -145,7 +148,7 @@ resource "scaleway_block_snapshot" "data_volume" {
     var.env_name,
     replace(
       replace(
-        replace(time_rotating.snapshot_trigger[0].id, ":", "-"),
+        replace(time_static.snapshot_trigger[0].rfc3339, ":", "-"),
         "T",
         "-"
       ),
@@ -159,6 +162,6 @@ resource "scaleway_block_snapshot" "data_volume" {
 
   lifecycle {
     create_before_destroy = true
-    replace_triggered_by  = [time_rotating.snapshot_trigger[0].id]
+    replace_triggered_by  = [time_static.snapshot_trigger[0]]
   }
 }
