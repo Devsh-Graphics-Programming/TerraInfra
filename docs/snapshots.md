@@ -18,6 +18,40 @@ Snapshot configuration (project ID, volume name, tfstate bucket/key/region/endpo
 
 When creating the IAM API key used by GitHub Actions, set its `default_project_id` to the project that owns the Object Storage buckets (otherwise S3 requests fail with `403 Forbidden` during `HeadObject` / Terraform backend init).
 
+### IAM + bucket policies as code (manual apply)
+IAM resources and Object Storage bucket policies for snapshots live in `terraform/iam/`. This is not applied by CI. Run it manually with your full-privilege Scaleway key when you want to reconcile:
+
+Create a local (not committed) vars file, e.g. `terraform/iam/local.auto.tfvars.json`:
+```json
+{
+  "project_id": "xxxx",
+  "owner_user_email": "you@example.com",
+  "luks_reader_application_id": "xxxx",
+  "snapshots_state_bucket_name": "terra-snapshots-state",
+  "snapshots_state_object_prefix": "terraform/snapshots/"
+}
+```
+
+Apply:
+```
+cd terraform/iam
+terraform init
+terraform plan
+terraform apply
+```
+
+If resources already exist (created in UI), import once and then apply:
+```
+cd terraform/iam
+terraform init
+terraform import scaleway_iam_application.snapshots <application_id>
+terraform import scaleway_iam_policy.snapshots_terraform_state <policy_id>
+terraform import scaleway_iam_policy.snapshots_block_storage <policy_id>
+terraform import scaleway_object_bucket_policy.snapshots_state fr-par/terra-snapshots-state@<project_id>
+terraform import scaleway_object_bucket_policy.luks_keys[0] fr-par/terra-luks-keys@<project_id>
+terraform apply
+```
+
 ### Migration
 If you used the previous in-module managed daily snapshot, remove it from the `terraform/` state before your next prod apply so it is not destroyed:
 ```
