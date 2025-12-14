@@ -5,7 +5,6 @@
 |------|---------|
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.5.0 |
 | <a name="requirement_scaleway"></a> [scaleway](#requirement\_scaleway) | ~> 2.60 |
-| <a name="requirement_time"></a> [time](#requirement\_time) | ~> 0.10 |
 
 ## Providers
 
@@ -47,7 +46,6 @@
 | <a name="input_project_id"></a> [project\_id](#input\_project\_id) | Scaleway Project ID | `string` | n/a | yes |
 | <a name="input_public_ip_address"></a> [public\_ip\_address](#input\_public\_ip\_address) | Existing Flexible IP address to attach (alternative to public\_ip\_id). | `string` | `""` | no |
 | <a name="input_public_ip_id"></a> [public\_ip\_id](#input\_public\_ip\_id) | Existing Flexible IP ID to attach (leave empty to let Terraform create one). | `string` | `""` | no |
-| <a name="input_snapshot_rotation_hours"></a> [snapshot\_rotation\_hours](#input\_snapshot\_rotation\_hours) | Rotation period in hours for the production block-volume snapshot. | `number` | `24` | no |
 | <a name="input_sops_age_key"></a> [sops\_age\_key](#input\_sops\_age\_key) | Age private key used by Flux to decrypt SOPS-managed secrets (optional). | `string` | `""` | no |
 
 ## Outputs
@@ -56,6 +54,5 @@
 |------|-------------|
 | <a name="output_data_volume_id"></a> [data\_volume\_id](#output\_data\_volume\_id) | ID of the environment's data volume |
 | <a name="output_k3s_node_1_ip"></a> [k3s\_node\_1\_ip](#output\_k3s\_node\_1\_ip) | Public IP of k3s node |
-| <a name="output_latest_snapshot_id"></a> [latest\_snapshot\_id](#output\_latest\_snapshot\_id) | Most recent managed snapshot ID (empty when snapshots are disabled) |
 | <a name="output_manual_snapshot_ids"></a> [manual\_snapshot\_ids](#output\_manual\_snapshot\_ids) | IDs of managed manual snapshots (empty when none are configured) |
 <!-- END_TF_DOCS -->
