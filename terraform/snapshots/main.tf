@@ -5,7 +5,18 @@ data "scaleway_block_volume" "data_volume" {
 
 resource "time_static" "snapshot_trigger" {
   triggers = {
-    bucket = formatdate("YYYY-MM-DD", plantimestamp())
+    bucket = var.auto_snapshot_trigger
+  }
+}
+
+locals {
+  manual_snapshots_active = {
+    for name, cfg in var.manual_snapshots :
+    name => {
+      created_at = cfg.created_at
+      ttl_hours  = try(cfg.ttl_hours, 24)
+    }
+    if timecmp(plantimestamp(), timeadd(cfg.created_at, format("%dh", try(cfg.ttl_hours, 24)))) == -1
   }
 }
 
@@ -30,7 +41,7 @@ resource "scaleway_block_snapshot" "data_volume" {
     "k3s",
     "snapshot",
     var.env_name,
-    "managed=daily",
+    "managed=auto",
   ]
 
   lifecycle {
@@ -39,3 +50,22 @@ resource "scaleway_block_snapshot" "data_volume" {
   }
 }
 
+resource "scaleway_block_snapshot" "manual_data_volume" {
+  for_each   = local.manual_snapshots_active
+  project_id = var.project_id
+  volume_id  = data.scaleway_block_volume.data_volume.id
+  name       = format("devsh-k3s-%s-data-manual-%s", var.env_name, each.key)
+  tags = [
+    "devsh",
+    "k3s",
+    "snapshot",
+    var.env_name,
+    "managed=manual",
+    "ttl_hours=${each.value.ttl_hours}",
+    "created_at=${each.value.created_at}",
+  ]
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
