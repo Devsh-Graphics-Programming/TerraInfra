@@ -62,7 +62,6 @@ resource "scaleway_block_snapshot" "manual_data_volume" {
     var.env_name,
     "managed=manual",
     "ttl_hours=${each.value.ttl_hours}",
-    "created_at=${each.value.created_at}",
   ]
 
   lifecycle {
