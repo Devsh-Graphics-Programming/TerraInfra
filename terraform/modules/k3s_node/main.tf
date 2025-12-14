@@ -137,7 +137,7 @@ resource "time_static" "snapshot_trigger" {
   count = local.snapshot_enabled ? 1 : 0
   triggers = {
     rotation_hours = tostring(var.snapshot_rotation_hours)
-    bucket         = formatdate("YYYY-MM-DD", timestamp())
+    bucket         = formatdate("YYYY-MM-DD", plantimestamp())
   }
 }
 
