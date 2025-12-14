@@ -1,4 +1,5 @@
-Get-Content ".\\.env" |
+$envFile = Join-Path $PSScriptRoot ".env"
+Get-Content $envFile |
   Where-Object { $_ -and $_ -notmatch '^\s*#' } |
   ForEach-Object {
     $parts = $_ -split '=', 2

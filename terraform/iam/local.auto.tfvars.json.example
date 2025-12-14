@@ -1,0 +1,8 @@
+{
+  "project_id": "00000000-0000-0000-0000-000000000000",
+  "owner_user_email": "you@example.com",
+  "snapshots_state_bucket_name": "terra-snapshots-state",
+  "snapshots_state_object_prefix": "terraform/snapshots/",
+  "manage_luks_bucket_policy": true
+}
+

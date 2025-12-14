@@ -3,6 +3,11 @@ data "scaleway_iam_user" "owner" {
   email = var.owner_user_email
 }
 
+data "scaleway_iam_api_key" "luks_reader" {
+  count      = var.luks_key_access_key != "" ? 1 : 0
+  access_key = var.luks_key_access_key
+}
+
 locals {
   owner_user_id = var.owner_user_id != "" ? var.owner_user_id : data.scaleway_iam_user.owner[0].id
 
@@ -20,6 +25,16 @@ locals {
     "%s/%s",
     var.luks_bucket_name,
     trim(var.luks_key_object_name, "/")
+  )
+
+  luks_reader_application_id = var.luks_reader_application_id != "" ? var.luks_reader_application_id : (
+    var.luks_key_access_key != "" ? data.scaleway_iam_api_key.luks_reader[0].application_id : ""
+  )
+  luks_reader_user_id = var.luks_reader_user_id != "" ? var.luks_reader_user_id : (
+    var.luks_key_access_key != "" ? data.scaleway_iam_api_key.luks_reader[0].user_id : ""
+  )
+  luks_reader_principal = local.luks_reader_application_id != "" ? "application_id:${local.luks_reader_application_id}" : (
+    local.luks_reader_user_id != "" ? "user_id:${local.luks_reader_user_id}" : ""
   )
 }
 
@@ -113,7 +128,7 @@ resource "scaleway_object_bucket_policy" "luks_keys" {
         Sid    = "LuksReaderAccess"
         Effect = "Allow"
         Principal = {
-          SCW = "application_id:${var.luks_reader_application_id}"
+          SCW = local.luks_reader_principal
         }
         Action = [
           "s3:ListBucket",
@@ -130,8 +145,8 @@ resource "scaleway_object_bucket_policy" "luks_keys" {
 
   lifecycle {
     precondition {
-      condition     = var.luks_reader_application_id != ""
-      error_message = "luks_reader_application_id is required when manage_luks_bucket_policy=true."
+      condition     = local.luks_reader_principal != ""
+      error_message = "Provide luks_reader_application_id or luks_reader_user_id, or set luks_key_access_key, when manage_luks_bucket_policy=true."
     }
   }
 }

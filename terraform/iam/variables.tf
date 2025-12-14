@@ -70,7 +70,20 @@ variable "luks_key_object_name" {
 
 variable "luks_reader_application_id" {
   type        = string
-  description = "IAM application ID allowed to read the LUKS key"
+  description = "IAM application ID allowed to read the LUKS key (optional if luks_key_access_key is set)"
+  default     = ""
+}
+
+variable "luks_reader_user_id" {
+  type        = string
+  description = "IAM user ID allowed to read the LUKS key (optional if luks_key_access_key is set)"
+  default     = ""
+}
+
+variable "luks_key_access_key" {
+  type        = string
+  description = "Access key of the LUKS reader (used to resolve application/user automatically)"
+  sensitive   = true
   default     = ""
 }
 
@@ -96,4 +109,3 @@ variable "block_storage_permission_set_names" {
   description = "IAM permission sets for managing block storage snapshots"
   default     = ["BlockStorageFullAccess"]
 }
-

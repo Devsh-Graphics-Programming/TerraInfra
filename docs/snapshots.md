@@ -21,12 +21,15 @@ When creating the IAM API key used by GitHub Actions, set its `default_project_i
 ### IAM + bucket policies as code (manual apply)
 IAM resources and Object Storage bucket policies for snapshots live in `terraform/iam/`. This is not applied by CI. Run it manually with your full-privilege Scaleway key when you want to reconcile:
 
-Create a local (not committed) vars file, e.g. `terraform/iam/local.auto.tfvars.json`:
+Prepare your local env (recommended):
+- Load `terraform/.env` (SCW creds, `TF_VAR_project_id`, `TF_VAR_luks_key_access_key`, etc.): `cd terraform; .\env.ps1`
+- Set your owner identity (used to keep full access to the buckets): `$env:TF_VAR_owner_user_email='you@example.com'`
+
+Create a local (not committed) vars file, e.g. `terraform/iam/local.auto.tfvars.json` (see `terraform/iam/local.auto.tfvars.json.example`):
 ```json
 {
   "project_id": "xxxx",
   "owner_user_email": "you@example.com",
-  "luks_reader_application_id": "xxxx",
   "snapshots_state_bucket_name": "terra-snapshots-state",
   "snapshots_state_object_prefix": "terraform/snapshots/"
 }
