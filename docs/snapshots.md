@@ -24,6 +24,14 @@ Secrets:
 - `SNAPSHOTS_SCW_ACCESS_KEY`
 - `SNAPSHOTS_SCW_SECRET_KEY`
 
+### Migration
+If you used the previous in-module managed daily snapshot, remove it from the `terraform/` state before your next prod apply so it is not destroyed:
+```
+cd terraform
+terraform workspace select prod
+terraform state rm module.k3s_node.scaleway_block_snapshot.data_volume[0]
+```
+
 ## Manual snapshots (separate retention)
 Manual snapshots are separate from the rotating daily snapshot. They do not replace it and do not delete each other.
 
