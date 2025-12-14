@@ -750,11 +750,14 @@ data:
 
         mention = f"<@&{ONCALL_ROLE_ID}>" if ONCALL_ROLE_ID else "@OnCall"
         mentions = {"parse": [], "roles": [ONCALL_ROLE_ID]} if ONCALL_ROLE_ID else {"parse": []}
-        return ctx["alert_group_id"], event_key, severity, {
-            "content": f"# {mention}",
+        payload = {
             "embeds": [embed],
-            "allowed_mentions": mentions,
+            "allowed_mentions": {"parse": []},
         }
+        if severity == "CRITICAL":
+            payload["content"] = f"# {mention}"
+            payload["allowed_mentions"] = mentions
+        return ctx["alert_group_id"], event_key, severity, payload
 
     def log(msg: str):
         print(msg, flush=True)

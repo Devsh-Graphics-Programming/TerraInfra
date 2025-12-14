@@ -1,7 +1,7 @@
 # Alerting flow (OnCall)
 
 - Routing: Prometheus Alertmanager → Grafana OnCall (two integrations: `critical`/`warning`) → OnCall outgoing webhook → `oncall-discord-proxy` → Discord webhooks (`#alerts-critical`, `#alerts-warning`).
-- Discord: one message per alert group, updated in-place on resolve; every message includes the `@OnCall` role mention.
+- Discord: one message per alert group, updated in-place on resolve; only `critical` includes the `@OnCall` role mention (warnings do not mention).
 - OnCall stack lives in `monitoring-oncall` (HelmRelease `oncall`) with a dedicated Grafana UI: `https://${ENV_PREFIX}oncall.${BASE_DOMAIN}/grafana`.
 - Storage: Postgres + Redis subcharts (RabbitMQ is disabled); Grafana state on a local PV (`/mnt/data/oncall-grafana`).
 
@@ -106,7 +106,7 @@ curl -sS -XPOST -H "Content-Type: application/json" -d @/tmp/resolved.json "$war
 ```
 
 Expected:
-- Exactly one Discord message in `#alerts-warning` with the `@OnCall` mention.
+- Exactly one Discord message in `#alerts-warning` without the `@OnCall` mention.
 - The message is edited in-place on resolve (no second message).
 - The title links to the OnCall alert group.
 
