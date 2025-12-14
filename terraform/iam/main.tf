@@ -1,15 +1,22 @@
-data "scaleway_iam_user" "owner" {
-  count = var.owner_user_id == "" ? 1 : 0
-  email = var.owner_user_email
-}
-
 data "scaleway_iam_api_key" "luks_reader" {
   count      = var.luks_key_access_key != "" ? 1 : 0
   access_key = var.luks_key_access_key
 }
 
+data "scaleway_iam_api_key" "owner" {
+  count      = var.owner_user_id == "" && var.owner_access_key != "" ? 1 : 0
+  access_key = var.owner_access_key
+}
+
+data "scaleway_iam_user" "owner" {
+  count = var.owner_user_id == "" && var.owner_access_key == "" && var.owner_user_email != "" ? 1 : 0
+  email = var.owner_user_email
+}
+
 locals {
-  owner_user_id = var.owner_user_id != "" ? var.owner_user_id : data.scaleway_iam_user.owner[0].id
+  owner_user_id = var.owner_user_id != "" ? var.owner_user_id : (
+    var.owner_access_key != "" ? data.scaleway_iam_api_key.owner[0].user_id : data.scaleway_iam_user.owner[0].id
+  )
 
   state_object_prefix_trimmed = trim(var.snapshots_state_object_prefix, "/")
   state_object_resource = local.state_object_prefix_trimmed != "" ? format(
@@ -103,6 +110,13 @@ resource "scaleway_object_bucket_policy" "snapshots_state" {
       },
     ]
   })
+
+  lifecycle {
+    precondition {
+      condition     = local.owner_user_id != ""
+      error_message = "Could not resolve owner_user_id. Set owner_user_id, owner_access_key (user key), or owner_user_email (requires organization_id)."
+    }
+  }
 }
 
 resource "scaleway_object_bucket_policy" "luks_keys" {

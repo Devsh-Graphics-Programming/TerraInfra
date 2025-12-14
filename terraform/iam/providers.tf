@@ -1,5 +1,6 @@
 provider "scaleway" {
-  project_id = var.project_id
-  zone       = var.zone
-  region     = var.region
+  organization_id = var.organization_id
+  project_id      = var.project_id
+  zone            = var.zone
+  region          = var.region
 }

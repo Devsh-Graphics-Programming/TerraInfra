@@ -15,9 +15,22 @@ variable "zone" {
   default     = "fr-par-1"
 }
 
+variable "organization_id" {
+  type        = string
+  description = "Scaleway Organization ID (required only for some IAM lookups)"
+  default     = null
+}
+
 variable "owner_user_id" {
   type        = string
   description = "Scaleway IAM User ID to keep full bucket access"
+  default     = ""
+}
+
+variable "owner_access_key" {
+  type        = string
+  description = "Scaleway access key used to resolve owner_user_id automatically"
+  sensitive   = true
   default     = ""
 }
 
@@ -27,8 +40,8 @@ variable "owner_user_email" {
   default     = ""
 
   validation {
-    condition     = var.owner_user_id != "" || var.owner_user_email != ""
-    error_message = "Set either owner_user_id or owner_user_email."
+    condition     = var.owner_user_id != "" || var.owner_access_key != "" || var.owner_user_email != ""
+    error_message = "Set either owner_user_id, owner_access_key, or owner_user_email."
   }
 }
 

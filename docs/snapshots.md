@@ -23,7 +23,7 @@ IAM resources and Object Storage bucket policies for snapshots live in `terrafor
 
 Prepare your local env (recommended):
 - Load `terraform/.env` (SCW creds, `TF_VAR_project_id`, `TF_VAR_luks_key_access_key`, etc.): `cd terraform; .\env.ps1`
-- Set your owner identity (used to keep full access to the buckets): `$env:TF_VAR_owner_user_email='you@example.com'`
+- Owner identity is resolved automatically from `SCW_ACCESS_KEY` (as `TF_VAR_owner_access_key`). You can override with `TF_VAR_owner_user_id` or `TF_VAR_owner_user_email` (email lookup may require `TF_VAR_organization_id`).
 
 Create a local (not committed) vars file, e.g. `terraform/iam/local.auto.tfvars.json` (see `terraform/iam/local.auto.tfvars.json.example`). `project_id` is expected via `TF_VAR_project_id` (from `terraform/.env`) unless you explicitly set it in the file.
 ```json

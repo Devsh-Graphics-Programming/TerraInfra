@@ -11,3 +11,7 @@ Get-Content $envFile |
   }
 
 Write-Host "Environment variables loaded from .env"
+
+if (-not $env:TF_VAR_owner_access_key -and $env:SCW_ACCESS_KEY) {
+  $env:TF_VAR_owner_access_key = $env:SCW_ACCESS_KEY
+}
