@@ -14,7 +14,7 @@ Workflow expects a dedicated Object Storage bucket for Terraform state (separate
 Configure GitHub repository secrets (or Environment `prod` secrets):
 - `SNAPSHOTS_SCW_ACCESS_KEY`
 - `SNAPSHOTS_SCW_SECRET_KEY`
-- `SNAPSHOTS_DISCORD_WEBHOOK_URL` (optional) – Discord webhook URL for snapshot success notifications
+- `SNAPSHOTS_DISCORD_WEBHOOK_URL` (optional) - Discord webhook URL for snapshot success/failure notifications
 
 Snapshot configuration (project ID, volume name, tfstate bucket/key/region/endpoint) is defined in `.github/workflows/terraform-snapshots.yml` and can be overridden when running the workflow manually (`workflow_dispatch` inputs).
 Manual snapshots support `manual_ttl_hours` (default `24`) and `manual_snapshot_name` (optional).
@@ -68,40 +68,26 @@ terraform state rm module.k3s_node.scaleway_block_snapshot.data_volume[0]
 ## Manual snapshots (separate retention)
 Manual snapshots are separate from the rotating daily snapshot. They do not replace it and do not delete each other.
 
-Manual snapshots are defined locally (not committed) in `terraform/manual-snapshots.auto.tfvars.json` and are destroyed after their TTL on the next `terraform apply` run.
+### Create a manual snapshot (GitHub Actions, recommended)
+Use the `terraform-snapshots` workflow (`workflow_dispatch`) on branch `env/prod`.
 
-Create a manual snapshot (default TTL 24h, auto name):
-```
-cd terraform
-.\manual-snapshot.ps1
-terraform workspace select prod
-terraform apply -auto-approve
-```
+Inputs:
+- `manual_ttl_hours` (default `24`)
+- `manual_snapshot_name` (optional) - keep it short and unique (e.g. `incident-2025-12-14`)
 
-Create a manual snapshot with a custom TTL (auto name):
-```
-cd terraform
-.\manual-snapshot.ps1 -TtlHours 72
-terraform workspace select prod
-terraform apply -auto-approve
-```
+The run output contains the created snapshot name and ID. If `SNAPSHOTS_DISCORD_WEBHOOK_URL` is set, a Discord notification is sent on success and failure.
 
-Create a manual snapshot with a custom TTL and custom name:
-```
-cd terraform
-.\manual-snapshot.ps1 -Name incident-2025-12-14 -TtlHours 72
-terraform workspace select prod
-terraform apply -auto-approve
-```
-
-You can list snapshot IDs from Terraform:
+### List snapshot IDs (from Terraform state)
+From the dedicated snapshots root:
 ```
 cd terraform/snapshots
 terraform output -raw latest_snapshot_id
-
-cd ..
 terraform output -json manual_snapshot_ids
 ```
+
+### Legacy local/manual snapshots (not used by CI)
+There is an older local helper `terraform/manual-snapshot.ps1` that manages manual snapshots via the main `terraform/` root.
+Prefer the GitHub Actions workflow above to keep snapshot state centralized and avoid conflicts.
 
 ### Restore snapshot into test
 1) In test session set:

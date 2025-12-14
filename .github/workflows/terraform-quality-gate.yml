@@ -87,18 +87,30 @@ jobs:
             -v "$GITHUB_WORKSPACE":/work \
             -w /work \
             philippemerle/kubediagrams \
-            kube-diagrams - -o KUBEDIAGRAM.png
+            kube-diagrams - -o KUBEDIAGRAM.svg -f svg
+
+          cat $files | docker run --rm -i \
+            -v "$GITHUB_WORKSPACE":/work \
+            -w /work \
+            philippemerle/kubediagrams \
+            kube-diagrams - -o KUBEDIAGRAM.png -f png
+
+      - uses: terraform-docs/gh-actions@v1.3.0
+        with:
+          working-dir: terraform/iam
+          output-file: TERRAFORM.md
+          output-method: replace
 
       - name: Commit and push if changed
         run: |
           set -euo pipefail
-          if [ -z "$(git status --porcelain -- terraform/TERRAFORM.md terraform/snapshots/TERRAFORM.md KUBEDIAGRAM.png)" ]; then
+          if [ -z "$(git status --porcelain -- terraform/TERRAFORM.md terraform/snapshots/TERRAFORM.md terraform/iam/TERRAFORM.md KUBEDIAGRAM.svg KUBEDIAGRAM.png)" ]; then
             echo "No changes to generated files."
             exit 0
           fi
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add terraform/TERRAFORM.md terraform/snapshots/TERRAFORM.md KUBEDIAGRAM.png
+          git add terraform/TERRAFORM.md terraform/snapshots/TERRAFORM.md terraform/iam/TERRAFORM.md KUBEDIAGRAM.svg KUBEDIAGRAM.png
           git commit -m "chore(ci): update generated files [skip ci]"
           git push
