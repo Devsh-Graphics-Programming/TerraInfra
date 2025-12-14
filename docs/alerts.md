@@ -39,7 +39,7 @@ cat >/tmp/firing.json <<EOF
         "severity": "warning",
         "cluster": "prod",
         "namespace": "monitoring",
-        "instance": "203.0.113.10:9100"
+        "instance": "<IP/domain>:9100"
       },
       "annotations": {
         "summary": "OnCall Discord smoke test",
@@ -54,7 +54,7 @@ cat >/tmp/firing.json <<EOF
     "severity": "warning",
     "cluster": "prod",
     "namespace": "monitoring",
-    "instance": "203.0.113.10:9100"
+    "instance": "<IP/domain>:9100"
   },
   "commonAnnotations": {
     "summary": "OnCall Discord smoke test",
@@ -75,7 +75,7 @@ cat >/tmp/resolved.json <<EOF
         "severity": "warning",
         "cluster": "prod",
         "namespace": "monitoring",
-        "instance": "203.0.113.10:9100"
+        "instance": "<IP/domain>:9100"
       },
       "annotations": {
         "summary": "OnCall Discord smoke test",
@@ -90,7 +90,7 @@ cat >/tmp/resolved.json <<EOF
     "severity": "warning",
     "cluster": "prod",
     "namespace": "monitoring",
-    "instance": "203.0.113.10:9100"
+    "instance": "<IP/domain>:9100"
   },
   "commonAnnotations": {
     "summary": "OnCall Discord smoke test",
