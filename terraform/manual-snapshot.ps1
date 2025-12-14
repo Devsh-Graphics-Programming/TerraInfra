@@ -34,4 +34,4 @@ $manualSnapshots | Add-Member -MemberType NoteProperty -Name $Name -Value $entry
 $data | ConvertTo-Json -Depth 10 | Set-Content -Path $path -Encoding UTF8
 
 Write-Host "Added manual snapshot request: $Name (ttl_hours=$TtlHours, created_at=$createdAt)"
-Write-Host "Run from terraform/: terraform apply -var-file=manual-snapshots.auto.tfvars.json"
+Write-Host "Next: terraform apply -auto-approve (manual-snapshots.auto.tfvars.json is auto-loaded)"
