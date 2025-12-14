@@ -16,14 +16,20 @@ if (Test-Path $path) {
   $data = New-Object psobject
 }
 
-if (-not $data.PSObject.Properties.Name.Contains("manual_snapshots")) {
+if (-not ($data.PSObject.Properties.Name -contains "manual_snapshots")) {
   $data | Add-Member -MemberType NoteProperty -Name manual_snapshots -Value (New-Object psobject) -Force
+}
+
+$manualSnapshots = $data.manual_snapshots
+if (-not $manualSnapshots) {
+  $manualSnapshots = New-Object psobject
+  $data.manual_snapshots = $manualSnapshots
 }
 
 $entry = New-Object psobject
 $entry | Add-Member -MemberType NoteProperty -Name created_at -Value $createdAt -Force
 $entry | Add-Member -MemberType NoteProperty -Name ttl_hours -Value $TtlHours -Force
-$data.manual_snapshots | Add-Member -MemberType NoteProperty -Name $Name -Value $entry -Force
+$manualSnapshots | Add-Member -MemberType NoteProperty -Name $Name -Value $entry -Force
 
 $data | ConvertTo-Json -Depth 10 | Set-Content -Path $path -Encoding UTF8
 
