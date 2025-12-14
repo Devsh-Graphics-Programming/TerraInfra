@@ -53,7 +53,6 @@ jobs:
             -backend-config="key=${{ secrets.SNAPSHOTS_TFSTATE_KEY }}" \
             -backend-config="region=${{ secrets.SNAPSHOTS_TFSTATE_REGION }}" \
             -backend-config="endpoint=${{ secrets.SNAPSHOTS_TFSTATE_ENDPOINT }}" \
-            -backend-config="use_lockfile=true" \
             -backend-config="skip_credentials_validation=true" \
             -backend-config="skip_metadata_api_check=true" \
             -backend-config="skip_region_validation=true" \
