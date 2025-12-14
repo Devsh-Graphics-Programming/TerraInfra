@@ -64,7 +64,7 @@ jobs:
 
       - name: Terraform apply (manual)
         if: github.event_name == 'workflow_dispatch'
-        run: terraform apply -auto-approve -no-color -replace=scaleway_block_snapshot.data_volume
+        run: terraform apply -auto-approve -no-color -replace=time_static.snapshot_trigger
 
       - name: Show snapshot ID
         run: terraform output -raw latest_snapshot_id
