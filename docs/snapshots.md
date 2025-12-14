@@ -2,7 +2,10 @@
 
 Goal: keep prod data, test against a snapshot without touching prod.
 
+Snapshots are managed by Terraform. A new snapshot is created when you run `terraform apply` (manually or via automation) and Terraform decides the rotation window has advanced. Only one managed snapshot is kept at a time (Terraform replaces the previous snapshot when creating a new one).
+
 ### Create prod snapshot
+If you want a snapshot immediately, taint the snapshot resource before applying.
 ```
 cd terraform
 . .\env.ps1
@@ -10,7 +13,6 @@ $env:TF_VAR_sops_age_key = Get-Content terra.agekey -Raw
 terraform workspace select prod
 terraform taint module.k3s_node.scaleway_block_snapshot.data_volume[0]
 terraform apply -auto-approve
-# note latest_snapshot_id output
 ```
 
 ### Restore snapshot into test
