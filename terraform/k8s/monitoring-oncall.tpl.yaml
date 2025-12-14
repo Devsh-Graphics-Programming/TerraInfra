@@ -502,7 +502,7 @@ spec:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: oncall-discord-proxy
+  name: oncall-discord-proxy-inline
   namespace: monitoring-oncall
 data:
   app.py: |
@@ -835,8 +835,6 @@ spec:
     metadata:
       labels:
         app: oncall-discord-proxy
-      annotations:
-        proxy.devsh.eu/restartedAt: "2025-12-14T00:00:00Z"
     spec:
       serviceAccountName: oncall-bootstrap
       containers:

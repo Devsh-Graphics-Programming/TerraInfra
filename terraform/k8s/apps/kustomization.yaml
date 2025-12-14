@@ -16,3 +16,10 @@ resources:
   - ../grafana-dashboards
   - ../image-automation.yaml
   - ../image-digest-rollout.yaml
+configMapGenerator:
+  - name: oncall-discord-proxy
+    namespace: monitoring-oncall
+    files:
+      - ../oncall-discord-proxy/app.py
+    options:
+      disableNameSuffixHash: false
