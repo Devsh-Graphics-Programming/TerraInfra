@@ -7,8 +7,8 @@
     <img src="https://github.com/Devsh-Graphics-Programming/TerraInfra/actions/workflows/terraform-quality-gate.yml/badge.svg?branch=env/prod" alt="Terraform Quality Gate" /></a>
   <a href="https://github.com/Devsh-Graphics-Programming/TerraInfra/actions/workflows/terraform-snapshots.yml">
     <img src="https://github.com/Devsh-Graphics-Programming/TerraInfra/actions/workflows/terraform-snapshots.yml/badge.svg?branch=env/prod" alt="Snapshots" /></a>
-  <a href="https://choosealicense.com/">
-    <img src="https://img.shields.io/github/license/Devsh-Graphics-Programming/TerraInfra" alt="License" /></a>
+  <a href="https://opensource.org/licenses/Apache-2.0">
+    <img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License: Apache 2.0" /></a>
   <a href="https://discord.gg/krsBcABm7u">
     <img src="https://img.shields.io/discord/308323056592486420?label=discord&logo=discord&logoColor=white&color=7289DA" alt="Join our Discord" /></a>
 </p>
