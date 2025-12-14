@@ -44,6 +44,15 @@ variable "snapshot_rotation_hours" {
   default     = 24
 }
 
+variable "manual_snapshots" {
+  type = map(object({
+    created_at = string
+    ttl_hours  = optional(number, 24)
+  }))
+  description = "Manual data-volume snapshots (keyed by name) that are kept until ttl_hours expires."
+  default     = {}
+}
+
 variable "acme_email" {
   type        = string
   description = "Email for ACME"

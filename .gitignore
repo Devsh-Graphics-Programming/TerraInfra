@@ -8,4 +8,5 @@ terraform/*.tfstate
 terraform/*.tfstate.*
 terraform/terraform.auto.tfvars
 terraform/terra.agekey
+terraform/manual-snapshots.auto.tfvars.json
 kimai-plugin/

@@ -39,6 +39,7 @@ module "k3s_node" {
   github_bootstrap_terra_infra_webhook_pat = var.github_bootstrap_terra_infra_webhook_pat
   create_daily_snapshot                    = local.snapshot_enabled
   snapshot_rotation_hours                  = var.snapshot_rotation_hours
+  manual_snapshots                         = var.manual_snapshots
   prevent_destroy_data_volume              = var.prevent_destroy_data_volume
   data_volume_snapshot_id                  = var.data_volume_snapshot_id
   public_ip_id                             = var.public_ip_id

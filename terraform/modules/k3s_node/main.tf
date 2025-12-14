@@ -14,6 +14,17 @@ locals {
   snapshot_enabled = var.create_daily_snapshot && var.env_name == "prod"
 }
 
+locals {
+  manual_snapshots_active = {
+    for name, cfg in var.manual_snapshots :
+    name => {
+      created_at = cfg.created_at
+      ttl_hours  = try(cfg.ttl_hours, 24)
+    }
+    if local.snapshot_enabled && timecmp(plantimestamp(), timeadd(cfg.created_at, format("%dh", try(cfg.ttl_hours, 24)))) == -1
+  }
+}
+
 data "scaleway_instance_ip" "by_id" {
   count = var.public_ip_id != "" ? 1 : 0
   id    = var.public_ip_id
@@ -163,5 +174,24 @@ resource "scaleway_block_snapshot" "data_volume" {
   lifecycle {
     create_before_destroy = true
     replace_triggered_by  = [time_static.snapshot_trigger[0]]
+  }
+}
+
+resource "scaleway_block_snapshot" "manual_data_volume" {
+  for_each   = local.manual_snapshots_active
+  project_id = var.project_id
+  volume_id  = scaleway_block_volume.data_volume.id
+  name       = format("devsh-k3s-%s-data-manual-%s", var.env_name, each.key)
+  tags = [
+    "devsh",
+    "k3s",
+    "snapshot",
+    var.env_name,
+    "manual",
+    "ttl_hours=${each.value.ttl_hours}",
+  ]
+
+  lifecycle {
+    create_before_destroy = true
   }
 }

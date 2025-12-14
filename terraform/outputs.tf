@@ -12,3 +12,8 @@ output "latest_snapshot_id" {
   value       = module.k3s_node.latest_snapshot_id
   description = "Most recent managed snapshot ID (empty when snapshots are disabled)"
 }
+
+output "manual_snapshot_ids" {
+  value       = module.k3s_node.manual_snapshot_ids
+  description = "IDs of managed manual snapshots (empty when none are configured)"
+}

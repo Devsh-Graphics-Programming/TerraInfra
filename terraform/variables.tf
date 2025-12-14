@@ -106,3 +106,12 @@ variable "public_ip_address" {
   description = "Existing Flexible IP address to attach (alternative to public_ip_id)."
   default     = ""
 }
+
+variable "manual_snapshots" {
+  type = map(object({
+    created_at = string
+    ttl_hours  = optional(number, 24)
+  }))
+  description = "Manual data-volume snapshots (keyed by name) that are kept until ttl_hours expires (requires terraform apply to enforce)."
+  default     = {}
+}

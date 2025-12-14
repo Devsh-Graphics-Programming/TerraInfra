@@ -4,6 +4,27 @@ Goal: keep prod data, test against a snapshot without touching prod.
 
 Snapshots are managed by Terraform. A new snapshot is created when you run `terraform apply` (manually or via automation) and Terraform decides the rotation window has advanced. Only one managed snapshot is kept at a time (Terraform replaces the previous snapshot when creating a new one).
 
+## Manual snapshots (separate retention)
+Manual snapshots are separate from the rotating daily snapshot. They do not replace it and do not delete each other.
+
+Manual snapshots are defined locally (not committed) in `terraform/manual-snapshots.auto.tfvars.json` and are destroyed after their TTL on the next `terraform apply` run.
+
+Create a manual snapshot (default TTL 24h):
+```
+cd terraform
+.\manual-snapshot.ps1
+terraform workspace select prod
+terraform apply -auto-approve -var-file=manual-snapshots.auto.tfvars.json
+```
+
+Create a manual snapshot with a custom TTL:
+```
+cd terraform
+.\manual-snapshot.ps1 -Name incident-2025-12-14 -TtlHours 72
+terraform workspace select prod
+terraform apply -auto-approve -var-file=manual-snapshots.auto.tfvars.json
+```
+
 ### Create prod snapshot
 If you want a snapshot immediately, taint the snapshot resource before applying.
 ```
