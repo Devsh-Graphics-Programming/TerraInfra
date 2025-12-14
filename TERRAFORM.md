@@ -42,6 +42,7 @@
 | <a name="input_luks_key_access_key"></a> [luks\_key\_access\_key](#input\_luks\_key\_access\_key) | Access key (read-only) for fetching LUKS key from Object Storage | `string` | `""` | no |
 | <a name="input_luks_key_secret_key"></a> [luks\_key\_secret\_key](#input\_luks\_key\_secret\_key) | Secret key (read-only) for fetching LUKS key from Object Storage | `string` | `""` | no |
 | <a name="input_luks_key_url"></a> [luks\_key\_url](#input\_luks\_key\_url) | Optional presigned URL to fetch LUKS key (overrides access/secret when set) | `string` | `""` | no |
+| <a name="input_manual_snapshots"></a> [manual\_snapshots](#input\_manual\_snapshots) | Manual data-volume snapshots (keyed by name) that are kept until ttl\_hours expires (requires terraform apply to enforce). | <pre>map(object({<br/>    created_at = string<br/>    ttl_hours  = optional(number, 24)<br/>  }))</pre> | `{}` | no |
 | <a name="input_prevent_destroy_data_volume"></a> [prevent\_destroy\_data\_volume](#input\_prevent\_destroy\_data\_volume) | Set false only when you intentionally want Terraform to allow destroying the data volume (e.g., wiping/recreating). | `bool` | `true` | no |
 | <a name="input_project_id"></a> [project\_id](#input\_project\_id) | Scaleway Project ID | `string` | n/a | yes |
 | <a name="input_public_ip_address"></a> [public\_ip\_address](#input\_public\_ip\_address) | Existing Flexible IP address to attach (alternative to public\_ip\_id). | `string` | `""` | no |
@@ -56,4 +57,5 @@
 | <a name="output_data_volume_id"></a> [data\_volume\_id](#output\_data\_volume\_id) | ID of the environment's data volume |
 | <a name="output_k3s_node_1_ip"></a> [k3s\_node\_1\_ip](#output\_k3s\_node\_1\_ip) | Public IP of k3s node |
 | <a name="output_latest_snapshot_id"></a> [latest\_snapshot\_id](#output\_latest\_snapshot\_id) | Most recent managed snapshot ID (empty when snapshots are disabled) |
+| <a name="output_manual_snapshot_ids"></a> [manual\_snapshot\_ids](#output\_manual\_snapshot\_ids) | IDs of managed manual snapshots (empty when none are configured) |
 <!-- END_TF_DOCS -->
