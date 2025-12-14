@@ -87,7 +87,7 @@ jobs:
             -v "$GITHUB_WORKSPACE":/work \
             -w /work \
             philippemerle/kubediagrams \
-            kube-diagrams - -o KUBEDIAGRAM.svg -f svg
+            kube-diagrams - -o KUBEDIAGRAM.svg -f svg --embed-all-icons
 
           cat $files | docker run --rm -i \
             -v "$GITHUB_WORKSPACE":/work \
