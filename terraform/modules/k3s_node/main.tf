@@ -3,25 +3,18 @@ terraform {
     scaleway = {
       source = "scaleway/scaleway"
     }
-    time = {
-      source  = "hashicorp/time"
-      version = "~> 0.10"
-    }
   }
 }
 
 locals {
-  snapshot_enabled = var.create_daily_snapshot && var.env_name == "prod"
-}
-
-locals {
+  manual_snapshots_enabled = var.env_name == "prod"
   manual_snapshots_active = {
     for name, cfg in var.manual_snapshots :
     name => {
       created_at = cfg.created_at
       ttl_hours  = try(cfg.ttl_hours, 24)
     }
-    if local.snapshot_enabled && timecmp(plantimestamp(), timeadd(cfg.created_at, format("%dh", try(cfg.ttl_hours, 24)))) == -1
+    if local.manual_snapshots_enabled && timecmp(plantimestamp(), timeadd(cfg.created_at, format("%dh", try(cfg.ttl_hours, 24)))) == -1
   }
 }
 
@@ -73,7 +66,6 @@ resource "scaleway_instance_security_group" "web_sg" {
     port   = "443"
   }
 
-  # Block outbound SMTP except TLS submission (587) to avoid unwanted relays.
   outbound_rule {
     action   = "drop"
     protocol = "TCP"
@@ -142,39 +134,6 @@ resource "scaleway_block_volume" "data_volume" {
   snapshot_id = var.data_volume_snapshot_id == "" ? null : var.data_volume_snapshot_id
 
   lifecycle {}
-}
-
-resource "time_static" "snapshot_trigger" {
-  count = local.snapshot_enabled ? 1 : 0
-  triggers = {
-    rotation_hours = tostring(var.snapshot_rotation_hours)
-    bucket         = formatdate("YYYY-MM-DD", plantimestamp())
-  }
-}
-
-resource "scaleway_block_snapshot" "data_volume" {
-  count = local.snapshot_enabled ? 1 : 0
-  name = format(
-    "devsh-k3s-%s-data-snapshot-%s",
-    var.env_name,
-    replace(
-      replace(
-        replace(time_static.snapshot_trigger[0].rfc3339, ":", "-"),
-        "T",
-        "-"
-      ),
-      "Z",
-      ""
-    )
-  )
-  project_id = var.project_id
-  volume_id  = scaleway_block_volume.data_volume.id
-  tags       = ["devsh", "k3s", "snapshot", var.env_name]
-
-  lifecycle {
-    create_before_destroy = true
-    replace_triggered_by  = [time_static.snapshot_trigger[0]]
-  }
 }
 
 resource "scaleway_block_snapshot" "manual_data_volume" {

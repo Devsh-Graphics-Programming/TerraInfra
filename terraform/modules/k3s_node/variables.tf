@@ -20,12 +20,6 @@ variable "prevent_destroy_data_volume" {
   default     = true
 }
 
-variable "create_daily_snapshot" {
-  type        = bool
-  description = "When true, creates a rotating daily snapshot of the data volume (usually enabled only for prod)."
-  default     = false
-}
-
 variable "public_ip_id" {
   type        = string
   description = "Optional existing Flexible IP ID to attach (skips IP creation)."
@@ -36,12 +30,6 @@ variable "public_ip_address" {
   type        = string
   description = "Optional existing Flexible IP address to attach (skips IP creation)."
   default     = ""
-}
-
-variable "snapshot_rotation_hours" {
-  type        = number
-  description = "Rotation window (hours) used by the snapshot trigger."
-  default     = 24
 }
 
 variable "manual_snapshots" {

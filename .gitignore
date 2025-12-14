@@ -6,6 +6,12 @@ terraform/terraform.tfstate
 terraform/terraform.tfstate.*
 terraform/*.tfstate
 terraform/*.tfstate.*
+terraform/snapshots/.terraform/
+terraform/snapshots/.terraform.lock.hcl
+terraform/snapshots/terraform.tfstate
+terraform/snapshots/terraform.tfstate.*
+terraform/snapshots/*.tfstate
+terraform/snapshots/*.tfstate.*
 terraform/terraform.auto.tfvars
 terraform/terra.agekey
 terraform/manual-snapshots.auto.tfvars.json

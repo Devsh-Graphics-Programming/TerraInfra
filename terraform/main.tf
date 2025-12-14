@@ -6,10 +6,6 @@ terraform {
       source  = "scaleway/scaleway"
       version = "~> 2.60"
     }
-    time = {
-      source  = "hashicorp/time"
-      version = "~> 0.10"
-    }
   }
 }
 
@@ -19,11 +15,10 @@ provider "scaleway" {
 }
 
 locals {
-  env_raw          = trimspace(var.env_name)
-  env_filtered     = regexall("[a-z0-9-]+", lower(local.env_raw))
-  env_slug_cand    = length(local.env_filtered) > 0 ? join("-", local.env_filtered) : ""
-  env_slug         = length(local.env_slug_cand) > 0 ? local.env_slug_cand : "prod"
-  snapshot_enabled = local.env_slug == "prod"
+  env_raw       = trimspace(var.env_name)
+  env_filtered  = regexall("[a-z0-9-]+", lower(local.env_raw))
+  env_slug_cand = length(local.env_filtered) > 0 ? join("-", local.env_filtered) : ""
+  env_slug      = length(local.env_slug_cand) > 0 ? local.env_slug_cand : "prod"
 }
 
 module "k3s_node" {
@@ -37,8 +32,6 @@ module "k3s_node" {
   config_repo_path                         = var.config_repo_path
   github_persistent_terra_infra_ro_pat     = var.github_persistent_terra_infra_ro_pat
   github_bootstrap_terra_infra_webhook_pat = var.github_bootstrap_terra_infra_webhook_pat
-  create_daily_snapshot                    = local.snapshot_enabled
-  snapshot_rotation_hours                  = var.snapshot_rotation_hours
   manual_snapshots                         = var.manual_snapshots
   prevent_destroy_data_volume              = var.prevent_destroy_data_volume
   data_volume_snapshot_id                  = var.data_volume_snapshot_id

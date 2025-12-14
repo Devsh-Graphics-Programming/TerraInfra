@@ -2,20 +2,27 @@
 
 Goal: keep prod data, test against a snapshot without touching prod.
 
-Snapshots are managed by Terraform and created only when you run `terraform apply` in the `prod` workspace.
-
 ## Managed daily snapshot (rotating)
-Terraform keeps exactly one managed "daily" snapshot in prod (`latest_snapshot_id`). It is replaced when the rotation window advances (`snapshot_rotation_hours`, default 24h) and you run `terraform apply`.
+Terraform keeps exactly one managed "daily" snapshot in prod (`latest_snapshot_id`). It is maintained by a dedicated Terraform root in `terraform/snapshots/` and applied by GitHub Actions (`.github/workflows/terraform-snapshots.yml`):
+- `schedule` (daily): creates a new snapshot once per day (replacing the previous one)
+- `workflow_dispatch` (manual): forces a fresh snapshot immediately (also replaces the previous one)
 
-If you want a fresh managed snapshot immediately, taint the managed snapshot resource (local command) and apply:
-```
-cd terraform
-. .\env.ps1
-$env:TF_VAR_sops_age_key = Get-Content terra.agekey -Raw
-terraform workspace select prod
-terraform taint module.k3s_node.scaleway_block_snapshot.data_volume[0]
-terraform apply -auto-approve
-```
+### CI setup (once)
+Workflow expects a dedicated Object Storage bucket for Terraform state (separate from the LUKS bucket) and a Scaleway IAM key scoped to the minimum required permissions (Block snapshots + read volume, and Object Storage access to the state bucket only).
+
+Configure GitHub Environment `prod`:
+
+Variables:
+- `SNAPSHOTS_PROJECT_ID`
+- `SNAPSHOTS_VOLUME_NAME` (default: `devsh-k3s-prod-data-node1`)
+- `SNAPSHOTS_TFSTATE_BUCKET`
+- `SNAPSHOTS_TFSTATE_KEY` (example: `terraform/snapshots/terraform.tfstate`)
+- `SNAPSHOTS_TFSTATE_REGION` (example: `fr-par`)
+- `SNAPSHOTS_TFSTATE_ENDPOINT` (example: `https://s3.fr-par.scw.cloud`)
+
+Secrets:
+- `SNAPSHOTS_SCW_ACCESS_KEY`
+- `SNAPSHOTS_SCW_SECRET_KEY`
 
 ## Manual snapshots (separate retention)
 Manual snapshots are separate from the rotating daily snapshot. They do not replace it and do not delete each other.
@@ -46,11 +53,12 @@ terraform workspace select prod
 terraform apply -auto-approve
 ```
 
-You can list snapshot IDs from state:
+You can list snapshot IDs from Terraform:
 ```
-cd terraform
-terraform workspace select prod
-terraform output latest_snapshot_id
+cd terraform/snapshots
+terraform output -raw latest_snapshot_id
+
+cd ..
 terraform output -json manual_snapshot_ids
 ```
 

@@ -77,12 +77,6 @@ variable "sops_age_key" {
   default     = ""
 }
 
-variable "snapshot_rotation_hours" {
-  type        = number
-  description = "Rotation period in hours for the production block-volume snapshot."
-  default     = 24
-}
-
 variable "data_volume_snapshot_id" {
   type        = string
   description = "Optional snapshot ID used by environments that should attach a copy of the prod data volume."
