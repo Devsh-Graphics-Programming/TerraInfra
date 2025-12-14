@@ -4,8 +4,9 @@ Goal: keep prod data, test against a snapshot without touching prod.
 
 ## Managed daily snapshot (rotating)
 Terraform keeps exactly one managed "daily" snapshot in prod (`latest_snapshot_id`). It is maintained by a dedicated Terraform root in `terraform/snapshots/` and applied by GitHub Actions (`.github/workflows/terraform-snapshots.yml`):
-- `schedule` (daily): creates a new snapshot once per day (replacing the previous one)
-- `workflow_dispatch` (manual): forces a fresh snapshot immediately (also replaces the previous one)
+- `schedule` (daily, 03:00): creates a new **auto** snapshot (replacing the previous one; max 1 auto kept)
+- `workflow_dispatch` (manual): creates a **manual** snapshot (default TTL 24h; does not replace the auto snapshot and does not delete other manual snapshots)
+- `schedule` (hourly): cleanup of expired **manual** snapshots created by the workflow (no auto snapshot creation)
 
 ### CI setup (once)
 Workflow expects a dedicated Object Storage bucket for Terraform state (separate from the LUKS bucket) and a Scaleway IAM key scoped to the minimum required permissions (Block snapshots + read volume, and Object Storage access to the state bucket only).
@@ -13,8 +14,10 @@ Workflow expects a dedicated Object Storage bucket for Terraform state (separate
 Configure GitHub repository secrets (or Environment `prod` secrets):
 - `SNAPSHOTS_SCW_ACCESS_KEY`
 - `SNAPSHOTS_SCW_SECRET_KEY`
+- `SNAPSHOTS_DISCORD_WEBHOOK_URL` (optional) – Discord webhook URL for snapshot success notifications
 
 Snapshot configuration (project ID, volume name, tfstate bucket/key/region/endpoint) is defined in `.github/workflows/terraform-snapshots.yml` and can be overridden when running the workflow manually (`workflow_dispatch` inputs).
+Manual snapshots support `manual_ttl_hours` (default `24`) and `manual_snapshot_name` (optional).
 
 When creating the IAM API key used by GitHub Actions, set its `default_project_id` to the project that owns the Object Storage buckets (otherwise S3 requests fail with `403 Forbidden` during `HeadObject` / Terraform backend init).
 

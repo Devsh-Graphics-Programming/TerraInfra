@@ -3,6 +3,7 @@ name: terraform-snapshots
 on:
   schedule:
     - cron: "0 3 * * *"
+    - cron: "15 * * * *"
   workflow_dispatch:
     inputs:
       project_id:
@@ -13,6 +14,14 @@ on:
         description: "Block Volume name to snapshot"
         required: true
         default: "devsh-k3s-prod-data-node1"
+      manual_ttl_hours:
+        description: "TTL (hours) for manual snapshots (cleanup by workflow)"
+        required: false
+        default: "24"
+      manual_snapshot_name:
+        description: "Optional manual snapshot name (auto-generated when empty)"
+        required: false
+        default: ""
       tfstate_bucket:
         description: "Object Storage bucket for Terraform state"
         required: true
@@ -31,8 +40,8 @@ on:
         default: "https://s3.fr-par.scw.cloud"
 
 concurrency:
-  group: terraform-snapshots-${{ github.ref_name }}
-  cancel-in-progress: true
+  group: terraform-snapshots-${{ github.ref_name }}-${{ github.event_name }}-${{ github.event.schedule || 'manual' }}
+  cancel-in-progress: ${{ github.event_name == 'schedule' }}
 
 permissions:
   contents: read
@@ -48,6 +57,8 @@ jobs:
 
       SCW_ACCESS_KEY: ${{ secrets.SNAPSHOTS_SCW_ACCESS_KEY }}
       SCW_SECRET_KEY: ${{ secrets.SNAPSHOTS_SCW_SECRET_KEY }}
+      SCW_DEFAULT_REGION: fr-par
+      SCW_DEFAULT_ZONE: fr-par-1
 
       AWS_ACCESS_KEY_ID: ${{ secrets.SNAPSHOTS_SCW_ACCESS_KEY }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SNAPSHOTS_SCW_SECRET_KEY }}
@@ -56,6 +67,12 @@ jobs:
       SNAPSHOTS_TFSTATE_ENDPOINT: ${{ github.event.inputs.tfstate_endpoint || 'https://s3.fr-par.scw.cloud' }}
       SNAPSHOTS_TFSTATE_KEY: ${{ github.event.inputs.tfstate_key || 'terraform/snapshots/terraform.tfstate' }}
       SNAPSHOTS_TFSTATE_REGION: ${{ github.event.inputs.tfstate_region || 'fr-par' }}
+
+      SNAPSHOTS_PROJECT_ID: ${{ github.event.inputs.project_id || '4ca4f592-005a-45dc-a016-91bd11dd5348' }}
+      SNAPSHOTS_VOLUME_NAME: ${{ github.event.inputs.volume_name || 'devsh-k3s-prod-data-node1' }}
+      SNAPSHOTS_MANUAL_TTL_HOURS: ${{ github.event.inputs.manual_ttl_hours || '24' }}
+      SNAPSHOTS_MANUAL_SNAPSHOT_NAME: ${{ github.event.inputs.manual_snapshot_name || '' }}
+      SNAPSHOTS_DISCORD_WEBHOOK_URL: ${{ secrets.SNAPSHOTS_DISCORD_WEBHOOK_URL }}
 
       TF_VAR_project_id: ${{ github.event.inputs.project_id || '4ca4f592-005a-45dc-a016-91bd11dd5348' }}
       TF_VAR_volume_name: ${{ github.event.inputs.volume_name || 'devsh-k3s-prod-data-node1' }}
@@ -72,11 +89,75 @@ jobs:
           submodules: false
           fetch-depth: 1
 
+      - name: Setup Scaleway CLI
+        uses: scaleway/action-scw@v0
+        with:
+          access-key: ${{ secrets.SNAPSHOTS_SCW_ACCESS_KEY }}
+          secret-key: ${{ secrets.SNAPSHOTS_SCW_SECRET_KEY }}
+          default-project-id: ${{ env.SNAPSHOTS_PROJECT_ID }}
+          export-config: true
+
+      - name: Resolve volume ID
+        id: volume
+        run: |
+          set -euo pipefail
+          json="$(scw -o json block volume list \
+            project-id="${SNAPSHOTS_PROJECT_ID}" \
+            name="${SNAPSHOTS_VOLUME_NAME}" \
+            zone="${SCW_DEFAULT_ZONE}")"
+
+          volume_id="$(echo "${json}" | jq -r '(.volumes // .items // .)[0].id // empty')"
+          if [[ -z "${volume_id}" || "${volume_id}" == "null" ]]; then
+            echo "Failed to resolve volume ID (project=${SNAPSHOTS_PROJECT_ID}, zone=${SCW_DEFAULT_ZONE}, name=${SNAPSHOTS_VOLUME_NAME})" >&2
+            echo "${json}" >&2
+            exit 1
+          fi
+
+          echo "volume_id=${volume_id}" >> "${GITHUB_OUTPUT}"
+
+      - name: Cleanup expired manual snapshots
+        run: |
+          set -euo pipefail
+          now="$(date -u +%s)"
+
+          json="$(scw -o json block snapshot list \
+            project-id="${SNAPSHOTS_PROJECT_ID}" \
+            volume-id="${{ steps.volume.outputs.volume_id }}" \
+            tags.0="managed=manual" \
+            zone="${SCW_DEFAULT_ZONE}" \
+            order-by="created_at_desc")"
+
+          jq_filter='(.snapshots // .items // .)[]? | {id, name, tags}'
+          while IFS= read -r snap; do
+            id="$(echo "${snap}" | jq -r '.id')"
+            name="$(echo "${snap}" | jq -r '.name')"
+            expires_unix="$(echo "${snap}" | jq -r '[.tags[]? | select(startswith("expires_unix="))][0] // "" | sub("^expires_unix=";"")')"
+
+            if [[ -z "${expires_unix}" ]]; then
+              echo "Keeping manual snapshot (no expires_unix tag): ${id} (${name})"
+              continue
+            fi
+
+            if ! [[ "${expires_unix}" =~ ^[0-9]+$ ]]; then
+              echo "Keeping manual snapshot (invalid expires_unix): ${id} (${name}) expires_unix=${expires_unix}"
+              continue
+            fi
+
+            if (( expires_unix <= now )); then
+              echo "Deleting expired manual snapshot: ${id} (${name}) expires_unix=${expires_unix}"
+              scw block snapshot delete "${id}" zone="${SCW_DEFAULT_ZONE}" || echo "Failed to delete snapshot ${id}" >&2
+            else
+              echo "Keeping manual snapshot: ${id} (${name}) expires_unix=${expires_unix}"
+            fi
+          done < <(echo "${json}" | jq -c "${jq_filter}")
+
       - uses: hashicorp/setup-terraform@v3
+        if: github.event_name == 'schedule' && github.event.schedule == '0 3 * * *'
         with:
           terraform_version: 1.6.6
 
       - name: Terraform init (remote state)
+        if: github.event_name == 'schedule' && github.event.schedule == '0 3 * * *'
         run: |
           terraform init -input=false \
             -backend-config="bucket=${SNAPSHOTS_TFSTATE_BUCKET}" \
@@ -89,13 +170,155 @@ jobs:
             -backend-config="skip_region_validation=true" \
             -backend-config="force_path_style=true"
 
-      - name: Terraform apply (scheduled)
-        if: github.event_name == 'schedule'
+      - name: Terraform apply (auto snapshot, scheduled)
+        if: github.event_name == 'schedule' && github.event.schedule == '0 3 * * *'
         run: terraform apply -auto-approve -no-color
 
-      - name: Terraform apply (manual)
-        if: github.event_name == 'workflow_dispatch'
-        run: terraform apply -auto-approve -no-color -replace=time_static.snapshot_trigger
+      - name: Capture auto snapshot info
+        id: auto_snapshot
+        if: github.event_name == 'schedule' && github.event.schedule == '0 3 * * *'
+        run: |
+          set -euo pipefail
+          snapshot_id="$(terraform output -raw latest_snapshot_id)"
+          snapshot_name="$(terraform state show -no-color scaleway_block_snapshot.data_volume | awk -F'= ' '/^name[[:space:]]*=/{gsub(/\"/,\"\",$2); print $2; exit}')"
 
-      - name: Show snapshot ID
-        run: terraform output -raw latest_snapshot_id
+          if [[ -z "${snapshot_name}" ]]; then
+            snapshot_name="<unknown>"
+          fi
+
+          echo "snapshot_id=${snapshot_id}" >> "${GITHUB_OUTPUT}"
+          echo "snapshot_name=${snapshot_name}" >> "${GITHUB_OUTPUT}"
+          echo "snapshot_kind=auto" >> "${GITHUB_OUTPUT}"
+          echo "retention=24h (rotating, max 1 kept)" >> "${GITHUB_OUTPUT}"
+
+      - name: Create manual snapshot (workflow_dispatch)
+        id: manual_snapshot
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          set -euo pipefail
+
+          ttl_hours="${SNAPSHOTS_MANUAL_TTL_HOURS}"
+          if ! [[ "${ttl_hours}" =~ ^[0-9]+$ ]] || (( ttl_hours <= 0 )); then
+            echo "Invalid manual_ttl_hours='${ttl_hours}' (expected positive integer)" >&2
+            exit 1
+          fi
+
+          created_unix="$(date -u +%s)"
+          expires_unix="$((created_unix + ttl_hours * 3600))"
+          ts="$(date -u +'%Y%m%dT%H%M%SZ')"
+
+          snapshot_name="${SNAPSHOTS_MANUAL_SNAPSHOT_NAME}"
+          if [[ -z "${snapshot_name}" ]]; then
+            snapshot_name="devsh-k3s-${TF_VAR_env_name}-data-manual-${ts}-run${GITHUB_RUN_ID}"
+          fi
+
+          json="$(scw -o json block snapshot create "${{ steps.volume.outputs.volume_id }}" \
+            project-id="${SNAPSHOTS_PROJECT_ID}" \
+            name="${snapshot_name}" \
+            tags.0="devsh" \
+            tags.1="k3s" \
+            tags.2="snapshot" \
+            tags.3="${TF_VAR_env_name}" \
+            tags.4="managed=manual" \
+            tags.5="ttl_hours=${ttl_hours}" \
+            tags.6="created_unix=${created_unix}" \
+            tags.7="expires_unix=${expires_unix}" \
+            zone="${SCW_DEFAULT_ZONE}" \
+            --wait)"
+
+          snapshot_id="$(echo "${json}" | jq -r '.id // .snapshot.id // empty')"
+          if [[ -z "${snapshot_id}" || "${snapshot_id}" == "null" ]]; then
+            echo "Failed to create manual snapshot" >&2
+            echo "${json}" >&2
+            exit 1
+          fi
+
+          echo "snapshot_id=${snapshot_id}" >> "${GITHUB_OUTPUT}"
+          echo "snapshot_name=${snapshot_name}" >> "${GITHUB_OUTPUT}"
+          echo "snapshot_kind=manual" >> "${GITHUB_OUTPUT}"
+          echo "retention=${ttl_hours}h (cleanup by workflow)" >> "${GITHUB_OUTPUT}"
+
+      - name: Show snapshot details
+        if: github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && github.event.schedule == '0 3 * * *')
+        env:
+          SNAPSHOT_ID: ${{ steps.auto_snapshot.outputs.snapshot_id || steps.manual_snapshot.outputs.snapshot_id }}
+          SNAPSHOT_NAME: ${{ steps.auto_snapshot.outputs.snapshot_name || steps.manual_snapshot.outputs.snapshot_name }}
+          SNAPSHOT_KIND: ${{ steps.auto_snapshot.outputs.snapshot_kind || steps.manual_snapshot.outputs.snapshot_kind }}
+          RETENTION: ${{ steps.auto_snapshot.outputs.retention || steps.manual_snapshot.outputs.retention }}
+        run: |
+          echo "Snapshot kind: ${SNAPSHOT_KIND}"
+          echo "Snapshot name: ${SNAPSHOT_NAME}"
+          echo "Snapshot ID: ${SNAPSHOT_ID}"
+          echo "Retention: ${RETENTION}"
+
+      - name: Notify Discord (snapshot created)
+        if: ${{ success() && env.SNAPSHOTS_DISCORD_WEBHOOK_URL != '' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && github.event.schedule == '0 3 * * *')) }}
+        env:
+          SNAPSHOT_ID: ${{ steps.auto_snapshot.outputs.snapshot_id || steps.manual_snapshot.outputs.snapshot_id }}
+          SNAPSHOT_NAME: ${{ steps.auto_snapshot.outputs.snapshot_name || steps.manual_snapshot.outputs.snapshot_name }}
+          SNAPSHOT_KIND: ${{ steps.auto_snapshot.outputs.snapshot_kind || steps.manual_snapshot.outputs.snapshot_kind }}
+          RETENTION: ${{ steps.auto_snapshot.outputs.retention || steps.manual_snapshot.outputs.retention }}
+          VOLUME_ID: ${{ steps.volume.outputs.volume_id }}
+        run: |
+          set -euo pipefail
+
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          trigger="${{ github.event_name }}"
+          schedule="${{ github.event.schedule }}"
+          branch="${{ github.ref_name }}"
+          actor="${{ github.actor }}"
+          ts="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+
+          trigger_label="${trigger}"
+          if [[ "${trigger}" == "schedule" && -n "${schedule}" ]]; then
+            trigger_label="cron (${schedule})"
+          elif [[ "${trigger}" == "workflow_dispatch" ]]; then
+            trigger_label="dispatch"
+          fi
+
+          color=3066993
+          if [[ "${SNAPSHOT_KIND}" == "auto" ]]; then
+            color=3447003
+          fi
+
+          title="Scaleway snapshot created (${SNAPSHOT_KIND})"
+
+          payload="$(jq -n \
+            --arg title "${title}" \
+            --arg kind "${SNAPSHOT_KIND}" \
+            --arg trigger "${trigger_label}" \
+            --arg branch "${branch}" \
+            --arg actor "${actor}" \
+            --arg snapshot_name "${SNAPSHOT_NAME}" \
+            --arg snapshot_id "${SNAPSHOT_ID}" \
+            --arg volume_name "${SNAPSHOTS_VOLUME_NAME}" \
+            --arg volume_id "${VOLUME_ID}" \
+            --arg project_id "${SNAPSHOTS_PROJECT_ID}" \
+            --arg retention "${RETENTION}" \
+            --arg run_url "${run_url}" \
+            --arg timestamp "${ts}" \
+            --argjson color "${color}" \
+            '{
+              username: "TerraInfra",
+              embeds: [
+                {
+                  title: $title,
+                  color: $color,
+                  fields: [
+                    {name: "Type", value: $kind, inline: true},
+                    {name: "Trigger", value: $trigger, inline: true},
+                    {name: "Branch", value: $branch, inline: true},
+                    {name: "Snapshot", value: ("`" + $snapshot_name + "`"), inline: false},
+                    {name: "Snapshot ID", value: ("`" + $snapshot_id + "`"), inline: false},
+                    {name: "Volume", value: ("`" + $volume_name + "`\\n`" + $volume_id + "`"), inline: false},
+                    {name: "Project", value: ("`" + $project_id + "`"), inline: false},
+                    {name: "Retention", value: $retention, inline: true},
+                    {name: "GitHub run", value: ("[Open run](" + $run_url + ")"), inline: true},
+                    {name: "Actor", value: $actor, inline: true}
+                  ],
+                  timestamp: $timestamp
+                }
+              ]
+            }')"
+
+          curl -fsS -H 'Content-Type: application/json' -d "${payload}" "${SNAPSHOTS_DISCORD_WEBHOOK_URL}" || echo "Discord webhook notification failed" >&2

@@ -5,7 +5,7 @@ We use GitHub Actions to validate Terraform and to keep a couple of generated ar
 ## Triggers
 - `pull_request` to `env/prod` or `env/test`: run Terraform checks (read-only).
 - `push` to `env/prod` or `env/test`: run Terraform checks and, if needed, auto-commit generated files back to the same branch.
-- `schedule` / `workflow_dispatch` on `env/prod`: run the snapshots workflow (see `docs/snapshots.md`).
+- `schedule` / `workflow_dispatch` on `env/prod`: run the snapshots workflow (daily auto snapshot + hourly manual cleanup; see `docs/snapshots.md`).
 
 ## Terraform checks (no external creds)
 Run in `terraform/`:
