@@ -19,7 +19,7 @@ On pushes to `env/prod` (human actor), CI generates and commits:
 - `terraform/TERRAFORM.md` (via `terraform-docs`)
 - `terraform/snapshots/TERRAFORM.md` (via `terraform-docs`)
 - `terraform/iam/TERRAFORM.md` (via `terraform-docs`)
-- `KUBEDIAGRAM.svg` + `KUBEDIAGRAM.png` (via `KubeDiagrams`, rendered from tracked Kubernetes manifests under `terraform/k8s/`)
+- `KUBEDIAGRAM.png` (via `KubeDiagrams`, rendered from tracked Kubernetes manifests under `terraform/k8s/`)
 
 The workflow uses only the default `GITHUB_TOKEN` (no extra secrets) with `contents: write` permission for the auto-commit step.
 Because the artifacts are committed by a bot to `env/prod`, make sure to sync `env/test` from `env/prod` after CI finishes (see `docs/how-to-commit.md`).
