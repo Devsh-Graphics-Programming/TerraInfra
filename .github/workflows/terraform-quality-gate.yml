@@ -56,7 +56,13 @@ jobs:
       - uses: terraform-docs/gh-actions@v1.3.0
         with:
           working-dir: terraform
-          output-file: ../TERRAFORM.md
+          output-file: TERRAFORM.md
+          output-method: replace
+
+      - uses: terraform-docs/gh-actions@v1.3.0
+        with:
+          working-dir: terraform/snapshots
+          output-file: TERRAFORM.md
           output-method: replace
 
       - name: Generate Kube diagram
@@ -86,13 +92,13 @@ jobs:
       - name: Commit and push if changed
         run: |
           set -euo pipefail
-          if [ -z "$(git status --porcelain -- TERRAFORM.md KUBEDIAGRAM.png)" ]; then
+          if [ -z "$(git status --porcelain -- terraform/TERRAFORM.md terraform/snapshots/TERRAFORM.md KUBEDIAGRAM.png)" ]; then
             echo "No changes to generated files."
             exit 0
           fi
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add TERRAFORM.md KUBEDIAGRAM.png
+          git add terraform/TERRAFORM.md terraform/snapshots/TERRAFORM.md KUBEDIAGRAM.png
           git commit -m "chore(ci): update generated files [skip ci]"
           git push
