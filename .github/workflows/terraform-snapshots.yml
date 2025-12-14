@@ -3,7 +3,32 @@ name: terraform-snapshots
 on:
   schedule:
     - cron: "0 3 * * *"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      project_id:
+        description: "Scaleway Project ID"
+        required: true
+        default: "4ca4f592-005a-45dc-a016-91bd11dd5348"
+      volume_name:
+        description: "Block Volume name to snapshot"
+        required: true
+        default: "devsh-k3s-prod-data-node1"
+      tfstate_bucket:
+        description: "Object Storage bucket for Terraform state"
+        required: true
+        default: "terra-snapshots-state"
+      tfstate_key:
+        description: "Object Storage key for Terraform state"
+        required: true
+        default: "terraform/snapshots/terraform.tfstate"
+      tfstate_region:
+        description: "Object Storage region"
+        required: true
+        default: "fr-par"
+      tfstate_endpoint:
+        description: "Object Storage endpoint"
+        required: true
+        default: "https://s3.fr-par.scw.cloud"
 
 concurrency:
   group: terraform-snapshots-${{ github.ref_name }}
@@ -27,13 +52,13 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.SNAPSHOTS_SCW_ACCESS_KEY }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SNAPSHOTS_SCW_SECRET_KEY }}
 
-      SNAPSHOTS_TFSTATE_BUCKET: ${{ vars.SNAPSHOTS_TFSTATE_BUCKET }}
-      SNAPSHOTS_TFSTATE_ENDPOINT: ${{ vars.SNAPSHOTS_TFSTATE_ENDPOINT }}
-      SNAPSHOTS_TFSTATE_KEY: ${{ vars.SNAPSHOTS_TFSTATE_KEY }}
-      SNAPSHOTS_TFSTATE_REGION: ${{ vars.SNAPSHOTS_TFSTATE_REGION }}
+      SNAPSHOTS_TFSTATE_BUCKET: ${{ github.event.inputs.tfstate_bucket || 'terra-snapshots-state' }}
+      SNAPSHOTS_TFSTATE_ENDPOINT: ${{ github.event.inputs.tfstate_endpoint || 'https://s3.fr-par.scw.cloud' }}
+      SNAPSHOTS_TFSTATE_KEY: ${{ github.event.inputs.tfstate_key || 'terraform/snapshots/terraform.tfstate' }}
+      SNAPSHOTS_TFSTATE_REGION: ${{ github.event.inputs.tfstate_region || 'fr-par' }}
 
-      TF_VAR_project_id: ${{ vars.SNAPSHOTS_PROJECT_ID }}
-      TF_VAR_volume_name: ${{ vars.SNAPSHOTS_VOLUME_NAME }}
+      TF_VAR_project_id: ${{ github.event.inputs.project_id || '4ca4f592-005a-45dc-a016-91bd11dd5348' }}
+      TF_VAR_volume_name: ${{ github.event.inputs.volume_name || 'devsh-k3s-prod-data-node1' }}
       TF_VAR_env_name: prod
 
     defaults:
