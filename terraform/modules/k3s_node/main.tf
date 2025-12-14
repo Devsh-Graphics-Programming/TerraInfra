@@ -145,7 +145,7 @@ resource "scaleway_block_snapshot" "data_volume" {
     var.env_name,
     replace(
       replace(
-        replace(time_rotating.snapshot_trigger[0].rotation_rfc3339, ":", "-"),
+        replace(time_rotating.snapshot_trigger[0].id, ":", "-"),
         "T",
         "-"
       ),
@@ -158,6 +158,7 @@ resource "scaleway_block_snapshot" "data_volume" {
   tags       = ["devsh", "k3s", "snapshot", var.env_name]
 
   lifecycle {
-    create_before_destroy = true # keep previous snapshot until the new one exists
+    create_before_destroy = true
+    replace_triggered_by  = [time_rotating.snapshot_trigger[0].id]
   }
 }
