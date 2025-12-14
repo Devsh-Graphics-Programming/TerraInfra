@@ -27,8 +27,13 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.SNAPSHOTS_SCW_ACCESS_KEY }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SNAPSHOTS_SCW_SECRET_KEY }}
 
-      TF_VAR_project_id: ${{ secrets.SNAPSHOTS_PROJECT_ID }}
-      TF_VAR_volume_name: ${{ secrets.SNAPSHOTS_VOLUME_NAME }}
+      SNAPSHOTS_TFSTATE_BUCKET: ${{ vars.SNAPSHOTS_TFSTATE_BUCKET }}
+      SNAPSHOTS_TFSTATE_ENDPOINT: ${{ vars.SNAPSHOTS_TFSTATE_ENDPOINT }}
+      SNAPSHOTS_TFSTATE_KEY: ${{ vars.SNAPSHOTS_TFSTATE_KEY }}
+      SNAPSHOTS_TFSTATE_REGION: ${{ vars.SNAPSHOTS_TFSTATE_REGION }}
+
+      TF_VAR_project_id: ${{ vars.SNAPSHOTS_PROJECT_ID }}
+      TF_VAR_volume_name: ${{ vars.SNAPSHOTS_VOLUME_NAME }}
       TF_VAR_env_name: prod
 
     defaults:
@@ -49,10 +54,10 @@ jobs:
       - name: Terraform init (remote state)
         run: |
           terraform init -input=false \
-            -backend-config="bucket=${{ secrets.SNAPSHOTS_TFSTATE_BUCKET }}" \
-            -backend-config="key=${{ secrets.SNAPSHOTS_TFSTATE_KEY }}" \
-            -backend-config="region=${{ secrets.SNAPSHOTS_TFSTATE_REGION }}" \
-            -backend-config="endpoint=${{ secrets.SNAPSHOTS_TFSTATE_ENDPOINT }}" \
+            -backend-config="bucket=${SNAPSHOTS_TFSTATE_BUCKET}" \
+            -backend-config="key=${SNAPSHOTS_TFSTATE_KEY}" \
+            -backend-config="region=${SNAPSHOTS_TFSTATE_REGION}" \
+            -backend-config="endpoint=${SNAPSHOTS_TFSTATE_ENDPOINT}" \
             -backend-config="skip_requesting_account_id=true" \
             -backend-config="skip_credentials_validation=true" \
             -backend-config="skip_metadata_api_check=true" \

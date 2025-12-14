@@ -10,13 +10,15 @@ Terraform keeps exactly one managed "daily" snapshot in prod (`latest_snapshot_i
 ### CI setup (once)
 Workflow expects a dedicated Object Storage bucket for Terraform state (separate from the LUKS bucket) and a Scaleway IAM key scoped to the minimum required permissions (Block snapshots + read volume, and Object Storage access to the state bucket only).
 
-Configure GitHub repository secrets (or Environment `prod` secrets):
+Configure GitHub repository variables (or Environment `prod` variables):
 - `SNAPSHOTS_PROJECT_ID`
 - `SNAPSHOTS_VOLUME_NAME` (default: `devsh-k3s-prod-data-node1`)
 - `SNAPSHOTS_TFSTATE_BUCKET`
 - `SNAPSHOTS_TFSTATE_KEY` (example: `terraform/snapshots/terraform.tfstate`)
 - `SNAPSHOTS_TFSTATE_REGION` (example: `fr-par`)
 - `SNAPSHOTS_TFSTATE_ENDPOINT` (example: `https://s3.fr-par.scw.cloud`)
+
+Configure GitHub repository secrets (or Environment `prod` secrets):
 - `SNAPSHOTS_SCW_ACCESS_KEY`
 - `SNAPSHOTS_SCW_SECRET_KEY`
 
