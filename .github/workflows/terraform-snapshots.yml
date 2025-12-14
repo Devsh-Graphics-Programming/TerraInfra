@@ -92,10 +92,7 @@ jobs:
       - name: Setup Scaleway CLI
         uses: scaleway/action-scw@v0
         with:
-          access-key: ${{ secrets.SNAPSHOTS_SCW_ACCESS_KEY }}
-          secret-key: ${{ secrets.SNAPSHOTS_SCW_SECRET_KEY }}
-          default-project-id: ${{ env.SNAPSHOTS_PROJECT_ID }}
-          export-config: true
+          version: latest
 
       - name: Resolve volume ID
         id: volume
