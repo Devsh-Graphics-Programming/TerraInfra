@@ -43,7 +43,7 @@ jobs:
 
   generate:
     needs: qa
-    if: github.event_name == 'push' && github.actor != 'github-actions[bot]'
+    if: github.event_name == 'push' && github.ref_name == 'env/prod' && github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     permissions:
       contents: write
