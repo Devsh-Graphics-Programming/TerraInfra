@@ -339,6 +339,9 @@ metadata:
 spec:
   ttlSecondsAfterFinished: 86400
   template:
+    metadata:
+      labels:
+        app: kimai
     spec:
       securityContext:
         fsGroup: 33
