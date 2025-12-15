@@ -6,7 +6,7 @@ Goal: keep prod data, test against a snapshot without touching prod.
 Terraform keeps exactly one managed "daily" snapshot in prod (`latest_snapshot_id`). It is maintained by a dedicated Terraform root in `terraform/snapshots/` and applied by GitHub Actions (`.github/workflows/terraform-snapshots.yml`):
 - `schedule` (daily, 03:00): creates a new **auto** snapshot (replacing the previous one; max 1 auto kept)
 - `workflow_dispatch` (manual): creates a **manual** snapshot (default TTL 24h; does not replace the auto snapshot and does not delete other manual snapshots)
-- `schedule` (hourly): cleanup of expired **manual** snapshots created by the workflow (no auto snapshot creation)
+- each run also enforces manual retention (expired manual snapshots are deleted) and prunes manual snapshots that were deleted in Scaleway UI (so they are not recreated)
 
 ### CI setup (once)
 Workflow expects a dedicated Object Storage bucket for Terraform state (separate from the LUKS bucket) and a Scaleway IAM key scoped to the minimum required permissions (Block snapshots + read volume, and Object Storage access to the state bucket only).
@@ -109,5 +109,6 @@ terraform apply -auto-approve
 ### Notes
 - Prod volume is never destroyed (`prevent_destroy_data_volume=true` by default).
 - Terraform keeps only the latest managed daily snapshot (replaces the previous one after the new snapshot is created).
-- Manual snapshots do not affect the daily snapshot and do not delete each other. Expired manual snapshots are removed on the next `terraform apply` in prod.
+- Manual snapshots do not affect the daily snapshot and do not delete each other. Expired manual snapshots are removed on the next workflow run (at latest the daily schedule).
+- If you delete a manual snapshot in Scaleway UI, the next workflow run will prune it from Terraform state and it will not be recreated.
 - Test infra can be destroyed/recreated freely with a chosen snapshot ID.
