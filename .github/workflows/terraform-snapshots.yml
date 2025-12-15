@@ -2,10 +2,7 @@ name: terraform-snapshots
 
 on:
   schedule:
-    # Auto snapshot (rotating, max 1 kept)
     - cron: "0 3 * * *"
-    # Cleanup expired manual snapshots (no auto snapshot)
-    - cron: "15 * * * *"
   workflow_dispatch:
     inputs:
       project_id:
@@ -154,13 +151,7 @@ jobs:
           manual_snapshots='${{ steps.state.outputs.manual_snapshots }}'
           auto_snapshot_trigger='${{ steps.state.outputs.auto_snapshot_trigger }}'
 
-          skip_apply="false"
-          if [[ "${{ github.event_name }}" == "schedule" && "${{ github.event.schedule }}" != "0 3 * * *" && -z "${auto_snapshot_trigger}" && "${manual_snapshots}" == "{}" ]]; then
-            echo "State not initialized yet; skipping cleanup-only run."
-            skip_apply="true"
-          fi
-
-          if [[ "${{ github.event_name }}" == "schedule" && "${{ github.event.schedule }}" == "0 3 * * *" ]]; then
+          if [[ "${{ github.event_name }}" == "schedule" ]]; then
             auto_snapshot_trigger="$(date -u +%Y-%m-%d)"
           fi
           if [[ -z "${auto_snapshot_trigger}" ]]; then
@@ -200,12 +191,10 @@ jobs:
             '{auto_snapshot_trigger: $auto_snapshot_trigger, requested_manual_snapshot_name: $requested_manual_snapshot_name, manual_snapshots: $manual_snapshots}' \
             > ci.auto.tfvars.json
 
-          echo "skip_apply=${skip_apply}" >> "${GITHUB_OUTPUT}"
           echo "auto_snapshot_trigger=${auto_snapshot_trigger}" >> "${GITHUB_OUTPUT}"
           echo "requested_manual_snapshot_name=${requested_manual_snapshot_name}" >> "${GITHUB_OUTPUT}"
 
       - name: Terraform apply
-        if: steps.vars.outputs.skip_apply != 'true'
         id: apply
         run: |
           set -euo pipefail
@@ -213,7 +202,6 @@ jobs:
 
       - name: Capture snapshot info
         id: snapshot
-        if: steps.vars.outputs.skip_apply != 'true' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && github.event.schedule == '0 3 * * *'))
         run: |
           set -euo pipefail
 
@@ -243,7 +231,6 @@ jobs:
           echo "retention=${retention}" >> "${GITHUB_OUTPUT}"
 
       - name: Show snapshot details
-        if: steps.vars.outputs.skip_apply != 'true' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && github.event.schedule == '0 3 * * *'))
         env:
           SNAPSHOT_ID: ${{ steps.snapshot.outputs.snapshot_id }}
           SNAPSHOT_NAME: ${{ steps.snapshot.outputs.snapshot_name }}
@@ -256,7 +243,7 @@ jobs:
           echo "Retention: ${RETENTION}"
 
       - name: Notify Discord (snapshot status)
-        if: ${{ always() && env.SNAPSHOTS_DISCORD_WEBHOOK_URL != '' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && github.event.schedule == '0 3 * * *')) }}
+        if: ${{ always() }}
         env:
           JOB_STATUS: ${{ job.status }}
           APPLY_OUTCOME: ${{ steps.apply.outcome }}
@@ -269,6 +256,11 @@ jobs:
           REQUESTED_MANUAL_SNAPSHOT_KEY: ${{ steps.vars.outputs.requested_manual_snapshot_name }}
         run: |
           set -euo pipefail
+
+          if [[ -z "${SNAPSHOTS_DISCORD_WEBHOOK_URL}" ]]; then
+            echo "SNAPSHOTS_DISCORD_WEBHOOK_URL is empty; skipping Discord notification."
+            exit 0
+          fi
 
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           trigger="${{ github.event_name }}"
