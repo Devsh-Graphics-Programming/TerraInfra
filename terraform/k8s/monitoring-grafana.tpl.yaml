@@ -87,8 +87,6 @@ spec:
       name: monitoring-grafana
     admin:
       existingSecret: monitoring-grafana
-      userKey: admin-user
-      passwordKey: admin-password
     persistence:
       enabled: true
       existingClaim: grafana-pvc
