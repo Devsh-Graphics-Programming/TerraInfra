@@ -156,17 +156,21 @@ jobs:
             auto_snapshot_trigger_refresh="$(date -u +%Y-%m-%d)"
           fi
 
-          jq -n \
-            --arg auto_snapshot_trigger "${auto_snapshot_trigger_refresh}" \
-            --arg requested_manual_snapshot_name "" \
-            --argjson manual_snapshots "${manual_snapshots}" \
-            '{auto_snapshot_trigger: $auto_snapshot_trigger, requested_manual_snapshot_name: $requested_manual_snapshot_name, manual_snapshots: $manual_snapshots}' \
-            > refresh.auto.tfvars.json
+          if terraform state pull >/dev/null 2>&1; then
+            jq -n \
+              --arg auto_snapshot_trigger "${auto_snapshot_trigger_refresh}" \
+              --arg requested_manual_snapshot_name "" \
+              --argjson manual_snapshots "${manual_snapshots}" \
+              '{auto_snapshot_trigger: $auto_snapshot_trigger, requested_manual_snapshot_name: $requested_manual_snapshot_name, manual_snapshots: $manual_snapshots}' \
+              > refresh.auto.tfvars.json
 
-          terraform apply -refresh-only -auto-approve -no-color -parallelism=1 -var-file=refresh.auto.tfvars.json
+            terraform apply -refresh-only -auto-approve -no-color -parallelism=1 -var-file=refresh.auto.tfvars.json
 
-          keep_keys="$(terraform state pull | jq -c '[.resources[] | select(.type == \"scaleway_block_snapshot\" and .name == \"manual_data_volume\") | .instances[].index_key]')"
-          manual_snapshots="$(echo "${manual_snapshots}" | jq -c --argjson keep "${keep_keys}" 'with_entries(select(.key as $k | $keep | index($k)))')"
+            keep_keys="$(terraform state pull | jq -c '[.resources[] | select(.type == \"scaleway_block_snapshot\" and .name == \"manual_data_volume\") | .instances[].index_key]')"
+            manual_snapshots="$(echo "${manual_snapshots}" | jq -c --argjson keep "${keep_keys}" 'with_entries(select(.key as $k | $keep | index($k)))')"
+          else
+            echo "No Terraform state yet; skipping refresh-only manual snapshot pruning."
+          fi
 
           auto_snapshot_trigger="${auto_snapshot_trigger_state}"
           if [[ "${{ github.event_name }}" == "schedule" ]]; then
