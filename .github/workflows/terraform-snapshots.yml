@@ -166,7 +166,7 @@ jobs:
 
             terraform apply -refresh-only -auto-approve -no-color -parallelism=1 -var-file=refresh.auto.tfvars.json
 
-            keep_keys="$(terraform state pull | jq -c '[.resources[] | select(.type == \"scaleway_block_snapshot\" and .name == \"manual_data_volume\") | .instances[].index_key]')"
+            keep_keys="$(terraform output -json manual_snapshot_ids 2>/dev/null | jq -c 'keys' 2>/dev/null || echo '[]')"
             manual_snapshots="$(echo "${manual_snapshots}" | jq -c --argjson keep "${keep_keys}" 'with_entries(select(.key as $k | $keep | index($k)))')"
           else
             echo "No Terraform state yet; skipping refresh-only manual snapshot pruning."
