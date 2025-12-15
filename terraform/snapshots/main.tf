@@ -46,6 +46,7 @@ resource "scaleway_block_snapshot" "data_volume" {
 
   lifecycle {
     create_before_destroy = true
+    ignore_changes        = [volume_id]
     replace_triggered_by  = [time_static.snapshot_trigger]
   }
 }
@@ -66,5 +67,6 @@ resource "scaleway_block_snapshot" "manual_data_volume" {
 
   lifecycle {
     create_before_destroy = true
+    ignore_changes        = [volume_id]
   }
 }
