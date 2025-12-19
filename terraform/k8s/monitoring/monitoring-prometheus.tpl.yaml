@@ -44,11 +44,23 @@ spec:
           limits:
             cpu: "1"
             memory: 1Gi
-        retention: 7d
-        retentionSize: 2GB
+        retention: 3d
+        retentionSize: 1GB
         walCompression: true
-        scrapeInterval: 30s
-        evaluationInterval: 30s
+        scrapeInterval: 60s
+        evaluationInterval: 60s
+    kubeApiServer:
+      serviceMonitor:
+        metricRelabelings:
+          - sourceLabels: [__name__]
+            regex: 'apiserver_request_(sli_)?duration_seconds_bucket'
+            action: drop
+    kubeEtcd:
+      serviceMonitor:
+        metricRelabelings:
+          - sourceLabels: [__name__]
+            regex: 'etcd_request_duration_seconds_bucket'
+            action: drop
     alertmanager:
       alertmanagerSpec:
         secrets:

@@ -192,6 +192,59 @@ spec:
                             path: /health/
                             port: http
                           timeoutSeconds: 10
+                        resources:
+                          requests:
+                            cpu: 100m
+                            memory: 192Mi
+                          limits:
+                            cpu: 400m
+                            memory: 384Mi
+          - target:
+              group: apps
+              version: v1
+              kind: Deployment
+              name: oncall-celery
+              namespace: monitoring-oncall
+            patch: |
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: oncall-celery
+              spec:
+                template:
+                  spec:
+                    containers:
+                      - name: oncall
+                        resources:
+                          requests:
+                            cpu: 100m
+                            memory: 128Mi
+                          limits:
+                            cpu: 300m
+                            memory: 256Mi
+          - target:
+              group: apps
+              version: v1
+              kind: Deployment
+              name: oncall-grafana
+              namespace: monitoring-oncall
+            patch: |
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: oncall-grafana
+              spec:
+                template:
+                  spec:
+                    containers:
+                      - name: grafana
+                        resources:
+                          requests:
+                            cpu: 50m
+                            memory: 128Mi
+                          limits:
+                            cpu: 200m
+                            memory: 256Mi
 ---
 apiVersion: v1
 kind: ServiceAccount
