@@ -93,6 +93,16 @@ spec:
     initChownData:
       enabled: false
     envFromSecret: notification-smtp
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    grafana.ini:
+      dashboards:
+        min_refresh_interval: 30s
     securityContext:
       runAsUser: 472
       runAsGroup: 472

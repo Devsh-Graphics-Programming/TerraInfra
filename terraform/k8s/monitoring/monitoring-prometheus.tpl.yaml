@@ -35,6 +35,20 @@ spec:
   values:
     grafana:
       enabled: false
+    prometheus:
+      prometheusSpec:
+        resources:
+          requests:
+            cpu: 200m
+            memory: 512Mi
+          limits:
+            cpu: "1"
+            memory: 1Gi
+        retention: 7d
+        retentionSize: 2GB
+        walCompression: true
+        scrapeInterval: 30s
+        evaluationInterval: 30s
     alertmanager:
       alertmanagerSpec:
         secrets:
