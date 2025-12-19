@@ -210,11 +210,11 @@ spec:
                             path: /ready/
                             port: http
                           timeoutSeconds: 10
-          livenessProbe:
-            httpGet:
-              path: /health/
-              port: http
-            timeoutSeconds: 10
+                        livenessProbe:
+                          httpGet:
+                            path: /health/
+                            port: http
+                          timeoutSeconds: 10
 ---
 apiVersion: v1
 kind: ServiceAccount
