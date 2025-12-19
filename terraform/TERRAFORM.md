@@ -47,6 +47,9 @@
 | <a name="input_public_ip_address"></a> [public\_ip\_address](#input\_public\_ip\_address) | Existing Flexible IP address to attach (alternative to public\_ip\_id). | `string` | `""` | no |
 | <a name="input_public_ip_id"></a> [public\_ip\_id](#input\_public\_ip\_id) | Existing Flexible IP ID to attach (leave empty to let Terraform create one). | `string` | `""` | no |
 | <a name="input_sops_age_key"></a> [sops\_age\_key](#input\_sops\_age\_key) | Age private key used by Flux to decrypt SOPS-managed secrets (optional). | `string` | `""` | no |
+| <a name="input_swap_file"></a> [swap\_file](#input\_swap\_file) | Swap file path used during bootstrap. | `string` | `"/swapfile"` | no |
+| <a name="input_swap_size_gb"></a> [swap\_size\_gb](#input\_swap\_size\_gb) | Swap size in GiB for the node bootstrap. | `number` | `4` | no |
+| <a name="input_swap_swappiness"></a> [swap\_swappiness](#input\_swap\_swappiness) | Kernel vm.swappiness value configured during bootstrap. | `number` | `10` | no |
 
 ## Outputs
 
