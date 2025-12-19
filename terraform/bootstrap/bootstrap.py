@@ -18,6 +18,9 @@ start_ts = time.time()
 K3S_ENCRYPTION_CONFIG = "/var/lib/rancher/k3s/server/cred/encryption-config.json"
 K3S_ENCRYPTION_CONFIG_BACKUP = "/mnt/data/backup/k3s/encryption-config.json"
 BOOTSTRAP_VOLUME_MARKER = "/mnt/data/.bootstrap-initialized"
+SWAPFILE = "/swapfile"
+SWAP_SIZE_GB = 4
+SWAP_SWAPPINESS = 10
 
 
 def encryption_config_has_keys(path: str) -> bool:
@@ -364,6 +367,52 @@ def ensure_data_mount(env_name: str, luks_key_url: str, luks_key_access: str, lu
             run(f"shred -u {key_path}", check=False, quiet=True, log_ok=False)
 
 
+def _ensure_swap_persistence(swapfile: str, swappiness: int) -> None:
+    try:
+        with open("/etc/fstab", "r", encoding="utf-8") as fh:
+            fstab = fh.read()
+    except OSError:
+        fstab = ""
+    entry = f"{swapfile} none swap sw 0 0"
+    if entry not in fstab:
+        with open("/etc/fstab", "a", encoding="utf-8") as fh:
+            fh.write(entry + "\n")
+    run(f"sysctl -w vm.swappiness={swappiness}")
+    with open("/etc/sysctl.d/99-swap.conf", "w", encoding="utf-8") as fh:
+        fh.write(f"vm.swappiness={swappiness}\n")
+
+
+def ensure_swap(swapfile: str = SWAPFILE, size_gb: int = SWAP_SIZE_GB, swappiness: int = SWAP_SWAPPINESS) -> None:
+    size_bytes = size_gb * 1024 * 1024 * 1024
+    swap_active = False
+    swap_cp = subprocess.run("swapon --show=NAME --noheadings", shell=True, text=True, capture_output=True)
+    if swap_cp.returncode == 0:
+        swap_active = swapfile in (swap_cp.stdout or "").split()
+
+    current_size = os.path.getsize(swapfile) if os.path.exists(swapfile) else 0
+    if swap_active and current_size == size_bytes:
+        _ensure_swap_persistence(swapfile, swappiness)
+        return
+
+    if swap_active:
+        run(f"swapoff {swapfile}", check=False)
+
+    if os.path.exists(swapfile) and current_size != size_bytes:
+        os.remove(swapfile)
+
+    if not os.path.exists(swapfile):
+        fallocate = run(f"fallocate -l {size_gb}G {swapfile}", check=False)
+        if fallocate.returncode != 0:
+            run(f"dd if=/dev/zero of={swapfile} bs=1M count={size_gb * 1024} status=progress")
+
+    run(f"chmod 600 {swapfile}")
+    file_cp = run(f"file -s {swapfile}", check=False, quiet=True, log_ok=False)
+    if "swap file" not in (file_cp.stdout or "").lower():
+        run(f"mkswap {swapfile}")
+    run(f"swapon {swapfile}")
+    _ensure_swap_persistence(swapfile, swappiness)
+
+
 def main():
     global start_ts
     start_ts = time.time()
@@ -399,6 +448,7 @@ def main():
     os.environ["KUBECONFIG"] = "/etc/rancher/k3s/k3s.yaml"
     allow_fresh_env = os.environ.get("ALLOW_FRESH_BOOTSTRAP", "").lower() in ("1", "true", "yes")
     ensure_data_mount(env_name, luks_key_url, luks_key_access, luks_key_secret)
+    ensure_swap()
 
     restore_k3s_encryption_config(K3S_ENCRYPTION_CONFIG_BACKUP)
     wait_for_k8s()
