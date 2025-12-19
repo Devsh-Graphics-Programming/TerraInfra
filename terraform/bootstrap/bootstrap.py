@@ -443,12 +443,30 @@ def main():
     github_bootstrap_pat = os.environ.get("GITHUB_BOOTSTRAP_PAT", "")
     add_sensitive(github_pat)
     add_sensitive(github_bootstrap_pat)
+    swap_file = os.environ.get("SWAP_FILE") or SWAPFILE
+    swap_size_gb = SWAP_SIZE_GB
+    swap_swappiness = SWAP_SWAPPINESS
+    swap_size_raw = os.environ.get("SWAP_SIZE_GB", "")
+    if swap_size_raw:
+        try:
+            swap_size_gb = int(swap_size_raw)
+        except ValueError:
+            log(f"Invalid SWAP_SIZE_GB={swap_size_raw!r}; using default {SWAP_SIZE_GB}", level="WARN")
+    swap_swappiness_raw = os.environ.get("SWAP_SWAPPINESS", "")
+    if swap_swappiness_raw:
+        try:
+            swap_swappiness = int(swap_swappiness_raw)
+        except ValueError:
+            log(f"Invalid SWAP_SWAPPINESS={swap_swappiness_raw!r}; using default {SWAP_SWAPPINESS}", level="WARN")
 
     print("== bootstrap start ==")
     os.environ["KUBECONFIG"] = "/etc/rancher/k3s/k3s.yaml"
     allow_fresh_env = os.environ.get("ALLOW_FRESH_BOOTSTRAP", "").lower() in ("1", "true", "yes")
     ensure_data_mount(env_name, luks_key_url, luks_key_access, luks_key_secret)
-    ensure_swap()
+    if swap_size_gb <= 0:
+        log("SWAP_SIZE_GB <= 0; skipping swap setup", level="WARN")
+    else:
+        ensure_swap(swap_file, swap_size_gb, swap_swappiness)
 
     restore_k3s_encryption_config(K3S_ENCRYPTION_CONFIG_BACKUP)
     wait_for_k8s()

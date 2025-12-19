@@ -111,4 +111,7 @@ runcmd:
       LUKS_KEY_URL=${luks_key_url} \
       SOPS_AGE_KEY_B64=${base64encode(sops_age_key)} \
       ALLOW_FRESH_BOOTSTRAP=${allow_fresh_bootstrap} \
+      SWAP_FILE=${swap_file} \
+      SWAP_SIZE_GB=${swap_size_gb} \
+      SWAP_SWAPPINESS=${swap_swappiness} \
       python3 /root/bootstrap/bootstrap.py 2>&1 | tee /var/log/bootstrap.log'

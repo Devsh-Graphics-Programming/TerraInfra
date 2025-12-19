@@ -52,5 +52,8 @@ module "k3s_node" {
     sops_age_key                             = var.sops_age_key
     path_root                                = path.root
     allow_fresh_bootstrap                    = var.allow_fresh_bootstrap
+    swap_file                                = var.swap_file
+    swap_size_gb                             = var.swap_size_gb
+    swap_swappiness                          = var.swap_swappiness
   })
 }

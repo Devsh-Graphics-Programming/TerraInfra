@@ -70,6 +70,24 @@ variable "allow_fresh_bootstrap" {
   default     = false
 }
 
+variable "swap_file" {
+  type        = string
+  description = "Swap file path used during bootstrap."
+  default     = "/swapfile"
+}
+
+variable "swap_size_gb" {
+  type        = number
+  description = "Swap size in GiB for the node bootstrap."
+  default     = 4
+}
+
+variable "swap_swappiness" {
+  type        = number
+  description = "Kernel vm.swappiness value configured during bootstrap."
+  default     = 10
+}
+
 variable "sops_age_key" {
   type        = string
   description = "Age private key used by Flux to decrypt SOPS-managed secrets (optional)."
