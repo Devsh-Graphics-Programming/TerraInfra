@@ -76,6 +76,22 @@ spec:
   values:
     image:
       tag: v1.16.5
+    engine:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 192Mi
+        limits:
+          cpu: 400m
+          memory: 384Mi
+    celery:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: 300m
+          memory: 256Mi
     env:
       DANGEROUS_WEBHOOKS_ENABLED: '"true"'
       MIRAGE_CIPHER_MODE: ECB
@@ -138,6 +154,13 @@ spec:
       persistence:
         enabled: true
         existingClaim: oncall-grafana-pvc
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          cpu: 200m
+          memory: 256Mi
       grafana.ini:
         server:
           domain: ${ENV_PREFIX}oncall.${BASE_DOMAIN}
@@ -187,64 +210,11 @@ spec:
                             path: /ready/
                             port: http
                           timeoutSeconds: 10
-                        livenessProbe:
-                          httpGet:
-                            path: /health/
-                            port: http
-                          timeoutSeconds: 10
-                        resources:
-                          requests:
-                            cpu: 100m
-                            memory: 192Mi
-                          limits:
-                            cpu: 400m
-                            memory: 384Mi
-          - target:
-              group: apps
-              version: v1
-              kind: Deployment
-              name: oncall-celery
-              namespace: monitoring-oncall
-            patch: |
-              apiVersion: apps/v1
-              kind: Deployment
-              metadata:
-                name: oncall-celery
-              spec:
-                template:
-                  spec:
-                    containers:
-                      - name: oncall
-                        resources:
-                          requests:
-                            cpu: 100m
-                            memory: 128Mi
-                          limits:
-                            cpu: 300m
-                            memory: 256Mi
-          - target:
-              group: apps
-              version: v1
-              kind: Deployment
-              name: oncall-grafana
-              namespace: monitoring-oncall
-            patch: |
-              apiVersion: apps/v1
-              kind: Deployment
-              metadata:
-                name: oncall-grafana
-              spec:
-                template:
-                  spec:
-                    containers:
-                      - name: grafana
-                        resources:
-                          requests:
-                            cpu: 50m
-                            memory: 128Mi
-                          limits:
-                            cpu: 200m
-                            memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /health/
+              port: http
+            timeoutSeconds: 10
 ---
 apiVersion: v1
 kind: ServiceAccount
