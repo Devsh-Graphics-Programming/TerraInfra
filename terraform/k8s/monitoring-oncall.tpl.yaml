@@ -84,6 +84,11 @@ spec:
         limits:
           cpu: 400m
           memory: 384Mi
+      updateStrategy:
+        type: RollingUpdate
+        rollingUpdate:
+          maxSurge: 0
+          maxUnavailable: 1
     celery:
       resources:
         requests:
@@ -161,6 +166,8 @@ spec:
         limits:
           cpu: 200m
           memory: 256Mi
+      deploymentStrategy:
+        type: Recreate
       grafana.ini:
         server:
           domain: ${ENV_PREFIX}oncall.${BASE_DOMAIN}
