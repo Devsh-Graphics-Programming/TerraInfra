@@ -7,7 +7,7 @@ resources:
   - cert-manager-ingress.tpl.yaml
   - app-networkpolicies.tpl.yaml
   - kimai.tpl.yaml
-  - monitoring-prometheus.tpl.yaml
+  - monitoring
   - monitoring-grafana.tpl.yaml
   - monitoring-oncall.tpl.yaml
   - www-sites.tpl.yaml

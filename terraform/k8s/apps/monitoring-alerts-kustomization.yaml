@@ -1,0 +1,17 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: monitoring-alerts
+  namespace: flux-system
+spec:
+  interval: 2m
+  prune: true
+  path: ./terraform/k8s/monitoring-alerts
+  sourceRef:
+    kind: GitRepository
+    name: terralinfra
+    namespace: flux-system
+  dependsOn:
+    - name: monitoring
+  wait: true
+  timeout: 2m

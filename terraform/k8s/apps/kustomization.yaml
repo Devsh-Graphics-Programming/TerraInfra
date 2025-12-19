@@ -9,8 +9,8 @@ resources:
   - ../kimai.tpl.yaml
   - ../monitoring-grafana.tpl.yaml
   - ../monitoring-oncall.tpl.yaml
-  - ../monitoring-prometheus.tpl.yaml
-  - ../monitoring-alerts.tpl.yaml
+  - monitoring-kustomization.yaml
+  - monitoring-alerts-kustomization.yaml
   - ../dashboard.tpl.yaml
   - ../www-sites.tpl.yaml
   - ../grafana-dashboards

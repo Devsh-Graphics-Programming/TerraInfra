@@ -1,0 +1,23 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: monitoring
+  namespace: flux-system
+spec:
+  interval: 2m
+  prune: true
+  path: ./terraform/k8s/monitoring
+  sourceRef:
+    kind: GitRepository
+    name: terralinfra
+    namespace: flux-system
+  dependsOn:
+    - name: infra
+    - name: vars
+  wait: true
+  timeout: 10m
+  healthChecks:
+    - apiVersion: helm.toolkit.fluxcd.io/v2
+      kind: HelmRelease
+      name: monitoring
+      namespace: monitoring
