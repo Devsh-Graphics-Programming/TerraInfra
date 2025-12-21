@@ -44,6 +44,12 @@ variable "env_name" {
   default     = "prod"
 }
 
+variable "instance_image" {
+  type        = string
+  description = "Scaleway instance image name or ID (e.g., ubuntu_jammy, debian_trixie)."
+  default     = "ubuntu_jammy"
+}
+
 variable "luks_key_access_key" {
   type        = string
   description = "Access key (read-only) for fetching LUKS key from Object Storage"

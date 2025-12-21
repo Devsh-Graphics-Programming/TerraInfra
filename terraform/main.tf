@@ -26,6 +26,7 @@ module "k3s_node" {
 
   project_id                               = var.project_id
   env_name                                 = local.env_slug
+  instance_image                           = var.instance_image
   acme_email                               = var.acme_email
   config_repo_url                          = var.config_repo_url
   config_repo_branch                       = var.config_repo_branch

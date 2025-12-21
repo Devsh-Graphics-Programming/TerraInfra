@@ -8,6 +8,12 @@ variable "env_name" {
   description = "Environment name (prod/dev/etc)"
 }
 
+variable "instance_image" {
+  type        = string
+  description = "Scaleway instance image name or ID (e.g., ubuntu_jammy, debian_trixie)."
+  default     = "ubuntu_jammy"
+}
+
 variable "data_volume_snapshot_id" {
   type        = string
   description = "Optional snapshot ID used to boot the data volume instead of a blank disk."

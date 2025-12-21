@@ -100,7 +100,7 @@ resource "scaleway_instance_server" "k3s_node_1" {
 
   name  = "devsh-k3s-${var.env_name}-node-1"
   type  = "DEV1-M"
-  image = "ubuntu_jammy"
+  image = var.instance_image
   root_volume {
     size_in_gb  = 40
     volume_type = "l_ssd"
