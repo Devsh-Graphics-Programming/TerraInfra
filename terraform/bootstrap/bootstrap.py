@@ -21,6 +21,23 @@ BOOTSTRAP_VOLUME_MARKER = "/mnt/data/.bootstrap-initialized"
 SWAPFILE = "/swapfile"
 SWAP_SIZE_GB = 4
 SWAP_SWAPPINESS = 10
+LOWRAM_JOURNALD_DROPIN = "/etc/systemd/journald.conf.d/99-lowram.conf"
+LOWRAM_SYSCTL = "/etc/sysctl.d/99-lowram.conf"
+LOWRAM_ZRAM_DEFAULTS = {"algo": "zstd", "percent": 25}
+LOWRAM_DISABLE_SERVICES = [
+    "avahi-daemon",
+    "ModemManager",
+    "bluetooth",
+    "cups",
+    "packagekit",
+    "rsyslog",
+]
+LOWRAM_MASK_TARGETS = [
+    "sleep.target",
+    "suspend.target",
+    "hibernate.target",
+    "hybrid-sleep.target",
+]
 
 
 def encryption_config_has_keys(path: str) -> bool:
@@ -115,6 +132,168 @@ def run(
         log_status("", "OK")
     sys.stdout.flush()
     return result
+
+
+def _write_file(path: str, content: str, mode: int = 0o644) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(content)
+    os.chmod(path, mode)
+
+
+def read_os_release(path: str = "/etc/os-release") -> dict[str, str]:
+    data: dict[str, str] = {}
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                data[key] = value.strip().strip('"')
+    except OSError:
+        return data
+    return data
+
+
+def is_debian_like(os_info: dict[str, str]) -> bool:
+    if os_info.get("ID") == "debian":
+        return True
+    like = os_info.get("ID_LIKE", "")
+    return "debian" in like.split() or "debian" in like
+
+
+def service_exists(service: str) -> bool:
+    unit = f"{service}.service"
+    for base in ("/etc/systemd/system", "/lib/systemd/system", "/usr/lib/systemd/system"):
+        if os.path.exists(os.path.join(base, unit)):
+            return True
+    return False
+
+
+def command_exists(command: str) -> bool:
+    return shutil.which(command) is not None
+
+
+def disable_services(services: Sequence[str]) -> None:
+    for service in services:
+        run(f"systemctl disable --now {service}", check=False, quiet=True, log_ok=False)
+
+
+def mask_targets(targets: Sequence[str]) -> None:
+    if targets:
+        joined = " ".join(shlex.quote(target) for target in targets)
+        run(f"systemctl mask {joined}", check=False, quiet=True, log_ok=False)
+
+
+def disable_swapfile(swapfile: str) -> None:
+    run(f"swapoff {swapfile}", check=False, quiet=True, log_ok=False)
+    try:
+        with open("/etc/fstab", "r", encoding="utf-8") as fh:
+            lines = fh.readlines()
+    except OSError:
+        lines = []
+    kept = [line for line in lines if swapfile not in line]
+    if kept != lines:
+        with open("/etc/fstab", "w", encoding="utf-8") as fh:
+            fh.writelines(kept)
+    if os.path.exists(swapfile):
+        try:
+            os.remove(swapfile)
+        except OSError:
+            pass
+    if os.path.exists("/etc/sysctl.d/99-swap.conf"):
+        try:
+            os.remove("/etc/sysctl.d/99-swap.conf")
+        except OSError:
+            pass
+
+
+def ensure_lowram_tuning(os_info: dict[str, str], swap_swappiness: int) -> bool:
+    setting = os.environ.get("LOWRAM_TUNE", "auto").lower()
+    if setting in ("0", "false", "no", "off"):
+        log("[lowram] disabled by env", level="INFO")
+        return False
+    if setting in ("1", "true", "yes", "on"):
+        enabled = True
+    else:
+        enabled = os_info.get("ID") == "debian"
+    if not enabled:
+        return False
+
+    if not is_debian_like(os_info):
+        log("[lowram] requested but OS is not Debian-like; skipping", level="WARN")
+        return False
+
+    zram_setting = os.environ.get("LOWRAM_ZRAM_ENABLED", "1").lower()
+    zram_enabled = zram_setting not in ("0", "false", "no", "off")
+    zram_algo = os.environ.get("LOWRAM_ZRAM_ALGO", LOWRAM_ZRAM_DEFAULTS["algo"])
+    zram_percent_raw = os.environ.get("LOWRAM_ZRAM_PERCENT", str(LOWRAM_ZRAM_DEFAULTS["percent"]))
+    try:
+        zram_percent = int(zram_percent_raw)
+    except ValueError:
+        log(f"[lowram] invalid LOWRAM_ZRAM_PERCENT={zram_percent_raw!r}; using default", level="WARN")
+        zram_percent = LOWRAM_ZRAM_DEFAULTS["percent"]
+
+    swappiness_value = 180 if zram_enabled else swap_swappiness
+
+    _write_file(
+        LOWRAM_JOURNALD_DROPIN,
+        "[Journal]\nStorage=volatile\nRuntimeMaxUse=16M\nSystemMaxUse=0\n",
+    )
+    _write_file(
+        LOWRAM_SYSCTL,
+        textwrap.dedent(
+            f"""\
+            vm.swappiness={swappiness_value}
+            vm.vfs_cache_pressure=200
+            vm.dirty_ratio=5
+            vm.dirty_background_ratio=3
+            vm.min_free_kbytes=65536
+            """
+        ),
+    )
+    run("sysctl --system", check=False, quiet=True, log_ok=False)
+
+    disable_services(LOWRAM_DISABLE_SERVICES)
+    mask_targets(LOWRAM_MASK_TARGETS)
+
+    if zram_enabled:
+        run("apt-get install -y zram-tools", check=False, quiet=True, log_ok=False)
+        _write_file(
+            "/etc/default/zramswap",
+            f"ALGO={zram_algo}\nPERCENT={zram_percent}\n",
+        )
+        if service_exists("zramswap"):
+            run("systemctl restart zramswap", check=False, quiet=True, log_ok=False)
+
+    if service_exists("systemd-journald"):
+        run("systemctl restart systemd-journald", check=False, quiet=True, log_ok=False)
+
+    if service_exists("systemd-oomd"):
+        run("systemctl enable --now systemd-oomd", check=False, quiet=True, log_ok=False)
+
+    _write_file(
+        "/etc/docker/daemon.json",
+        textwrap.dedent(
+            """\
+            {
+              "log-driver": "local",
+              "log-opts": {
+                "max-size": "10m",
+                "max-file": "3"
+              },
+              "live-restore": true,
+              "userland-proxy": false
+            }
+            """
+        ),
+    )
+    if service_exists("docker") or command_exists("dockerd") or command_exists("docker"):
+        run("systemctl restart docker", check=False, quiet=True, log_ok=False)
+
+    run("apt-get purge -y snapd", check=False, quiet=True, log_ok=False)
+    return zram_enabled
 
 
 def wait_for_k8s():
@@ -465,7 +644,12 @@ def main():
     os.environ["KUBECONFIG"] = "/etc/rancher/k3s/k3s.yaml"
     allow_fresh_env = os.environ.get("ALLOW_FRESH_BOOTSTRAP", "").lower() in ("1", "true", "yes")
     ensure_data_mount(env_name, luks_key_url, luks_key_access, luks_key_secret)
-    if swap_size_gb <= 0:
+    os_info = read_os_release()
+    zram_enabled = ensure_lowram_tuning(os_info, swap_swappiness)
+    if zram_enabled:
+        log("[swap] zram enabled; skipping swapfile setup", level="INFO")
+        disable_swapfile(swap_file)
+    elif swap_size_gb <= 0:
         log("SWAP_SIZE_GB <= 0; skipping swap setup", level="WARN")
     else:
         ensure_swap(swap_file, swap_size_gb, swap_swappiness)
