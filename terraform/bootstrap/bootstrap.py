@@ -270,6 +270,8 @@ def ensure_lowram_tuning(os_info: dict[str, str], swap_swappiness: int) -> bool:
     if service_exists("systemd-journald"):
         run("systemctl restart systemd-journald", check=False, quiet=True, log_ok=False)
 
+    if not service_exists("systemd-oomd"):
+        run("apt-get install -y systemd-oomd", check=False, quiet=True, log_ok=False)
     if service_exists("systemd-oomd"):
         run("systemctl enable --now systemd-oomd", check=False, quiet=True, log_ok=False)
 
