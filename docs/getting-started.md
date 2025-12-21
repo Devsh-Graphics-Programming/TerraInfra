@@ -50,7 +50,7 @@ TF_VAR_luks_key_secret_key=...         # Object Storage secret key for LUKS key
 # TF_VAR_prevent_destroy_data_volume=true  # Set true to block data volume destroy
 # TF_VAR_data_volume_snapshot_id=      # Snapshot id to restore data volume
 # TF_VAR_sops_age_key=                 # Age private key (set in session, not in file)
-# TF_VAR_instance_image=ubuntu_jammy   # Scaleway image name/id (e.g., ubuntu_jammy, debian_trixie)
+# TF_VAR_instance_image=debian_trixie  # Scaleway image name/id (e.g., ubuntu_jammy, debian_trixie)
 # TF_VAR_allow_fresh_bootstrap=true    # Allow formatting LUKS on a brand-new volume only
 ```
 Reload per session: `cd terraform; . .\env.ps1`

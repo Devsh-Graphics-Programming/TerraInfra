@@ -23,7 +23,7 @@ SWAP_SIZE_GB = 4
 SWAP_SWAPPINESS = 10
 LOWRAM_JOURNALD_DROPIN = "/etc/systemd/journald.conf.d/99-lowram.conf"
 LOWRAM_SYSCTL = "/etc/sysctl.d/99-lowram.conf"
-LOWRAM_ZRAM_DEFAULTS = {"algo": "zstd", "percent": 25}
+LOWRAM_ZRAM_DEFAULTS = {"algo": "zstd", "percent": 75}
 LOWRAM_DISABLE_SERVICES = [
     "avahi-daemon",
     "ModemManager",
