@@ -1,7 +1,7 @@
 ## Environments & Branches
 
-- Branch → cluster: `env/prod` → prod, `env/test` → test.
-- Workflow: commit to `env/test` → validate in test → fast-forward `env/prod` (see `docs/how-to-commit.md`).
+- Branch -> cluster: `env/prod` -> prod, `env/test` -> test.
+- Workflow: commit to `env/test` -> validate in test -> fast-forward `env/prod` (see `docs/how-to-commit.md`).
 - WARNING: push to `env/prod` reconciles live prod; push to `env/test` reconciles test.
 
 ### Terraform workspace mapping

@@ -1,6 +1,6 @@
 ## Getting Started
 
-GitOps-first: manifests live in this repo, Flux syncs per branch (`env/prod`, `env/test`). Terraform only builds the node and bootstraps Flux; day‑2 is Git-only. (Branch details: `docs/environments.md`. Fast-forward rules: `docs/how-to-commit.md`.)
+GitOps-first: manifests live in this repo, Flux syncs per branch (`env/prod`, `env/test`). Terraform only builds the node and bootstraps Flux; day-2 is Git-only. (Branch details: `docs/environments.md`. Fast-forward rules: `docs/how-to-commit.md`.)
 > Pushing to `env/prod` updates live prod. Pushing to `env/test` updates the test cluster.
 
 ### Prerequisites
@@ -10,7 +10,7 @@ GitOps-first: manifests live in this repo, Flux syncs per branch (`env/prod`, `e
 - SSH key (for k3s node)
 
 ### Age key
-- Private key file (e.g., `terraform/terra.agekey`) – keep it securely, never commit.
+- Private key file (e.g., `terraform/terra.agekey`) - keep it securely, never commit.
 - Set per session:  
   `cd terraform; $env:SOPS_AGE_KEY = Get-Content terra.agekey -Raw`
 
@@ -18,7 +18,7 @@ GitOps-first: manifests live in this repo, Flux syncs per branch (`env/prod`, `e
 - Never commit private keys, PATs, webhook secrets, state files, `.terraform/`, or `*.agekey`.
 - Keep `.env` local only; rotate creds if it ever leaks.
 - SOPS-encrypted YAMLs are fine in git; only the public age key sits in `.sops.yaml`.
-- Provider test fixtures under `provider/` use dummy keys; scanners may flag them—review before whitelisting.
+- Provider test fixtures under `provider/` use dummy keys; scanners may flag them; review before whitelisting.
 
 ### Data volume unlock (LUKS)
 - Systemd service `ensure-data-mount.service` unlocks and mounts `/mnt/data` on every boot using `LUKS_KEY_URL` or bucket creds from `/etc/default/terra-data`.
@@ -35,7 +35,7 @@ SCW_SECRET_KEY=...                     # Scaleway secret key
 
 # Terraform inputs
 TF_VAR_project_id=...                  # Scaleway project id
-TF_VAR_acme_email=notification@devsh.eu# Email for ACME/Let’s Encrypt
+TF_VAR_acme_email=notification@devsh.eu# Email for ACME/Let's Encrypt
 TF_VAR_config_repo_url=https://github.com/Devsh-Graphics-Programming/TerraInfra # Git repo for manifests
 TF_VAR_config_repo_branch=env/prod     # Git branch (env/prod or env/test)
 TF_VAR_config_repo_path=terraform/k8s  # Path in repo with k8s manifests
@@ -50,10 +50,25 @@ TF_VAR_luks_key_secret_key=...         # Object Storage secret key for LUKS key
 # TF_VAR_prevent_destroy_data_volume=true  # Set true to block data volume destroy
 # TF_VAR_data_volume_snapshot_id=      # Snapshot id to restore data volume
 # TF_VAR_sops_age_key=                 # Age private key (set in session, not in file)
-# TF_VAR_instance_image=debian_trixie  # Scaleway image name/id (e.g., ubuntu_jammy, debian_trixie)
+# TF_VAR_instance_image=debian_trixie  # Override instance image (default debian_trixie; e.g., ubuntu_jammy)
 # TF_VAR_allow_fresh_bootstrap=true    # Allow formatting LUKS on a brand-new volume only
 ```
 Reload per session: `cd terraform; . .\env.ps1`
+
+### Low-RAM tuning (Debian default)
+When the instance image is Debian-like, bootstrap applies low-RAM tuning automatically (`LOWRAM_TUNE=auto`):
+- journald in memory only (Storage=volatile, RuntimeMaxUse=16M)
+- sysctl: swappiness=180 (when zram), vfs_cache_pressure=200, dirty_ratio=5, dirty_background_ratio=3, min_free_kbytes=65536
+- disable services: avahi-daemon, ModemManager, bluetooth, cups, packagekit, rsyslog
+- mask sleep/suspend targets
+- zram swap (zstd, 75% of RAM) + enable systemd-oomd
+- docker log driver local (10m x3) and purge snapd
+
+Notes:
+- When zram is enabled, swapfile is disabled. To force a classic swapfile, set `LOWRAM_ZRAM_ENABLED=0`.
+- Swapfile settings still apply when zram is disabled: `SWAP_FILE`, `SWAP_SIZE_GB`, `SWAP_SWAPPINESS`.
+- To override tuning, add env vars in `terraform/cloud-init.yaml` before the bootstrap command:
+  `LOWRAM_TUNE=0|1|auto`, `LOWRAM_ZRAM_ENABLED=0|1`, `LOWRAM_ZRAM_PERCENT=75`, `LOWRAM_ZRAM_ALGO=zstd`.
 
 ### First bootstrap (per environment)
 1) Set `.env` (prod) or override env vars (test).
@@ -73,11 +88,11 @@ Reload per session: `cd terraform; . .\env.ps1`
   - `$env:TF_VAR_public_ip_address='<new_ip>'` (preferred)
   - or `$env:TF_VAR_public_ip_id='<ip_uuid>'`
 - Keep data volume protected (prod): `TF_VAR_prevent_destroy_data_volume=true`.
-- `terraform apply` – the server stays up; Terraform detaches the old IP and attaches the new one in place.
+- `terraform apply` - the server stays up; Terraform detaches the old IP and attaches the new one in place.
 - Update DNS to the new IP (manual for now; see `docs/dns.md`), wait for propagation; cert-manager will renew automatically (respect LE rate limits). If you want to force re-issue after DNS cutover: `k3s kubectl -n <ns> delete order,challenge -l acme.cert-manager.io/certificate-name=<cert_name>`.
 - After confirming traffic on the new IP, delete the old Flexible IP in Scaleway.
 
-### Certificates (Let’s Encrypt)
+### Certificates (Let's Encrypt)
 - Check status: `k3s kubectl get certificate -A` and `k3s kubectl get orders.acme.cert-manager.io -A`.
 - LE rate limits apply to all hosts; if you see `order ... errored ... too many certificates ... retry after ...`, wait until the indicated time; cert-manager will retry automatically.
 - Force renew all certs after DNS/IP change (from the node):  
