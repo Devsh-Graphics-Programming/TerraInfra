@@ -433,6 +433,8 @@ def main():
     env_prefix = os.environ.get(
         "ENV_PREFIX", "" if env_name == "prod" else f"{env_name}."
     )
+    base_domain = os.environ.get("BASE_DOMAIN", "devsh.eu")
+    node_name = os.environ.get("NODE_NAME", f"devsh-k3s-{env_name}-node-1")
     config_repo_url = os.environ["CONFIG_REPO_URL"]
     config_repo_branch = os.environ["CONFIG_REPO_BRANCH"]
     config_repo_path = os.environ["CONFIG_REPO_PATH"]
@@ -546,7 +548,7 @@ spec:
         "    secretRef:\n"
         "      name: sops-age\n"
     )
-    vars_path = f"{config_repo_path}/vars/{env_name}"
+    vars_path = f"{config_repo_path}/vars"
     apps_path = f"{config_repo_path}/apps"
     flux_kustomization_vars = f"""apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
@@ -562,6 +564,12 @@ spec:
     name: terralinfra
     namespace: flux-system
 {decryption_section}  timeout: 1m
+  postBuild:
+    substitute:
+      BASE_DOMAIN: {base_domain}
+      ENV_PREFIX: {env_prefix}
+      ACME_EMAIL: {acme_email}
+      NODE_NAME: {node_name}
 """
     flux_kustomization_infra = (
         "apiVersion: kustomize.toolkit.fluxcd.io/v1\n"

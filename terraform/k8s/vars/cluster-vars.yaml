@@ -6,7 +6,7 @@ metadata:
   labels:
     reconcile.fluxcd.io/watch: "Enabled"
 data:
-  BASE_DOMAIN: devsh.eu
-  ENV_PREFIX: ""
-  ACME_EMAIL: notification@devsh.eu
-  NODE_NAME: devsh-k3s-prod-node-1
+  BASE_DOMAIN: ${BASE_DOMAIN}
+  ENV_PREFIX: ${ENV_PREFIX}
+  ACME_EMAIL: ${ACME_EMAIL}
+  NODE_NAME: ${NODE_NAME}

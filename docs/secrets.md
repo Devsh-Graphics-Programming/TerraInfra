@@ -1,6 +1,6 @@
 ## Secrets (SOPS + age)
 
-- Secrets stored as encrypted YAML (SOPS) in `terraform/k8s/vars/{prod,test}/secrets/`.
+- Secrets stored as encrypted YAML (SOPS) in `terraform/k8s/vars/secrets/` (shared across environments).
 - Encryption uses age; public key in `.sops.yaml`, private key (`terra.agekey`) is local/secure storage (never in repo).
 
 ### Set key in session
@@ -11,11 +11,11 @@ $env:SOPS_AGE_KEY = Get-Content terra.agekey -Raw
 
 ### Decrypt
 ```
-sops -d k8s/vars/prod/secrets/kimai-admin-credentials.yaml
+sops -d k8s/vars/secrets/kimai-admin-credentials.yaml
 ```
 Extract a field:
 ```
-sops -d --extract '["stringData"]["password"]' k8s/vars/prod/secrets/kimai-admin-credentials.yaml
+sops -d --extract '["stringData"]["password"]' k8s/vars/secrets/kimai-admin-credentials.yaml
 ```
 
 ### Create/update secret
@@ -34,9 +34,9 @@ stringData:
 ```
 2) Encrypt:
 ```
-sops --encrypt --in-place k8s/vars/prod/secrets/kimai-admin-credentials.yaml
+sops --encrypt --in-place k8s/vars/secrets/kimai-admin-credentials.yaml
 ```
-3) Commit encrypted file to the branch (`env/prod` or `env/test`).
+3) Commit encrypted file to the branch you are updating.
 
 ### Generate strong password
 ```
