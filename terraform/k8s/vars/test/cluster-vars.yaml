@@ -9,3 +9,4 @@ data:
   BASE_DOMAIN: devsh.eu
   ENV_PREFIX: "test."
   ACME_EMAIL: notification@devsh.eu
+  NODE_NAME: devsh-k3s-test-node-1

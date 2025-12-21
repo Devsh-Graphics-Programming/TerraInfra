@@ -23,7 +23,7 @@ spec:
             - key: kubernetes.io/hostname
               operator: In
               values:
-                - devsh-k3s-prod-node-1
+                - ${NODE_NAME}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -59,7 +59,7 @@ spec:
             - key: kubernetes.io/hostname
               operator: In
               values:
-                - devsh-k3s-prod-node-1
+                - ${NODE_NAME}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
