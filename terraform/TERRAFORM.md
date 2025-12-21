@@ -38,7 +38,7 @@
 | <a name="input_env_name"></a> [env\_name](#input\_env\_name) | Environment name | `string` | `"prod"` | no |
 | <a name="input_github_bootstrap_terra_infra_webhook_pat"></a> [github\_bootstrap\_terra\_infra\_webhook\_pat](#input\_github\_bootstrap\_terra\_infra\_webhook\_pat) | Fine-grained PAT used only during bootstrap to create/patch GitHub webhook (not persisted) | `string` | `""` | no |
 | <a name="input_github_persistent_terra_infra_ro_pat"></a> [github\_persistent\_terra\_infra\_ro\_pat](#input\_github\_persistent\_terra\_infra\_ro\_pat) | Fine-grained PAT (read-only) kept in cluster for repo access | `string` | n/a | yes |
-| <a name="input_instance_image"></a> [instance\_image](#input\_instance\_image) | Scaleway instance image name or ID (e.g., ubuntu\_jammy, debian\_trixie). | `string` | `"ubuntu_jammy"` | no |
+| <a name="input_instance_image"></a> [instance\_image](#input\_instance\_image) | Scaleway instance image name or ID (e.g., ubuntu\_jammy, debian\_trixie). | `string` | `"debian_trixie"` | no |
 | <a name="input_luks_key_access_key"></a> [luks\_key\_access\_key](#input\_luks\_key\_access\_key) | Access key (read-only) for fetching LUKS key from Object Storage | `string` | `""` | no |
 | <a name="input_luks_key_secret_key"></a> [luks\_key\_secret\_key](#input\_luks\_key\_secret\_key) | Secret key (read-only) for fetching LUKS key from Object Storage | `string` | `""` | no |
 | <a name="input_luks_key_url"></a> [luks\_key\_url](#input\_luks\_key\_url) | Optional presigned URL to fetch LUKS key (overrides access/secret when set) | `string` | `""` | no |
