@@ -131,6 +131,32 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
+  name: devsh-website-root-redirect
+  namespace: website
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-http
+    nginx.ingress.kubernetes.io/permanent-redirect: https://${ENV_PREFIX}www.${BASE_DOMAIN}$request_uri
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - ${ENV_PREFIX}${BASE_DOMAIN}
+      secretName: devsh-website-tls
+  rules:
+    - host: ${ENV_PREFIX}${BASE_DOMAIN}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: devsh-website
+                port:
+                  number: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
   name: devsh-website-blog-redirect
   namespace: website
   annotations:
@@ -276,6 +302,7 @@ metadata:
 spec:
   secretName: devsh-website-tls
   dnsNames:
+    - ${ENV_PREFIX}${BASE_DOMAIN}
     - ${ENV_PREFIX}www.${BASE_DOMAIN}
   issuerRef:
     name: letsencrypt-http
