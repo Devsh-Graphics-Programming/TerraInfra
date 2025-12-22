@@ -135,7 +135,7 @@ metadata:
   namespace: website
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-http
-    nginx.ingress.kubernetes.io/permanent-redirect: https://${ENV_PREFIX}www.${BASE_DOMAIN}$request_uri
+    nginx.ingress.kubernetes.io/permanent-redirect: https://${ENV_PREFIX}www.${BASE_DOMAIN}
 spec:
   ingressClassName: nginx
   tls:
