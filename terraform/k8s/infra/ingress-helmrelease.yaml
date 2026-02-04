@@ -28,3 +28,5 @@ spec:
       publishService:
         enabled: true
       allowSnippetAnnotations: true
+      config:
+        annotations-risk-level: "Critical"
