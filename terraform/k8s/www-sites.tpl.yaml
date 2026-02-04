@@ -112,6 +112,7 @@ metadata:
     cert-manager.io/cluster-issuer: letsencrypt-http
     nginx.ingress.kubernetes.io/proxy-intercept-errors: "true"
     nginx.ingress.kubernetes.io/configuration-snippet: |
+      proxy_intercept_errors on;
       error_page 404 = /;
 spec:
   ingressClassName: nginx
