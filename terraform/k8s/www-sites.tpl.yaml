@@ -110,6 +110,9 @@ metadata:
   namespace: website
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-http
+    nginx.ingress.kubernetes.io/proxy-intercept-errors: "true"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      error_page 404 = /;
 spec:
   ingressClassName: nginx
   tls:
