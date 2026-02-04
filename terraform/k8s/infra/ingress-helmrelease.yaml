@@ -27,3 +27,4 @@ spec:
     controller:
       publishService:
         enabled: true
+      allowSnippetAnnotations: true
