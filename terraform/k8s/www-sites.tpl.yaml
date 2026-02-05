@@ -117,9 +117,9 @@ metadata:
       rewrite ^/(about|nabla|services)/?$ /$1.html break;
       set $static_cache "";
       if ($request_uri ~* "^/_next/static/") { set $static_cache "public, max-age=31536000, immutable"; }
-      if ($request_uri ~* "^/(clients|vulkanised_photos|nabla|list)/") { set $static_cache "public, max-age=31536000, immutable"; }
+      if ($request_uri ~* "^/(clients|vulkanised_photos|list)/") { set $static_cache "public, max-age=31536000, immutable"; }
       if ($request_uri ~* "\\.(?:gif|png|jpe?g|webp|svg|mp4|webm|woff2?|ttf|otf)$") { set $static_cache "public, max-age=31536000, immutable"; }
-      if ($static_cache != "") { add_header Cache-Control $static_cache always; }
+      if ($static_cache != "") { add_header Cache-Control $static_cache; }
 spec:
   ingressClassName: nginx
   tls:
