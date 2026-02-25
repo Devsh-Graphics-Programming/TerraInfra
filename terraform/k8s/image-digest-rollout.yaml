@@ -76,7 +76,7 @@ spec:
                     image="$2"
                     deploy="$3"
                     desired="$(skopeo inspect --override-os linux "docker://$image" | jq -r '.Digest')"
-                    current="$(kubectl -n website get deployment "$deploy" -o jsonpath='{.spec.template.metadata.annotations["rollout.devsh.eu/'"$name"'"]}' 2>/dev/null || true)"
+                    current="$(kubectl -n website get deployment "$deploy" -o json | jq -r --arg k "rollout.devsh.eu/$name" '.spec.template.metadata.annotations[$k] // ""')"
                     if [ "$desired" != "$current" ]; then
                       kubectl -n website patch deployment "$deploy" --type merge -p "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"rollout.devsh.eu/$name\":\"$desired\"}}}}}"
                       echo "patched $deploy to digest $desired"
