@@ -23,7 +23,12 @@ metadata:
   labels:
     app: devsh-website
 spec:
-  replicas: 2
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app: devsh-website
@@ -199,7 +204,12 @@ metadata:
   labels:
     app: devsh-blog
 spec:
-  replicas: 2
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app: devsh-blog
