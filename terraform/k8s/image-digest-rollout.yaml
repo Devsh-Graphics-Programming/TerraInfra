@@ -75,15 +75,31 @@ spec:
                     name="$1"
                     image="$2"
                     deploy="$3"
+                    container="$4"
                     desired="$(skopeo inspect --override-os linux "docker://$image" | jq -r '.Digest')"
-                    current="$(kubectl -n website get deployment "$deploy" -o json | jq -r --arg k "rollout.devsh.eu/$name" '.spec.template.metadata.annotations[$k] // ""')"
-                    if [ "$desired" != "$current" ]; then
-                      kubectl -n website patch deployment "$deploy" --type merge -p "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"rollout.devsh.eu/$name\":\"$desired\"}}}}}"
+                    needs_rollout="$(
+                      kubectl -n website get pods -l "app=$deploy" -o json \
+                        | jq -r --arg container "$container" --arg desired "$desired" '
+                            [
+                              .items[].status.containerStatuses[]?
+                              | select(.name == $container)
+                              | (.imageID | split("@")[1])
+                            ] as $digests
+                            | if ($digests | length) == 0 then
+                                "true"
+                              else
+                                (any($digests[]; . != $desired) | tostring)
+                              end
+                          '
+                    )"
+                    if [ "$needs_rollout" = "true" ]; then
+                      ts="$(date -u +%Y%m%dT%H%M%SZ)"
+                      kubectl -n website patch deployment "$deploy" --type merge -p "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"rollout.devsh.eu/$name\":\"$desired-$ts\"}}}}}"
                       echo "patched $deploy to digest $desired"
                     else
                       echo "no change for $deploy (digest $desired)"
                     fi
                   }
 
-                  check "devsh-website" "ghcr.io/devsh-graphics-programming/www-website:latest" "devsh-website"
-                  check "devsh-blog" "ghcr.io/devsh-graphics-programming/www-blog:latest" "devsh-blog"
+                  check "devsh-website" "ghcr.io/devsh-graphics-programming/www-website:latest" "devsh-website" "website"
+                  check "devsh-blog" "ghcr.io/devsh-graphics-programming/www-blog:latest" "devsh-blog" "blog"
