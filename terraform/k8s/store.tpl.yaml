@@ -1,0 +1,229 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: store
+  namespace: store
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: store-nginx
+  namespace: store
+data:
+  nginx.conf: |
+    worker_processes auto;
+    pid /tmp/nginx.pid;
+
+    events {
+      worker_connections 1024;
+    }
+
+    http {
+      include /etc/nginx/mime.types;
+      default_type application/octet-stream;
+
+      proxy_cache_path /var/cache/nginx/store levels=1:2 keys_zone=store_cache:64m max_size=8g inactive=1h use_temp_path=off;
+      proxy_temp_path /tmp/proxy_temp;
+      client_body_temp_path /tmp/client_temp;
+
+      server {
+        listen 8080;
+        server_name _;
+
+        set $store_origin "https://devsh-store-prod.s3.fr-par.scw.cloud";
+
+        add_header X-Store-Cache $upstream_cache_status always;
+        add_header X-Content-Type-Options nosniff always;
+
+        location = /healthz {
+          access_log off;
+          return 200 "ok\n";
+        }
+
+        location = /ditt/public {
+          return 308 /ditt/public/;
+        }
+
+        location = /ditt/private {
+          return 308 /ditt/private/;
+        }
+
+        location /ditt/public/ {
+          rewrite ^(.*/)$ $1index.html break;
+          proxy_pass $store_origin;
+          proxy_set_header Host devsh-store-prod.s3.fr-par.scw.cloud;
+          proxy_set_header Authorization "";
+          proxy_ssl_server_name on;
+          proxy_http_version 1.1;
+          proxy_cache store_cache;
+          proxy_cache_lock on;
+          proxy_cache_valid 200 206 10m;
+          proxy_cache_valid 404 10s;
+          proxy_cache_bypass $http_cache_control $http_pragma;
+          proxy_no_cache $http_cache_control $http_pragma;
+          proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
+        }
+
+        location /ditt/private/ {
+          auth_basic "DevSH private store";
+          auth_basic_user_file /etc/nginx/auth/htpasswd;
+          rewrite ^(.*/)$ $1index.html break;
+          proxy_pass $store_origin;
+          proxy_set_header Host devsh-store-prod.s3.fr-par.scw.cloud;
+          proxy_set_header Authorization "";
+          proxy_ssl_server_name on;
+          proxy_http_version 1.1;
+          proxy_cache store_cache;
+          proxy_cache_lock on;
+          proxy_cache_valid 200 206 10m;
+          proxy_cache_valid 404 10s;
+          proxy_cache_bypass $http_cache_control $http_pragma;
+          proxy_no_cache $http_cache_control $http_pragma;
+          proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
+        }
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: store
+  namespace: store
+  labels:
+    app: store
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: store
+  template:
+    metadata:
+      labels:
+        app: store
+    spec:
+      serviceAccountName: store
+      priorityClassName: prod-app-critical
+      containers:
+        - name: nginx
+          image: nginxinc/nginx-unprivileged:1.27-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            periodSeconds: 20
+            timeoutSeconds: 2
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 101
+            runAsGroup: 101
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+              readOnly: true
+            - name: auth
+              mountPath: /etc/nginx/auth/htpasswd
+              subPath: htpasswd
+              readOnly: true
+            - name: cache
+              mountPath: /var/cache/nginx
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: store-nginx
+        - name: auth
+          secret:
+            secretName: store-basic-auth
+        - name: cache
+          emptyDir:
+            sizeLimit: 8Gi
+        - name: tmp
+          emptyDir:
+            medium: Memory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: store
+  namespace: store
+spec:
+  selector:
+    app: store
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: store-tls
+  namespace: store
+spec:
+  secretName: store-tls
+  dnsNames:
+    - ${ENV_PREFIX}store.${BASE_DOMAIN}
+  issuerRef:
+    name: letsencrypt-http
+    kind: ClusterIssuer
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: store
+  namespace: store
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-http
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - ${ENV_PREFIX}store.${BASE_DOMAIN}
+      secretName: store-tls
+  rules:
+    - host: ${ENV_PREFIX}store.${BASE_DOMAIN}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: store
+                port:
+                  number: 80

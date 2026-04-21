@@ -70,6 +70,13 @@ variable "luks_key_url" {
   default     = ""
 }
 
+variable "owner_access_key" {
+  type        = string
+  description = "Owner IAM access key used to resolve the Object Storage bucket policy principal."
+  sensitive   = true
+  default     = ""
+}
+
 variable "allow_fresh_bootstrap" {
   type        = bool
   description = "Set to true when you intentionally want to recreate secrets (new volume or clean data)."

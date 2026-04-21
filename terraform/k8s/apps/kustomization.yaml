@@ -13,6 +13,7 @@ resources:
   - monitoring-alerts-kustomization.yaml
   - ../dashboard.tpl.yaml
   - ../www-sites.tpl.yaml
+  - ../store.tpl.yaml
   - ../grafana-dashboards
   - ../image-automation.yaml
   - ../image-digest-rollout.yaml
