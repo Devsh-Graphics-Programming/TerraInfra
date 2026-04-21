@@ -148,6 +148,8 @@ spec:
             runAsNonRoot: true
             runAsUser: 101
             runAsGroup: 101
+            seccompProfile:
+              type: RuntimeDefault
             capabilities:
               drop:
                 - ALL
