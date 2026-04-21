@@ -23,7 +23,10 @@
 | Name | Type |
 |------|------|
 | [scaleway_object_bucket.luks_keys](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/object_bucket) | resource |
+| [scaleway_object_bucket.store](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/object_bucket) | resource |
 | [scaleway_object_bucket_acl.luks_keys](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/object_bucket_acl) | resource |
+| [scaleway_object_bucket_policy.store](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/object_bucket_policy) | resource |
+| [scaleway_iam_api_key.store_owner](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/data-sources/iam_api_key) | data source |
 
 ## Inputs
 
@@ -43,6 +46,7 @@
 | <a name="input_luks_key_secret_key"></a> [luks\_key\_secret\_key](#input\_luks\_key\_secret\_key) | Secret key (read-only) for fetching LUKS key from Object Storage | `string` | `""` | no |
 | <a name="input_luks_key_url"></a> [luks\_key\_url](#input\_luks\_key\_url) | Optional presigned URL to fetch LUKS key (overrides access/secret when set) | `string` | `""` | no |
 | <a name="input_manual_snapshots"></a> [manual\_snapshots](#input\_manual\_snapshots) | Manual data-volume snapshots (keyed by name) that are kept until ttl\_hours expires (requires terraform apply to enforce). | <pre>map(object({<br/>    created_at = string<br/>    ttl_hours  = optional(number, 24)<br/>  }))</pre> | `{}` | no |
+| <a name="input_owner_access_key"></a> [owner\_access\_key](#input\_owner\_access\_key) | Owner IAM access key used to resolve the Object Storage bucket policy principal. | `string` | `""` | no |
 | <a name="input_prevent_destroy_data_volume"></a> [prevent\_destroy\_data\_volume](#input\_prevent\_destroy\_data\_volume) | Set false only when you intentionally want Terraform to allow destroying the data volume (e.g., wiping/recreating). | `bool` | `true` | no |
 | <a name="input_project_id"></a> [project\_id](#input\_project\_id) | Scaleway Project ID | `string` | n/a | yes |
 | <a name="input_public_ip_address"></a> [public\_ip\_address](#input\_public\_ip\_address) | Existing Flexible IP address to attach (alternative to public\_ip\_id). | `string` | `""` | no |
@@ -59,4 +63,6 @@
 | <a name="output_data_volume_id"></a> [data\_volume\_id](#output\_data\_volume\_id) | ID of the environment's data volume |
 | <a name="output_k3s_node_1_ip"></a> [k3s\_node\_1\_ip](#output\_k3s\_node\_1\_ip) | Public IP of k3s node |
 | <a name="output_manual_snapshot_ids"></a> [manual\_snapshot\_ids](#output\_manual\_snapshot\_ids) | IDs of managed manual snapshots (empty when none are configured) |
+| <a name="output_store_bucket_host"></a> [store\_bucket\_host](#output\_store\_bucket\_host) | Object Storage host used by the static store proxy |
+| <a name="output_store_bucket_name"></a> [store\_bucket\_name](#output\_store\_bucket\_name) | Object Storage bucket used by the static store proxy |
 <!-- END_TF_DOCS -->
