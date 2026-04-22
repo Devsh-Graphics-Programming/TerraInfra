@@ -1,5 +1,5 @@
 output "volume_id" {
-  value       = data.scaleway_block_volume.data_volume["node1-main"].id
+  value       = try(data.scaleway_block_volume.data_volume["node1-main"].id, "")
   description = "Legacy ID of the snapshotted node1 data volume"
   sensitive   = true
 }
@@ -17,13 +17,13 @@ output "volume_names" {
 }
 
 output "latest_snapshot_id" {
-  value       = scaleway_block_snapshot.data_volume["node1-main"].id
+  value       = try(scaleway_block_snapshot.data_volume["node1-main"].id, "")
   description = "Legacy ID of the current managed daily node1 snapshot"
   sensitive   = true
 }
 
 output "latest_snapshot_name" {
-  value       = scaleway_block_snapshot.data_volume["node1-main"].name
+  value       = try(scaleway_block_snapshot.data_volume["node1-main"].name, "")
   description = "Legacy name of the current managed auto node1 snapshot"
   sensitive   = true
 }

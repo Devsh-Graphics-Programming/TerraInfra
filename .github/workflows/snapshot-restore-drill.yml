@@ -83,56 +83,62 @@ jobs:
           mask "${AWS_ACCESS_KEY_ID:-}"
           mask "${AWS_SECRET_ACCESS_KEY:-}"
 
-      - name: Terraform init (snapshot state)
-        run: |
-          terraform init -input=false \
-            -backend-config="bucket=${SNAPSHOTS_TFSTATE_BUCKET}" \
-            -backend-config="key=terraform/snapshots/terraform.tfstate" \
-            -backend-config="region=${SNAPSHOTS_TFSTATE_REGION}" \
-            -backend-config="endpoint=${SNAPSHOTS_TFSTATE_ENDPOINT}" \
-            -backend-config="skip_requesting_account_id=true" \
-            -backend-config="skip_credentials_validation=true" \
-            -backend-config="skip_metadata_api_check=true" \
-            -backend-config="skip_region_validation=true" \
-            -backend-config="force_path_style=true"
-
       - name: Resolve restore matrix
         id: matrix
         run: |
           set -euo pipefail
 
-          snapshot_ids="$(terraform output -json latest_snapshot_ids 2>/dev/null)"
+          all_targets='["chat","jenkins","node1-main","observability"]'
           requested_targets="$(echo "${SNAPSHOTS_TARGET_NAMES}" | tr -d '[:space:]')"
+          wanted="$(jq -cn --arg names "${requested_targets}" --argjson all "${all_targets}" '
+            if ($names == "" or $names == "all") then
+              $all
+            else
+              ($names | split(",") | map(select(length > 0))) as $wanted |
+              if any($wanted[]; ($all | index(.) | not)) then
+                error("Unknown restore target in " + $names)
+              else
+                $wanted
+              end
+            end
+          ')"
 
-          matrix="$(jq -cn \
-            --arg names "${requested_targets}" \
-            --argjson ids "${snapshot_ids}" '
+          for target in $(echo "${wanted}" | jq -r '.[]'); do
+            terraform init -input=false -reconfigure \
+              -backend-config="bucket=${SNAPSHOTS_TFSTATE_BUCKET}" \
+              -backend-config="key=terraform/snapshots/${target}.tfstate" \
+              -backend-config="region=${SNAPSHOTS_TFSTATE_REGION}" \
+              -backend-config="endpoint=${SNAPSHOTS_TFSTATE_ENDPOINT}" \
+              -backend-config="skip_requesting_account_id=true" \
+              -backend-config="skip_credentials_validation=true" \
+              -backend-config="skip_metadata_api_check=true" \
+              -backend-config="skip_region_validation=true" \
+              -backend-config="force_path_style=true" >/dev/null
+
+            snapshot_id="$(terraform output -json latest_snapshot_ids 2>/dev/null | jq -r --arg target "${target}" '.[$target] // empty')"
+            if [[ -z "${snapshot_id}" || "${snapshot_id}" == "null" ]]; then
+              echo "No latest snapshot found for target ${target}" >&2
+              exit 1
+            fi
+            echo "::add-mask::${snapshot_id}"
+          done
+
+          matrix="$(jq -cn --argjson wanted "${wanted}" '
             def instance_type($key):
               if $key == "chat" then "DEV1-M"
               elif $key == "jenkins" then "DEV1-S"
               elif $key == "observability" then "DEV1-S"
               else "DEV1-S"
               end;
-
-            ($ids | keys) as $all |
-            (if ($names == "" or $names == "all") then
-              $all
-            else
-              ($names | split(",") | map(select(length > 0)))
-            end) as $wanted |
-            if any($wanted[]; ($ids[.] == null or $ids[.] == "")) then
-              error("Requested restore target has no latest snapshot")
-            else
-              {
-                include: [
-                  $wanted[] as $key |
-                  {
-                    target_key: $key,
-                    instance_type: instance_type($key)
-                  }
-                ]
-              }
-            end
+            {
+              include: [
+                $wanted[] as $key |
+                {
+                  target_key: $key,
+                  instance_type: instance_type($key)
+                }
+              ]
+            }
           ')"
 
           echo "Restore targets:"
@@ -209,7 +215,7 @@ jobs:
 
           terraform init -input=false \
             -backend-config="bucket=${SNAPSHOTS_TFSTATE_BUCKET}" \
-            -backend-config="key=terraform/snapshots/terraform.tfstate" \
+            -backend-config="key=terraform/snapshots/${{ matrix.target_key }}.tfstate" \
             -backend-config="region=${SNAPSHOTS_TFSTATE_REGION}" \
             -backend-config="endpoint=${SNAPSHOTS_TFSTATE_ENDPOINT}" \
             -backend-config="skip_requesting_account_id=true" \

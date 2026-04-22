@@ -7,6 +7,7 @@ Terraform keeps exactly one managed "daily" snapshot per prod data volume. The s
 - `schedule` (daily, 03:00): creates new **auto** snapshots (replacing the previous auto snapshots; max 1 auto kept per target)
 - `workflow_dispatch` (manual): creates **manual** snapshots (default TTL 24h; does not replace auto snapshots and does not delete other manual snapshots)
 - each run also enforces manual retention (expired manual snapshots are deleted) and prunes manual snapshots that were deleted in Scaleway UI (so they are not recreated)
+- each target runs as an independent matrix job with its own Terraform state key under `terraform/snapshots/<target>.tfstate`
 
 Managed targets:
 - `node1-main` -> `devsh-k3s-prod-data-node1` (Kimai/node1 data)
@@ -23,6 +24,7 @@ Configure GitHub repository secrets (or Environment `prod` secrets):
 - `SNAPSHOTS_DISCORD_WEBHOOK_URL` (optional) - Discord webhook URL for snapshot and restore-drill success/failure notifications
 
 Snapshot configuration (project ID, target names, tfstate bucket/key/region/endpoint) is defined in `.github/workflows/terraform-snapshots.yml` and can be overridden when running the workflow manually (`workflow_dispatch` inputs).
+The `tfstate_key` input is treated as a legacy key or prefix; the workflow derives per-target keys from its directory/prefix.
 Manual snapshots support `manual_ttl_hours` (default `24`) and `manual_snapshot_name` (optional).
 When a manual run targets only a subset of volumes, the request stores that target list in state. During the next refresh pass, the workflow keeps only the target snapshots that still exist in Scaleway, so manually deleted snapshots are pruned instead of being recreated.
 
@@ -74,6 +76,8 @@ terraform workspace select prod
 terraform state rm module.k3s_node.scaleway_block_snapshot.data_volume[0]
 ```
 
+The legacy combined snapshots state key (`terraform/snapshots/terraform.tfstate`) is no longer used by the matrix workflow. New runs write per-target state keys. Do not run the legacy combined key in parallel with the matrix workflow.
+
 ## Manual snapshots (separate retention)
 Manual snapshots are separate from the rotating daily snapshot. They do not replace it and do not delete each other.
 
@@ -88,10 +92,10 @@ Inputs:
 The run output prints only target keys and counts. Snapshot IDs, volume IDs, and temporary verifier resource IDs are treated as sensitive Terraform outputs and are not printed to public Actions logs. If `SNAPSHOTS_DISCORD_WEBHOOK_URL` is set, a Discord notification is sent on success and failure.
 
 ### List snapshot IDs (from Terraform state)
-From the dedicated snapshots root:
+From the dedicated snapshots root, initialize the target state first, then read outputs:
 ```
 cd terraform/snapshots
-terraform output -raw latest_snapshot_id
+terraform init -reconfigure -backend-config="key=terraform/snapshots/chat.tfstate" ...
 terraform output -json latest_snapshot_ids
 terraform output -json manual_snapshot_ids
 ```
