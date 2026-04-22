@@ -15,7 +15,9 @@ data "scaleway_iam_user" "owner" {
 
 locals {
   owner_user_id = var.owner_user_id != "" ? var.owner_user_id : (
-    var.owner_access_key != "" ? data.scaleway_iam_api_key.owner[0].user_id : data.scaleway_iam_user.owner[0].id
+    var.owner_access_key != "" ? data.scaleway_iam_api_key.owner[0].user_id : (
+      var.owner_user_email != "" ? data.scaleway_iam_user.owner[0].id : ""
+    )
   )
 
   state_object_prefix_trimmed = trim(var.snapshots_state_object_prefix, "/")

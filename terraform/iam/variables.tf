@@ -38,11 +38,6 @@ variable "owner_user_email" {
   type        = string
   description = "Scaleway IAM User email to resolve owner_user_id"
   default     = ""
-
-  validation {
-    condition     = var.owner_user_id != "" || var.owner_access_key != "" || var.owner_user_email != ""
-    error_message = "Set either owner_user_id, owner_access_key, or owner_user_email."
-  }
 }
 
 variable "snapshots_application_name" {
