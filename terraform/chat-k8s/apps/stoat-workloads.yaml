@@ -27,6 +27,7 @@ spec:
       labels:
         app.kubernetes.io/name: database
     spec:
+      enableServiceLinks: false
       containers:
         - name: database
           image: docker.io/mongo
@@ -87,6 +88,7 @@ spec:
       labels:
         app.kubernetes.io/name: redis
     spec:
+      enableServiceLinks: false
       containers:
         - name: redis
           image: docker.io/eqalpha/keydb
@@ -130,6 +132,7 @@ spec:
       labels:
         app.kubernetes.io/name: rabbit
     spec:
+      enableServiceLinks: false
       containers:
         - name: rabbit
           image: docker.io/rabbitmq:4
@@ -145,13 +148,12 @@ spec:
             - name: data
               mountPath: /var/lib/rabbitmq
           readinessProbe:
-            exec:
-              command:
-                - rabbitmq-diagnostics
-                - -q
-                - ping
+            tcpSocket:
+              port: amqp
             initialDelaySeconds: 20
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 12
           resources:
             requests:
               cpu: 100m
@@ -194,6 +196,7 @@ spec:
       labels:
         app.kubernetes.io/name: minio
     spec:
+      enableServiceLinks: false
       containers:
         - name: minio
           image: docker.io/minio/minio
@@ -234,6 +237,7 @@ metadata:
 spec:
   template:
     spec:
+      enableServiceLinks: false
       restartPolicy: OnFailure
       containers:
         - name: createbuckets
@@ -276,6 +280,7 @@ spec:
       labels:
         app.kubernetes.io/name: api
     spec:
+      enableServiceLinks: false
       containers:
         - name: api
           image: ghcr.io/stoatchat/api:v0.12.0
@@ -330,6 +335,7 @@ spec:
       labels:
         app.kubernetes.io/name: events
     spec:
+      enableServiceLinks: false
       containers:
         - name: events
           image: ghcr.io/stoatchat/events:v0.12.0
@@ -384,6 +390,7 @@ spec:
       labels:
         app.kubernetes.io/name: autumn
     spec:
+      enableServiceLinks: false
       containers:
         - name: autumn
           image: ghcr.io/stoatchat/file-server:v0.12.0
@@ -438,6 +445,7 @@ spec:
       labels:
         app.kubernetes.io/name: january
     spec:
+      enableServiceLinks: false
       containers:
         - name: january
           image: ghcr.io/stoatchat/proxy:v0.12.0
@@ -492,6 +500,7 @@ spec:
       labels:
         app.kubernetes.io/name: gifbox
     spec:
+      enableServiceLinks: false
       containers:
         - name: gifbox
           image: ghcr.io/stoatchat/gifbox:v0.12.0
@@ -533,6 +542,7 @@ spec:
       labels:
         app.kubernetes.io/name: crond
     spec:
+      enableServiceLinks: false
       containers:
         - name: crond
           image: ghcr.io/stoatchat/crond:v0.12.0
@@ -571,6 +581,7 @@ spec:
       labels:
         app.kubernetes.io/name: pushd
     spec:
+      enableServiceLinks: false
       containers:
         - name: pushd
           image: ghcr.io/stoatchat/pushd:v0.12.0
@@ -622,6 +633,7 @@ spec:
       labels:
         app.kubernetes.io/name: voice-ingress
     spec:
+      enableServiceLinks: false
       containers:
         - name: voice-ingress
           image: ghcr.io/stoatchat/voice-ingress:v0.12.0
@@ -676,6 +688,7 @@ spec:
       labels:
         app.kubernetes.io/name: livekit
     spec:
+      enableServiceLinks: false
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
       containers:
@@ -738,6 +751,7 @@ spec:
       labels:
         app.kubernetes.io/name: web
     spec:
+      enableServiceLinks: false
       containers:
         - name: web
           image: ghcr.io/stoatchat/for-web:3a83b8c
@@ -766,4 +780,3 @@ spec:
             limits:
               cpu: 500m
               memory: 256Mi
-
