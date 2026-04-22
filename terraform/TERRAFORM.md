@@ -22,6 +22,10 @@
 
 | Name | Type |
 |------|------|
+| [scaleway_block_volume.jenkins_data](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/block_volume) | resource |
+| [scaleway_instance_ip.jenkins](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_ip) | resource |
+| [scaleway_instance_security_group.jenkins](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_security_group) | resource |
+| [scaleway_instance_server.jenkins](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_server) | resource |
 | [scaleway_object_bucket.luks_keys](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/object_bucket) | resource |
 | [scaleway_object_bucket.store](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/object_bucket) | resource |
 | [scaleway_object_bucket_acl.luks_keys](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/object_bucket_acl) | resource |
@@ -42,6 +46,8 @@
 | <a name="input_github_bootstrap_terra_infra_webhook_pat"></a> [github\_bootstrap\_terra\_infra\_webhook\_pat](#input\_github\_bootstrap\_terra\_infra\_webhook\_pat) | Fine-grained PAT used only during bootstrap to create/patch GitHub webhook (not persisted) | `string` | `""` | no |
 | <a name="input_github_persistent_terra_infra_ro_pat"></a> [github\_persistent\_terra\_infra\_ro\_pat](#input\_github\_persistent\_terra\_infra\_ro\_pat) | Fine-grained PAT (read-only) kept in cluster for repo access | `string` | n/a | yes |
 | <a name="input_instance_image"></a> [instance\_image](#input\_instance\_image) | Scaleway instance image name or ID (e.g., ubuntu\_jammy, debian\_trixie). | `string` | `"debian_trixie"` | no |
+| <a name="input_jenkins_data_volume_size_gb"></a> [jenkins\_data\_volume\_size\_gb](#input\_jenkins\_data\_volume\_size\_gb) | Size of the standalone Jenkins controller data volume in GiB. | `number` | `50` | no |
+| <a name="input_jenkins_instance_type"></a> [jenkins\_instance\_type](#input\_jenkins\_instance\_type) | Scaleway commercial type for the standalone Jenkins controller node. | `string` | `"DEV1-S"` | no |
 | <a name="input_luks_key_access_key"></a> [luks\_key\_access\_key](#input\_luks\_key\_access\_key) | Access key (read-only) for fetching LUKS key from Object Storage | `string` | `""` | no |
 | <a name="input_luks_key_secret_key"></a> [luks\_key\_secret\_key](#input\_luks\_key\_secret\_key) | Secret key (read-only) for fetching LUKS key from Object Storage | `string` | `""` | no |
 | <a name="input_luks_key_url"></a> [luks\_key\_url](#input\_luks\_key\_url) | Optional presigned URL to fetch LUKS key (overrides access/secret when set) | `string` | `""` | no |
@@ -61,6 +67,8 @@
 | Name | Description |
 |------|-------------|
 | <a name="output_data_volume_id"></a> [data\_volume\_id](#output\_data\_volume\_id) | ID of the environment's data volume |
+| <a name="output_jenkins_data_volume_id"></a> [jenkins\_data\_volume\_id](#output\_jenkins\_data\_volume\_id) | ID of the standalone Jenkins controller data volume |
+| <a name="output_jenkins_node_ip"></a> [jenkins\_node\_ip](#output\_jenkins\_node\_ip) | Public IP of the standalone Jenkins controller node |
 | <a name="output_k3s_node_1_ip"></a> [k3s\_node\_1\_ip](#output\_k3s\_node\_1\_ip) | Public IP of k3s node |
 | <a name="output_manual_snapshot_ids"></a> [manual\_snapshot\_ids](#output\_manual\_snapshot\_ids) | IDs of managed manual snapshots (empty when none are configured) |
 | <a name="output_store_bucket_host"></a> [store\_bucket\_host](#output\_store\_bucket\_host) | Object Storage host used by the static store proxy |
