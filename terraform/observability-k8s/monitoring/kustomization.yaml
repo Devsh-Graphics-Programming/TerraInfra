@@ -28,6 +28,12 @@ patches:
                 requests:
                   storage: 3Gi
       - op: add
+        path: /spec/values/prometheus/prometheusSpec/hostAliases
+        value:
+          - ip: 163.172.171.121
+            hostnames:
+              - jenkins.devsh.eu
+      - op: add
         path: /spec/values/prometheus/prometheusSpec/additionalScrapeConfigs
         value:
           - job_name: devsh-node-exporters
