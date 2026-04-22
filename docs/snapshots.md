@@ -104,7 +104,9 @@ It runs weekly and can be started manually. Inputs:
 - `project_id`
 - Terraform state bucket settings
 
-For each selected target the workflow:
+For each selected target the workflow runs an independent matrix job. Targets can run in parallel because each verifier uses its own Terraform backend key and its own temporary resources.
+
+For each target the workflow:
 1. Reads the latest snapshot ID from the snapshots Terraform state.
 2. Creates a temporary Block volume from that snapshot.
 3. Starts a temporary verifier instance.
