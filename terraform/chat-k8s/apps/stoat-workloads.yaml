@@ -237,7 +237,6 @@ metadata:
 spec:
   template:
     spec:
-      enableServiceLinks: false
       restartPolicy: OnFailure
       containers:
         - name: createbuckets
