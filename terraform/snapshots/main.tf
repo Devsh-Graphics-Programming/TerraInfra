@@ -87,4 +87,6 @@ resource "scaleway_block_snapshot" "manual_data_volume" {
     create_before_destroy = true
     ignore_changes        = [volume_id]
   }
+
+  depends_on = [scaleway_block_snapshot.data_volume]
 }
