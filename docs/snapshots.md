@@ -106,9 +106,9 @@ The `snapshot-restore-drill` workflow (`.github/workflows/snapshot-restore-drill
 It runs weekly and can be started manually. Inputs:
 - `target_names` (default `all`; comma-separated allowed, e.g. `chat,jenkins`)
 - `project_id`
-- Terraform state bucket settings
+- Terraform state bucket/key settings
 
-For each selected target the workflow runs an independent matrix job. Targets can run in parallel because each verifier uses its own Terraform backend key and its own temporary resources.
+For each selected target the workflow runs an independent matrix job. Targets can run in parallel because each verifier reads its own snapshot state, uses its own restore-drill backend key, and creates its own temporary resources.
 
 For each target the workflow:
 1. Reads the latest snapshot ID from the snapshots Terraform state.
@@ -128,7 +128,7 @@ Target checks:
 
 The restore drill intentionally does not reuse production DNS, ingress, cert-manager challenges, Flux alerting, or public service endpoints. This avoids duplicate alerts and avoids any interaction with live Kimai, StoatChat, Jenkins, or monitoring workloads.
 Terraform output and apply logs are redacted before they are written to public CI logs. The matrix passed between jobs contains only target keys and instance types, not snapshot IDs.
-The temporary verifier uploads only sanitized status JSON (target, phase, check names, check statuses, and cleanup state) to the restore-drill state prefix so CI can report health checks without exposing temporary IPs or resource IDs.
+The temporary verifier uploads only sanitized status JSON (target, phase, message, check names, check statuses, check messages, and cleanup state) to the restore-drill state prefix so CI can report health checks without exposing temporary IPs or resource IDs.
 
 The current guarantee is crash-consistent Block Storage restore. For databases that need tighter RPO/RTO guarantees, add a second layer of application-aware logical backups later (for example MariaDB and MongoDB dumps) and test those in the same restore-drill pattern.
 

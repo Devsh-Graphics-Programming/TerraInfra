@@ -45,6 +45,20 @@ pass_check() {
   record_check "${name}" "passed" "${message}"
 }
 
+redact_detail() {
+  sed -E \
+    -e 's/[a-z]{2}-[a-z]+-[0-9]\/[0-9a-fA-F-]{36}/<scw-id>/g' \
+    -e 's/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/<uuid>/g' \
+    -e 's#(https?://[^?[:space:]]+)\?[^[:space:]]+#\1?<redacted-query>#g' \
+    -e 's#s3://terra-luks-keys/[^[:space:]]+#s3://terra-luks-keys/<object>#g' \
+    -e 's#(AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|LUKS_KEY_ACCESS_KEY|LUKS_KEY_SECRET_KEY|LUKS_KEY_URL)=[^[:space:]]+#\1=<redacted>#g'
+}
+
+log_excerpt() {
+  local path="$1"
+  tail -n 120 "${path}" 2>/dev/null | redact_detail | head -c 3000 || true
+}
+
 upload_status() {
   if [ -z "${RESULT_BUCKET_NAME:-}" ] || [ -z "${RESULT_OBJECT_KEY:-}" ]; then
     return
@@ -63,24 +77,31 @@ upload_status() {
 write_status() {
   local status="$1"
   local message="$2"
+  local detail="${3:-}"
   jq -n \
     --slurpfile checks "${CHECKS_FILE}" \
     --arg target "${TARGET_KEY}" \
     --arg phase "${PHASE}" \
     --arg status "${status}" \
     --arg message "${message}" \
+    --arg detail "${detail}" \
     --arg timestamp "$(date -u +%FT%TZ)" \
-    '{target: $target, phase: $phase, status: $status, message: $message, timestamp: $timestamp, checks: $checks}' \
+    '{target: $target, phase: $phase, status: $status, message: $message, timestamp: $timestamp, checks: $checks}
+      + (if $detail == "" then {} else {detail: $detail} end)' \
     > "${STATUS_FILE}"
   upload_status
 }
 
 fail() {
   local message="$1"
+  local detail="${2:-}"
   record_check "${PHASE}" "failed" "${message}"
-  write_status "failed" "${message}"
+  write_status "failed" "${message}" "${detail}"
   STATUS_FINALIZED=1
   echo "[restore-drill] ${message}" >&2
+  if [ -n "${detail}" ]; then
+    echo "${detail}" >&2
+  fi
   exit 1
 }
 
@@ -150,12 +171,33 @@ cleanup_containers() {
   docker rm -f drill-mongo drill-minio drill-rabbit drill-jenkins drill-grafana drill-oncall-grafana drill-mariadb >/dev/null 2>&1 || true
 }
 
+run_mount_check() {
+  local mount_log="${STATUS_DIR}/mount.log"
+  local end=$((SECONDS + 300))
+  : > "${mount_log}"
+
+  while [ "${SECONDS}" -lt "${end}" ]; do
+    if /usr/local/bin/ensure-data-mount.sh >> "${mount_log}" 2>&1 && findmnt -n /mnt/data >> "${mount_log}" 2>&1; then
+      return 0
+    fi
+    lsblk -o NAME,TYPE,FSTYPE,SIZE,MOUNTPOINTS >> "${mount_log}" 2>&1 || true
+    echo "[restore-drill] /mnt/data is not ready yet; retrying" >> "${mount_log}"
+    sleep 10
+  done
+
+  /usr/local/bin/ensure-data-mount.sh >> "${mount_log}" 2>&1 || true
+  findmnt -n /mnt/data >> "${mount_log}" 2>&1 || true
+  lsblk -o NAME,TYPE,FSTYPE,SIZE,MOUNTPOINTS >> "${mount_log}" 2>&1 || true
+  return 1
+}
+
 trap on_exit EXIT
 
 PHASE="mount"
 write_status "running" "mounting restored data volume"
-/usr/local/bin/ensure-data-mount.sh || fail "restored data mount setup failed"
-findmnt -n /mnt/data >/dev/null 2>&1 || fail "/mnt/data is not mounted"
+if ! run_mount_check; then
+  fail "restored data mount setup failed" "$(log_excerpt "${STATUS_DIR}/mount.log")"
+fi
 pass_check "data-mount" "restored data volume is mounted"
 
 PHASE="docker"

@@ -25,6 +25,10 @@ on:
         description: "Object Storage endpoint"
         required: true
         default: "https://s3.fr-par.scw.cloud"
+      tfstate_key:
+        description: "Legacy snapshot state key or per-target state prefix"
+        required: true
+        default: "terraform/snapshots/terraform.tfstate"
 
 concurrency:
   group: snapshot-restore-drill-${{ github.ref_name }}
@@ -42,47 +46,11 @@ jobs:
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
     env:
-      TF_IN_AUTOMATION: "true"
-      TF_INPUT: "false"
-
-      SCW_ACCESS_KEY: ${{ secrets.SNAPSHOTS_SCW_ACCESS_KEY }}
-      SCW_SECRET_KEY: ${{ secrets.SNAPSHOTS_SCW_SECRET_KEY }}
-
-      AWS_ACCESS_KEY_ID: ${{ secrets.SNAPSHOTS_SCW_ACCESS_KEY }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.SNAPSHOTS_SCW_SECRET_KEY }}
-
-      SNAPSHOTS_TFSTATE_BUCKET: ${{ github.event.inputs.tfstate_bucket || 'terra-snapshots-state' }}
-      SNAPSHOTS_TFSTATE_ENDPOINT: ${{ github.event.inputs.tfstate_endpoint || 'https://s3.fr-par.scw.cloud' }}
-      SNAPSHOTS_TFSTATE_REGION: ${{ github.event.inputs.tfstate_region || 'fr-par' }}
       SNAPSHOTS_TARGET_NAMES: ${{ github.event.inputs.target_names || 'all' }}
     defaults:
       run:
         shell: bash
-        working-directory: terraform/snapshots
     steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: false
-          fetch-depth: 1
-
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.6.6
-          terraform_wrapper: false
-
-      - name: Mask sensitive values
-        run: |
-          mask() {
-            if [[ -n "${1:-}" ]]; then
-              echo "::add-mask::$1"
-            fi
-          }
-
-          mask "${SCW_ACCESS_KEY:-}"
-          mask "${SCW_SECRET_KEY:-}"
-          mask "${AWS_ACCESS_KEY_ID:-}"
-          mask "${AWS_SECRET_ACCESS_KEY:-}"
-
       - name: Resolve restore matrix
         id: matrix
         run: |
@@ -102,26 +70,6 @@ jobs:
               end
             end
           ')"
-
-          for target in $(echo "${wanted}" | jq -r '.[]'); do
-            terraform init -input=false -reconfigure \
-              -backend-config="bucket=${SNAPSHOTS_TFSTATE_BUCKET}" \
-              -backend-config="key=terraform/snapshots/${target}.tfstate" \
-              -backend-config="region=${SNAPSHOTS_TFSTATE_REGION}" \
-              -backend-config="endpoint=${SNAPSHOTS_TFSTATE_ENDPOINT}" \
-              -backend-config="skip_requesting_account_id=true" \
-              -backend-config="skip_credentials_validation=true" \
-              -backend-config="skip_metadata_api_check=true" \
-              -backend-config="skip_region_validation=true" \
-              -backend-config="force_path_style=true" >/dev/null
-
-            snapshot_id="$(terraform output -json latest_snapshot_ids 2>/dev/null | jq -r --arg target "${target}" '.[$target] // empty')"
-            if [[ -z "${snapshot_id}" || "${snapshot_id}" == "null" ]]; then
-              echo "No latest snapshot found for target ${target}" >&2
-              exit 1
-            fi
-            echo "::add-mask::${snapshot_id}"
-          done
 
           matrix="$(jq -cn --argjson wanted "${wanted}" '
             def instance_type($key):
@@ -167,6 +115,7 @@ jobs:
       SNAPSHOTS_TFSTATE_BUCKET: ${{ github.event.inputs.tfstate_bucket || 'terra-snapshots-state' }}
       SNAPSHOTS_TFSTATE_ENDPOINT: ${{ github.event.inputs.tfstate_endpoint || 'https://s3.fr-par.scw.cloud' }}
       SNAPSHOTS_TFSTATE_REGION: ${{ github.event.inputs.tfstate_region || 'fr-par' }}
+      SNAPSHOTS_TFSTATE_KEY: ${{ github.event.inputs.tfstate_key || 'terraform/snapshots/terraform.tfstate' }}
       TF_VAR_project_id: ${{ github.event.inputs.project_id || '4ca4f592-005a-45dc-a016-91bd11dd5348' }}
       TF_VAR_target_key: ${{ matrix.target_key }}
       TF_VAR_instance_type: ${{ matrix.instance_type }}
@@ -213,9 +162,18 @@ jobs:
         run: |
           set -euo pipefail
 
+          state_prefix="${SNAPSHOTS_TFSTATE_KEY}"
+          if [[ "${state_prefix}" == *.tfstate ]]; then
+            state_prefix="$(dirname "${state_prefix}")"
+          fi
+          state_prefix="${state_prefix%/}"
+          if [[ -z "${state_prefix}" || "${state_prefix}" == "." ]]; then
+            state_prefix="terraform/snapshots"
+          fi
+
           terraform init -input=false \
             -backend-config="bucket=${SNAPSHOTS_TFSTATE_BUCKET}" \
-            -backend-config="key=terraform/snapshots/${{ matrix.target_key }}.tfstate" \
+            -backend-config="key=${state_prefix}/${{ matrix.target_key }}.tfstate" \
             -backend-config="region=${SNAPSHOTS_TFSTATE_REGION}" \
             -backend-config="endpoint=${SNAPSHOTS_TFSTATE_ENDPOINT}" \
             -backend-config="skip_requesting_account_id=true" \
@@ -252,8 +210,10 @@ jobs:
           set -euo pipefail
           key_path="${RUNNER_TEMP}/restore-drill-${{ matrix.target_key }}"
           ssh-keygen -t ed25519 -N "" -f "${key_path}" -C "restore-drill-${GITHUB_RUN_ID}-${{ matrix.target_key }}" >/dev/null
+          public_key="$(cat "${key_path}.pub")"
+          echo "::add-mask::${public_key}"
           echo "key_path=${key_path}" >> "${GITHUB_OUTPUT}"
-          echo "TF_VAR_ssh_public_key=$(cat "${key_path}.pub")" >> "${GITHUB_ENV}"
+          echo "TF_VAR_ssh_public_key=${public_key}" >> "${GITHUB_ENV}"
 
       - name: Terraform init (restore drill state)
         id: restore_init
@@ -509,11 +469,12 @@ jobs:
 
           target_fields="$(jq -c '
             def value_or_unknown($v): if ($v == null or $v == "") then "unknown" else $v end;
+            def truncate($max): if length > $max then .[0:$max] + "..." else . end;
             def checks_text:
               if ((.checks // []) | length) == 0 then
                 "none reported"
               else
-                ((.checks // []) | map(.name + "=" + .status) | join(", "))
+                ((.checks // []) | map(.name + "=" + .status + (if (.message // "") != "" then " (" + .message + ")" else "" end)) | join("\n") | truncate(450))
               end;
             if length == 0 then
               [{name: "Targets", value: "No restore result artifacts were available.", inline: false}]
@@ -524,6 +485,7 @@ jobs:
                   "Status: " + value_or_unknown(.status) + "\n" +
                   "Phase: " + value_or_unknown(.phase) + "\n" +
                   "Cleanup: " + value_or_unknown(.cleanup) + "\n" +
+                  "Message: " + (value_or_unknown(.message) | truncate(180)) + "\n" +
                   "Health checks: " + checks_text
                 ),
                 inline: false
