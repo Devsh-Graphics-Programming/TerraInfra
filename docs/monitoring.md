@@ -4,6 +4,9 @@ Provisioning
 - Dashboards are provisioned from ConfigMap `grafana-dashboards` (label `grafana_dashboard=1`) in `monitoring-grafana`.
 - Files live in repo: `terraform/k8s/grafana-dashboards/*.json`. Flux apps kustomization includes this folder; Grafana mounts it via `dashboardProviders`/`dashboardsConfigMaps`.
 - The dedicated observability cluster uses the GitOps tree under `terraform/observability-k8s/` and serves `monitoring.devsh.eu` and `oncall.devsh.eu`.
+- `prod-observability-01` is the central Prometheus/Grafana/OnCall node.
+- Host metrics from the app node, chat node, and Jenkins node are scraped by the central Prometheus through `node_exporter`.
+- Terraform security groups expose the metrics port only to the observability node public IP.
 
 View current dashboards
 - Grafana: `https://${ENV_PREFIX}monitoring.${BASE_DOMAIN}`.

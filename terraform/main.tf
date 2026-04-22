@@ -38,6 +38,7 @@ module "k3s_node" {
   data_volume_snapshot_id                  = var.data_volume_snapshot_id
   public_ip_id                             = var.public_ip_id
   public_ip_address                        = var.public_ip_address
+  metrics_source_cidr                      = "${scaleway_instance_ip.observability.address}/32"
 
   cloud_init = templatefile("${path.root}/cloud-init.yaml", {
     acme_email                               = var.acme_email

@@ -32,6 +32,12 @@ resource "scaleway_instance_security_group" "jenkins" {
     port   = "443"
   }
 
+  inbound_rule {
+    action   = "accept"
+    port     = "9100"
+    ip_range = "${scaleway_instance_ip.observability.address}/32"
+  }
+
   outbound_rule {
     action   = "drop"
     protocol = "TCP"
@@ -106,4 +112,8 @@ resource "scaleway_instance_server" "jenkins" {
     "ci-controller",
     local.env_slug,
   ]
+
+  lifecycle {
+    ignore_changes = [cloud_init]
+  }
 }

@@ -66,6 +66,15 @@ resource "scaleway_instance_security_group" "web_sg" {
     port   = "443"
   }
 
+  dynamic "inbound_rule" {
+    for_each = var.metrics_source_cidr == "" ? [] : [var.metrics_source_cidr]
+    content {
+      action   = "accept"
+      port     = "9100"
+      ip_range = inbound_rule.value
+    }
+  }
+
   outbound_rule {
     action   = "drop"
     protocol = "TCP"

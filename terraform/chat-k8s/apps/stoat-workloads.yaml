@@ -1,0 +1,769 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: database
+  namespace: chat
+spec:
+  selector:
+    app.kubernetes.io/name: database
+  ports:
+    - name: mongodb
+      port: 27017
+      targetPort: 27017
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: database
+  namespace: chat
+spec:
+  serviceName: database
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: database
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: database
+    spec:
+      containers:
+        - name: database
+          image: docker.io/mongo
+          ports:
+            - name: mongodb
+              containerPort: 27017
+          volumeMounts:
+            - name: data
+              mountPath: /data/db
+          readinessProbe:
+            exec:
+              command:
+                - mongosh
+                - localhost:27017/test
+                - --quiet
+                - --eval
+                - db.runCommand("ping").ok
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+      volumes:
+        - name: data
+          hostPath:
+            path: /mnt/data/stoat/self-hosted/data/db
+            type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: chat
+spec:
+  selector:
+    app.kubernetes.io/name: redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: chat
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis
+    spec:
+      containers:
+        - name: redis
+          image: docker.io/eqalpha/keydb
+          ports:
+            - name: redis
+              containerPort: 6379
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbit
+  namespace: chat
+spec:
+  selector:
+    app.kubernetes.io/name: rabbit
+  ports:
+    - name: amqp
+      port: 5672
+      targetPort: 5672
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rabbit
+  namespace: chat
+spec:
+  serviceName: rabbit
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rabbit
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rabbit
+    spec:
+      containers:
+        - name: rabbit
+          image: docker.io/rabbitmq:4
+          env:
+            - name: RABBITMQ_DEFAULT_USER
+              value: rabbituser
+            - name: RABBITMQ_DEFAULT_PASS
+              value: rabbitpass
+          ports:
+            - name: amqp
+              containerPort: 5672
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/rabbitmq
+          readinessProbe:
+            exec:
+              command:
+                - rabbitmq-diagnostics
+                - -q
+                - ping
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
+      volumes:
+        - name: data
+          hostPath:
+            path: /mnt/data/stoat/self-hosted/data/rabbit
+            type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: chat
+spec:
+  selector:
+    app.kubernetes.io/name: minio
+  ports:
+    - name: s3
+      port: 9000
+      targetPort: 9000
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: minio
+  namespace: chat
+spec:
+  serviceName: minio
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: minio
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: minio
+    spec:
+      containers:
+        - name: minio
+          image: docker.io/minio/minio
+          args:
+            - server
+            - /data
+          env:
+            - name: MINIO_ROOT_USER
+              value: minioautumn
+            - name: MINIO_ROOT_PASSWORD
+              value: minioautumn
+            - name: MINIO_DOMAIN
+              value: minio
+          ports:
+            - name: s3
+              containerPort: 9000
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+      volumes:
+        - name: data
+          hostPath:
+            path: /mnt/data/stoat/self-hosted/data/minio
+            type: DirectoryOrCreate
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: createbuckets
+  namespace: chat
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: createbuckets
+          image: docker.io/minio/mc
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until /usr/bin/mc alias set minio http://minio:9000 minioautumn minioautumn; do
+                echo 'Waiting for minio...'
+                sleep 2
+              done
+              /usr/bin/mc mb --ignore-existing minio/revolt-uploads
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: chat
+spec:
+  selector:
+    app.kubernetes.io/name: api
+  ports:
+    - name: http
+      port: 14702
+      targetPort: 14702
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: chat
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: api
+    spec:
+      containers:
+        - name: api
+          image: ghcr.io/stoatchat/api:v0.12.0
+          envFrom:
+            - secretRef:
+                name: stoat-secrets
+          ports:
+            - name: http
+              containerPort: 14702
+          volumeMounts:
+            - name: config
+              mountPath: /Revolt.toml
+              subPath: Revolt.toml
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+      volumes:
+        - name: config
+          configMap:
+            name: stoat-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: events
+  namespace: chat
+spec:
+  selector:
+    app.kubernetes.io/name: events
+  ports:
+    - name: http
+      port: 14703
+      targetPort: 14703
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: events
+  namespace: chat
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: events
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: events
+    spec:
+      containers:
+        - name: events
+          image: ghcr.io/stoatchat/events:v0.12.0
+          envFrom:
+            - secretRef:
+                name: stoat-secrets
+          ports:
+            - name: http
+              containerPort: 14703
+          volumeMounts:
+            - name: config
+              mountPath: /Revolt.toml
+              subPath: Revolt.toml
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+      volumes:
+        - name: config
+          configMap:
+            name: stoat-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: autumn
+  namespace: chat
+spec:
+  selector:
+    app.kubernetes.io/name: autumn
+  ports:
+    - name: http
+      port: 14704
+      targetPort: 14704
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: autumn
+  namespace: chat
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: autumn
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: autumn
+    spec:
+      containers:
+        - name: autumn
+          image: ghcr.io/stoatchat/file-server:v0.12.0
+          envFrom:
+            - secretRef:
+                name: stoat-secrets
+          ports:
+            - name: http
+              containerPort: 14704
+          volumeMounts:
+            - name: config
+              mountPath: /Revolt.toml
+              subPath: Revolt.toml
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+      volumes:
+        - name: config
+          configMap:
+            name: stoat-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: january
+  namespace: chat
+spec:
+  selector:
+    app.kubernetes.io/name: january
+  ports:
+    - name: http
+      port: 14705
+      targetPort: 14705
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: january
+  namespace: chat
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: january
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: january
+    spec:
+      containers:
+        - name: january
+          image: ghcr.io/stoatchat/proxy:v0.12.0
+          envFrom:
+            - secretRef:
+                name: stoat-secrets
+          ports:
+            - name: http
+              containerPort: 14705
+          volumeMounts:
+            - name: config
+              mountPath: /Revolt.toml
+              subPath: Revolt.toml
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+      volumes:
+        - name: config
+          configMap:
+            name: stoat-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gifbox
+  namespace: chat
+spec:
+  selector:
+    app.kubernetes.io/name: gifbox
+  ports:
+    - name: http
+      port: 14706
+      targetPort: 14706
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gifbox
+  namespace: chat
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gifbox
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gifbox
+    spec:
+      containers:
+        - name: gifbox
+          image: ghcr.io/stoatchat/gifbox:v0.12.0
+          envFrom:
+            - secretRef:
+                name: stoat-secrets
+          ports:
+            - name: http
+              containerPort: 14706
+          volumeMounts:
+            - name: config
+              mountPath: /Revolt.toml
+              subPath: Revolt.toml
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+      volumes:
+        - name: config
+          configMap:
+            name: stoat-config
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crond
+  namespace: chat
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: crond
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: crond
+    spec:
+      containers:
+        - name: crond
+          image: ghcr.io/stoatchat/crond:v0.12.0
+          envFrom:
+            - secretRef:
+                name: stoat-secrets
+          volumeMounts:
+            - name: config
+              mountPath: /Revolt.toml
+              subPath: Revolt.toml
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+      volumes:
+        - name: config
+          configMap:
+            name: stoat-config
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pushd
+  namespace: chat
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pushd
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pushd
+    spec:
+      containers:
+        - name: pushd
+          image: ghcr.io/stoatchat/pushd:v0.12.0
+          envFrom:
+            - secretRef:
+                name: stoat-secrets
+          volumeMounts:
+            - name: config
+              mountPath: /Revolt.toml
+              subPath: Revolt.toml
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+      volumes:
+        - name: config
+          configMap:
+            name: stoat-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: voice-ingress
+  namespace: chat
+spec:
+  selector:
+    app.kubernetes.io/name: voice-ingress
+  ports:
+    - name: http
+      port: 8500
+      targetPort: 8500
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: voice-ingress
+  namespace: chat
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: voice-ingress
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: voice-ingress
+    spec:
+      containers:
+        - name: voice-ingress
+          image: ghcr.io/stoatchat/voice-ingress:v0.12.0
+          envFrom:
+            - secretRef:
+                name: stoat-secrets
+          ports:
+            - name: http
+              containerPort: 8500
+          volumeMounts:
+            - name: config
+              mountPath: /Revolt.toml
+              subPath: Revolt.toml
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+      volumes:
+        - name: config
+          configMap:
+            name: stoat-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: livekit
+  namespace: chat
+spec:
+  selector:
+    app.kubernetes.io/name: livekit
+  ports:
+    - name: http
+      port: 7880
+      targetPort: 7880
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: livekit
+  namespace: chat
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: livekit
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: livekit
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+        - name: livekit
+          image: ghcr.io/stoatchat/livekit-server:v1.9.13
+          args:
+            - --config
+            - /etc/livekit.yml
+          ports:
+            - name: http
+              containerPort: 7880
+            - name: rtc-tcp
+              containerPort: 7881
+              hostPort: 7881
+          volumeMounts:
+            - name: livekit-config
+              mountPath: /etc/livekit.yml
+              subPath: livekit.yml
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+      volumes:
+        - name: livekit-config
+          secret:
+            secretName: stoat-secrets
+            items:
+              - key: livekit.yml
+                path: livekit.yml
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: chat
+spec:
+  selector:
+    app.kubernetes.io/name: web
+  ports:
+    - name: http
+      port: 5000
+      targetPort: 5000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: chat
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: web
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: web
+    spec:
+      containers:
+        - name: web
+          image: ghcr.io/stoatchat/for-web:3a83b8c
+          env:
+            - name: HOSTNAME
+              value: stoatchat.devsh.eu
+            - name: REVOLT_PUBLIC_URL
+              value: https://stoatchat.devsh.eu
+            - name: VITE_API_URL
+              value: https://stoatchat.devsh.eu/api
+            - name: VITE_WS_URL
+              value: wss://stoatchat.devsh.eu/ws
+            - name: VITE_MEDIA_URL
+              value: https://stoatchat.devsh.eu/autumn
+            - name: VITE_PROXY_URL
+              value: https://stoatchat.devsh.eu/january
+            - name: VITE_CFG_ENABLE_VIDEO
+              value: "true"
+          ports:
+            - name: http
+              containerPort: 5000
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+

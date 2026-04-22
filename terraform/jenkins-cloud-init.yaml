@@ -10,6 +10,7 @@ packages:
   - cryptsetup
   - jq
   - openssl
+  - prometheus-node-exporter
 
 write_files:
   - path: /usr/local/bin/ensure-data-mount.sh
@@ -360,6 +361,7 @@ write_files:
 runcmd:
   - systemctl daemon-reload
   - systemctl enable --now ensure-data-mount.service
+  - systemctl enable --now prometheus-node-exporter.service
   - /usr/local/bin/install-docker.sh
   - systemctl enable --now jenkins-controller.service
   - systemctl enable --now jenkins-update.timer

@@ -27,3 +27,24 @@ patches:
               resources:
                 requests:
                   storage: 3Gi
+      - op: add
+        path: /spec/values/prometheus/prometheusSpec/additionalScrapeConfigs
+        value:
+          - job_name: devsh-node-exporters
+            scrape_interval: 60s
+            static_configs:
+              - targets:
+                  - 51.158.67.237:9100
+                labels:
+                  node: devsh-k3s-prod-node-1
+                  role: apps
+              - targets:
+                  - 51.158.103.39:9100
+                labels:
+                  node: prod-chat-01
+                  role: chat
+              - targets:
+                  - 163.172.171.121:9100
+                labels:
+                  node: jenkins-prod
+                  role: ci

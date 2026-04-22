@@ -38,6 +38,12 @@ variable "public_ip_address" {
   default     = ""
 }
 
+variable "metrics_source_cidr" {
+  type        = string
+  description = "Optional CIDR allowed to scrape host metrics from this node."
+  default     = ""
+}
+
 variable "manual_snapshots" {
   type = map(object({
     created_at = string
