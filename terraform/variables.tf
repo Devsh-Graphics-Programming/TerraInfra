@@ -50,6 +50,18 @@ variable "instance_image" {
   default     = "debian_trixie"
 }
 
+variable "jenkins_instance_type" {
+  type        = string
+  description = "Scaleway commercial type for the standalone Jenkins controller node."
+  default     = "DEV1-S"
+}
+
+variable "jenkins_data_volume_size_gb" {
+  type        = number
+  description = "Size of the standalone Jenkins controller data volume in GiB."
+  default     = 50
+}
+
 variable "luks_key_access_key" {
   type        = string
   description = "Access key (read-only) for fetching LUKS key from Object Storage"

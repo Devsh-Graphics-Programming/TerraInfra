@@ -22,3 +22,13 @@ output "store_bucket_host" {
   value       = local.store_bucket_host
   description = "Object Storage host used by the static store proxy"
 }
+
+output "jenkins_node_ip" {
+  value       = scaleway_instance_ip.jenkins.address
+  description = "Public IP of the standalone Jenkins controller node"
+}
+
+output "jenkins_data_volume_id" {
+  value       = scaleway_block_volume.jenkins_data.id
+  description = "ID of the standalone Jenkins controller data volume"
+}

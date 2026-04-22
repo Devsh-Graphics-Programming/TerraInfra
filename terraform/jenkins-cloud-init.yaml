@@ -1,0 +1,338 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+
+packages:
+  - curl
+  - ca-certificates
+  - gnupg
+  - awscli
+  - cryptsetup
+  - jq
+  - openssl
+
+write_files:
+  - path: /usr/local/bin/ensure-data-mount.sh
+    permissions: "0755"
+    owner: root:root
+    encoding: b64
+    content: ${base64encode(file("${path_root}/bootstrap/ensure-data-mount.sh"))}
+  - path: /etc/default/terra-data
+    permissions: "0600"
+    owner: root:root
+    content: |
+      LUKS_KEY_URL=${luks_key_url}
+      LUKS_KEY_ACCESS_KEY=${luks_key_access}
+      LUKS_KEY_SECRET_KEY=${luks_key_secret}
+      ALLOW_LUKS_FORMAT=true
+  - path: /etc/systemd/system/ensure-data-mount.service
+    permissions: "0644"
+    owner: root:root
+    content: |
+      [Unit]
+      Description=Ensure Jenkins data volume is unlocked and mounted
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      EnvironmentFile=-/etc/default/terra-data
+      ExecStart=/usr/local/bin/ensure-data-mount.sh
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=multi-user.target
+  - path: /usr/local/bin/install-docker.sh
+    permissions: "0755"
+    owner: root:root
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+
+      if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+        systemctl enable --now docker
+        exit 0
+      fi
+
+      install -m 0755 -d /etc/apt/keyrings
+      if [ ! -s /etc/apt/keyrings/docker.asc ]; then
+        curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
+        chmod a+r /etc/apt/keyrings/docker.asc
+      fi
+
+      . /etc/os-release
+      arch=$(dpkg --print-architecture)
+      echo "deb [arch=$arch signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian $VERSION_CODENAME stable" > /etc/apt/sources.list.d/docker.list
+      apt-get update
+
+      if ! DEBIAN_FRONTEND=noninteractive apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; then
+        rm -f /etc/apt/sources.list.d/docker.list
+        apt-get update
+        DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io
+        if ! docker compose version >/dev/null 2>&1; then
+          DEBIAN_FRONTEND=noninteractive apt-get install -y docker-compose-plugin || DEBIAN_FRONTEND=noninteractive apt-get install -y docker-compose
+        fi
+      fi
+
+      systemctl enable --now docker
+  - path: /usr/local/bin/bootstrap-jenkins.sh
+    permissions: "0755"
+    owner: root:root
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+
+      DATA_ROOT=/mnt/data/jenkins
+      COMPOSE_FILE=/opt/jenkins/compose.yaml
+      COMMAND="$${1:-start}"
+
+      compose() {
+        if docker compose version >/dev/null 2>&1; then
+          docker compose -f "$COMPOSE_FILE" "$@"
+        else
+          docker-compose -f "$COMPOSE_FILE" "$@"
+        fi
+      }
+
+      ensure_swap() {
+        if [ "${swap_size_gb}" -le 0 ]; then
+          return
+        fi
+        if swapon --show=NAME | grep -qx "${swap_file}"; then
+          return
+        fi
+        if [ ! -f "${swap_file}" ]; then
+          fallocate -l "${swap_size_gb}G" "${swap_file}"
+          chmod 600 "${swap_file}"
+          mkswap "${swap_file}"
+        fi
+        if ! grep -q "^${swap_file} " /etc/fstab 2>/dev/null; then
+          echo "${swap_file} none swap sw 0 0" >> /etc/fstab
+        fi
+        sysctl vm.swappiness=${swap_swappiness}
+        if ! grep -q "^vm.swappiness=" /etc/sysctl.conf 2>/dev/null; then
+          echo "vm.swappiness=${swap_swappiness}" >> /etc/sysctl.conf
+        else
+          sed -i 's/^vm.swappiness=.*/vm.swappiness=${swap_swappiness}/' /etc/sysctl.conf
+        fi
+        swapon -a
+      }
+
+      render_config() {
+        install -d -m 0755 /opt/jenkins
+        install -d -m 0750 -o 1000 -g 1000 "$DATA_ROOT/home"
+        install -d -m 0755 "$DATA_ROOT/casc" "$DATA_ROOT/caddy" "$DATA_ROOT/caddy/data" "$DATA_ROOT/caddy/config"
+        install -d -m 0700 "$DATA_ROOT/secrets"
+
+        if [ ! -f "$DATA_ROOT/secrets/admin.env" ]; then
+          old_umask=$(umask)
+          umask 077
+          password=$(openssl rand -base64 48 | tr -d '\n')
+          {
+            echo "JENKINS_ADMIN_ID=admin"
+            printf 'JENKINS_ADMIN_PASSWORD=%s\n' "$password"
+          } > "$DATA_ROOT/secrets/admin.env"
+          umask "$old_umask"
+        fi
+
+        cat > "$DATA_ROOT/casc/plugins.txt" <<'JENKINS_PLUGINS'
+      configuration-as-code
+      job-dsl
+      workflow-aggregator
+      git
+      credentials-binding
+      plain-credentials
+      ssh-credentials
+      timestamper
+      ws-cleanup
+      pipeline-utility-steps
+      lockable-resources
+      github
+      cloudbees-folder
+      JENKINS_PLUGINS
+
+        cat > "$DATA_ROOT/casc/jenkins.yaml" <<'JENKINS_CASC'
+      jenkins:
+        systemMessage: "DevSH Jenkins controller managed by TerraInfra."
+        numExecutors: 0
+        mode: EXCLUSIVE
+        labelString: "controller"
+        scmCheckoutRetryCount: 2
+        slaveAgentPort: -1
+        securityRealm:
+          local:
+            allowsSignup: false
+            users:
+              - id: "$${JENKINS_ADMIN_ID}"
+                password: "$${JENKINS_ADMIN_PASSWORD}"
+        authorizationStrategy:
+          loggedInUsersCanDoAnything:
+            allowAnonymousRead: false
+        remotingSecurity:
+          enabled: true
+
+      unclassified:
+        location:
+          url: "https://${jenkins_host}/"
+
+      jobs:
+        - script: |
+            folder('system') {
+              displayName('System')
+              description('Controller health checks managed by configuration as code.')
+            }
+
+            pipelineJob('system/smoke') {
+              description('Verifies the controller can load configuration and run a lightweight pipeline.')
+              definition {
+                cps {
+                  sandbox()
+                  script('''pipeline {
+              agent none
+              options {
+                timestamps()
+                buildDiscarder(logRotator(numToKeepStr: '20'))
+              }
+              stages {
+                stage('Smoke') {
+                  steps {
+                    echo 'Jenkins configuration loaded.'
+                  }
+                }
+              }
+            }''')
+                }
+              }
+            }
+      JENKINS_CASC
+
+        cat > "$DATA_ROOT/caddy/Caddyfile" <<'CADDYFILE'
+      {
+        email ${acme_email}
+      }
+
+      ${jenkins_host} {
+        encode zstd gzip
+        reverse_proxy jenkins:8080
+      }
+      CADDYFILE
+
+        cat > "$COMPOSE_FILE" <<'COMPOSE'
+      services:
+        jenkins:
+          image: jenkins/jenkins:lts-jdk21
+          restart: unless-stopped
+          user: "1000:1000"
+          env_file:
+            - /mnt/data/jenkins/secrets/admin.env
+          environment:
+            JAVA_OPTS: "-Djenkins.install.runSetupWizard=false"
+            CASC_JENKINS_CONFIG: "/var/jenkins_config/jenkins.yaml"
+          entrypoint:
+            - bash
+            - -c
+          command:
+            - "set -euo pipefail; jenkins-plugin-cli --plugin-file /var/jenkins_config/plugins.txt --plugin-download-directory /var/jenkins_home/plugins; exec /usr/local/bin/jenkins.sh"
+          volumes:
+            - /mnt/data/jenkins/home:/var/jenkins_home
+            - /mnt/data/jenkins/casc:/var/jenkins_config:ro
+          networks:
+            - jenkins
+
+        caddy:
+          image: caddy:2-alpine
+          restart: unless-stopped
+          ports:
+            - "80:80"
+            - "443:443"
+          volumes:
+            - /mnt/data/jenkins/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+            - /mnt/data/jenkins/caddy/data:/data
+            - /mnt/data/jenkins/caddy/config:/config
+          depends_on:
+            - jenkins
+          networks:
+            - jenkins
+
+      networks:
+        jenkins:
+          driver: bridge
+      COMPOSE
+
+        chown -R 1000:1000 "$DATA_ROOT/home"
+        chmod 644 "$DATA_ROOT/casc/plugins.txt" "$DATA_ROOT/casc/jenkins.yaml" "$DATA_ROOT/caddy/Caddyfile" "$COMPOSE_FILE"
+        chmod 600 "$DATA_ROOT/secrets/admin.env"
+      }
+
+      ensure_swap
+      render_config
+
+      case "$COMMAND" in
+        start)
+          compose pull
+          compose up -d --remove-orphans
+          ;;
+        update)
+          compose pull
+          compose up -d --remove-orphans --force-recreate
+          ;;
+        status)
+          compose ps
+          ;;
+        *)
+          echo "Unsupported command: $COMMAND" >&2
+          exit 2
+          ;;
+      esac
+  - path: /etc/systemd/system/jenkins-controller.service
+    permissions: "0644"
+    owner: root:root
+    content: |
+      [Unit]
+      Description=Standalone Jenkins controller
+      Requires=ensure-data-mount.service docker.service
+      After=ensure-data-mount.service docker.service network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/usr/local/bin/bootstrap-jenkins.sh start
+      ExecReload=/usr/local/bin/bootstrap-jenkins.sh update
+      TimeoutStartSec=30m
+
+      [Install]
+      WantedBy=multi-user.target
+  - path: /etc/systemd/system/jenkins-update.service
+    permissions: "0644"
+    owner: root:root
+    content: |
+      [Unit]
+      Description=Refresh Jenkins controller image and plugins
+      Requires=jenkins-controller.service
+      After=jenkins-controller.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/bootstrap-jenkins.sh update
+      TimeoutStartSec=30m
+  - path: /etc/systemd/system/jenkins-update.timer
+    permissions: "0644"
+    owner: root:root
+    content: |
+      [Unit]
+      Description=Weekly Jenkins controller image and plugin refresh
+
+      [Timer]
+      OnCalendar=Sun 04:00
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+
+runcmd:
+  - systemctl daemon-reload
+  - systemctl enable --now ensure-data-mount.service
+  - /usr/local/bin/install-docker.sh
+  - systemctl enable --now jenkins-controller.service
+  - systemctl enable --now jenkins-update.timer
