@@ -49,6 +49,7 @@ No modules.
 | <a name="input_owner_user_id"></a> [owner\_user\_id](#input\_owner\_user\_id) | Scaleway IAM User ID to keep full bucket access | `string` | `""` | no |
 | <a name="input_project_id"></a> [project\_id](#input\_project\_id) | Scaleway Project ID | `string` | n/a | yes |
 | <a name="input_region"></a> [region](#input\_region) | Scaleway region | `string` | `"fr-par"` | no |
+| <a name="input_snapshot_restore_drill_state_object_prefix"></a> [snapshot\_restore\_drill\_state\_object\_prefix](#input\_snapshot\_restore\_drill\_state\_object\_prefix) | Object key prefix in the state bucket used by the snapshot restore drill Terraform backend | `string` | `"terraform/snapshot-restore-drill/"` | no |
 | <a name="input_snapshots_application_description"></a> [snapshots\_application\_description](#input\_snapshots\_application\_description) | IAM application description | `string` | `"GitHub Actions application managing Terraform snapshots"` | no |
 | <a name="input_snapshots_application_name"></a> [snapshots\_application\_name](#input\_snapshots\_application\_name) | IAM application name used by GitHub Actions snapshots | `string` | `"actions-snapshot-manager"` | no |
 | <a name="input_snapshots_state_bucket_name"></a> [snapshots\_state\_bucket\_name](#input\_snapshots\_state\_bucket\_name) | Object Storage bucket name holding Terraform state for snapshots | `string` | `"terra-snapshots-state"` | no |
