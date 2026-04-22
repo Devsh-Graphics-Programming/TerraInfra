@@ -1,0 +1,39 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: jenkins-cert
+  namespace: jenkins
+spec:
+  secretName: jenkins-tls
+  dnsNames:
+    - jenkins.devsh.eu
+  issuerRef:
+    name: letsencrypt-http
+    kind: ClusterIssuer
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: jenkins
+  namespace: jenkins
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: 100m
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  tls:
+    - secretName: jenkins-tls
+      hosts:
+        - jenkins.devsh.eu
+  rules:
+    - host: jenkins.devsh.eu
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: jenkins
+                port:
+                  name: http

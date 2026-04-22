@@ -1,0 +1,8 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../k8s/cluster-issuer.yaml
+  - node-exporter.yaml
+  - jenkins-config.yaml
+  - jenkins-workloads.yaml
+  - jenkins-ingress.yaml

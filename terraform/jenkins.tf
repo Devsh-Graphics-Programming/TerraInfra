@@ -1,7 +1,5 @@
 locals {
-  jenkins_env_prefix  = local.env_slug == "prod" ? "" : "${local.env_slug}."
-  jenkins_base_domain = "devsh.eu"
-  jenkins_host        = "${local.jenkins_env_prefix}jenkins.${local.jenkins_base_domain}"
+  jenkins_node_name = "jenkins-${local.env_slug}"
 }
 
 resource "scaleway_instance_ip" "jenkins" {
@@ -82,7 +80,7 @@ resource "scaleway_block_volume" "jenkins_data" {
 resource "scaleway_instance_server" "jenkins" {
   project_id = var.project_id
 
-  name  = "jenkins-${local.env_slug}"
+  name  = local.jenkins_node_name
   type  = var.jenkins_instance_type
   image = var.instance_image
 
@@ -95,21 +93,30 @@ resource "scaleway_instance_server" "jenkins" {
   security_group_id     = scaleway_instance_security_group.jenkins.id
   additional_volume_ids = [scaleway_block_volume.jenkins_data.id]
 
-  cloud_init = templatefile("${path.root}/jenkins-cloud-init.yaml", {
-    acme_email      = var.acme_email
-    jenkins_host    = local.jenkins_host
-    luks_key_access = var.luks_key_access_key
-    luks_key_secret = var.luks_key_secret_key
-    luks_key_url    = var.luks_key_url
-    path_root       = path.root
-    swap_file       = var.swap_file
-    swap_size_gb    = var.swap_size_gb
-    swap_swappiness = var.swap_swappiness
+  cloud_init = templatefile("${path.root}/cloud-init.yaml", {
+    acme_email                               = var.acme_email
+    config_repo_url                          = var.config_repo_url
+    config_repo_branch                       = var.config_repo_branch
+    config_repo_path                         = "terraform/jenkins-k8s"
+    github_persistent_terra_infra_ro_pat     = var.github_persistent_terra_infra_ro_pat
+    github_bootstrap_terra_infra_webhook_pat = ""
+    env_name                                 = local.env_slug
+    node_name                                = local.jenkins_node_name
+    luks_key_access_key                      = var.luks_key_access_key
+    luks_key_secret_key                      = var.luks_key_secret_key
+    luks_key_url                             = var.luks_key_url
+    sops_age_key                             = var.sops_age_key
+    path_root                                = path.root
+    allow_fresh_bootstrap                    = true
+    swap_file                                = var.swap_file
+    swap_size_gb                             = var.swap_size_gb
+    swap_swappiness                          = var.swap_swappiness
   })
 
   tags = [
     "jenkins",
     "ci-controller",
+    "k3s",
     local.env_slug,
   ]
 

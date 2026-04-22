@@ -1,0 +1,97 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jenkins-config
+  namespace: jenkins
+data:
+  plugins.txt: |
+    configuration-as-code
+    job-dsl
+    workflow-aggregator
+    git
+    credentials-binding
+    plain-credentials
+    ssh-credentials
+    timestamper
+    ws-cleanup
+    pipeline-utility-steps
+    lockable-resources
+    github
+    cloudbees-folder
+  jenkins.yaml: |
+    jenkins:
+      systemMessage: "DevSH Jenkins controller managed by TerraInfra."
+      numExecutors: 0
+      mode: EXCLUSIVE
+      labelString: "controller"
+      scmCheckoutRetryCount: 2
+      slaveAgentPort: -1
+      securityRealm:
+        local:
+          allowsSignup: false
+          users:
+            - id: "$${JENKINS_ADMIN_ID}"
+              password: "$${JENKINS_ADMIN_PASSWORD}"
+      authorizationStrategy:
+        loggedInUsersCanDoAnything:
+          allowAnonymousRead: false
+
+    unclassified:
+      location:
+        url: "https://jenkins.devsh.eu/"
+
+    jobs:
+      - script: |
+          folder('system') {
+            displayName('System')
+            description('Controller health checks managed by configuration as code.')
+          }
+
+          pipelineJob('system/smoke') {
+            description('Verifies the controller can load configuration and run a lightweight pipeline.')
+            definition {
+              cps {
+                sandbox()
+                script('''pipeline {
+          agent none
+          options {
+            timestamps()
+            buildDiscarder(logRotator(numToKeepStr: '20'))
+          }
+          stages {
+            stage('Smoke') {
+              steps {
+                echo 'Jenkins configuration loaded.'
+              }
+            }
+          }
+        }''')
+              }
+            }
+          }
+  sync-admin-user.groovy: |
+    import hudson.model.User
+    import hudson.security.HudsonPrivateSecurityRealm
+    import jenkins.model.Jenkins
+
+    def instance = Jenkins.get()
+    def realm = instance.getSecurityRealm()
+    if (!(realm instanceof HudsonPrivateSecurityRealm)) {
+        throw new IllegalStateException("Expected local Jenkins security realm")
+    }
+
+    def adminId = System.getenv("JENKINS_ADMIN_ID")
+    def adminPassword = System.getenv("JENKINS_ADMIN_PASSWORD")
+    if (!adminId?.trim() || !adminPassword) {
+        throw new IllegalStateException("Jenkins admin environment is missing")
+    }
+
+    def user = User.getById(adminId, false)
+    if (user == null) {
+        user = realm.createAccount(adminId, adminPassword)
+    } else {
+        user.addProperty(HudsonPrivateSecurityRealm.Details.fromPlainPassword(adminPassword))
+    }
+
+    user.save()
+    instance.save()
