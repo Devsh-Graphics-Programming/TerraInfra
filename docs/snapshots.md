@@ -119,7 +119,8 @@ For each target the workflow:
 5. Unlocks and mounts the restored data volume with the existing LUKS key.
 6. Runs local health checks on `127.0.0.1` using disposable containers.
 7. Destroys the temporary instance and temporary volume.
-8. Publishes a sanitized Discord result with per-target health checks and cleanup status when `SNAPSHOTS_DISCORD_WEBHOOK_URL` is configured.
+8. Verifies that the per-target restore-drill Terraform state is empty after destroy.
+9. Publishes a compact sanitized Discord result with per-target health check counts and cleanup status when `SNAPSHOTS_DISCORD_WEBHOOK_URL` is configured.
 
 Target checks:
 - `node1-main`: restored `/mnt/data` opens, MariaDB data starts locally, Kimai var data is present. The live Kimai node is not restarted and no production pod is touched.
@@ -130,6 +131,7 @@ Target checks:
 The restore drill intentionally does not reuse production DNS, ingress, cert-manager challenges, Flux alerting, or public service endpoints. This avoids duplicate alerts and avoids any interaction with live Kimai, StoatChat, Jenkins, or monitoring workloads.
 Terraform output and apply logs are redacted before they are written to public CI logs. The matrix passed between jobs contains only target keys and instance types, not snapshot IDs.
 The temporary verifier uploads only sanitized status JSON (target, phase, message, check names, check statuses, check messages, and cleanup state) to the restore-drill state prefix so CI can report health checks without exposing temporary IPs or resource IDs.
+The workflow treats cleanup as part of the result: `destroy` must succeed and the per-target restore-drill Terraform state must be empty after cleanup.
 
 The current guarantee is crash-consistent Block Storage restore. For databases that need tighter RPO/RTO guarantees, add a second layer of application-aware logical backups later (for example MariaDB and MongoDB dumps) and test those in the same restore-drill pattern.
 

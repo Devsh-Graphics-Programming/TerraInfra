@@ -330,6 +330,36 @@ jobs:
           fi
           exit "${rc}"
 
+      - name: Verify restore drill cleanup
+        id: cleanup_verify
+        if: always()
+        env:
+          RESTORE_INIT_OUTCOME: ${{ steps.restore_init.outcome }}
+          DESTROY_OUTCOME: ${{ steps.destroy.outcome }}
+        run: |
+          set +e
+
+          if [[ "${RESTORE_INIT_OUTCOME:-}" != "success" ]]; then
+            echo "not-run" > cleanup-verify-status.txt
+            exit 0
+          fi
+
+          if [[ "${DESTROY_OUTCOME:-}" != "success" ]]; then
+            echo "failed" > cleanup-verify-status.txt
+            echo "Terraform destroy did not complete successfully." >&2
+            exit 1
+          fi
+
+          remaining="$(terraform state list 2>/dev/null | sed '/^[[:space:]]*$/d' | wc -l | tr -d '[:space:]')"
+          if [[ "${remaining}" == "0" ]]; then
+            echo "success" > cleanup-verify-status.txt
+            exit 0
+          fi
+
+          echo "failed" > cleanup-verify-status.txt
+          echo "Terraform restore-drill state still contains ${remaining} managed resource(s)." >&2
+          exit 1
+
       - name: Write restore drill result
         if: always()
         env:
@@ -341,7 +371,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          cleanup="$(cat destroy-status.txt 2>/dev/null || true)"
+          cleanup="$(cat cleanup-verify-status.txt 2>/dev/null || true)"
+          if [[ -z "${cleanup}" ]]; then
+            cleanup="$(cat destroy-status.txt 2>/dev/null || true)"
+          fi
           if [[ -z "${cleanup}" ]]; then
             case "${DESTROY_OUTCOME:-}" in
               success) cleanup="success" ;;
@@ -467,29 +500,28 @@ jobs:
             color=15158332
           fi
 
-          target_fields="$(jq -c '
+          target_lines="$(jq -r '
             def value_or_unknown($v): if ($v == null or $v == "") then "unknown" else $v end;
             def truncate($max): if length > $max then .[0:$max] + "..." else . end;
-            def checks_text:
-              if ((.checks // []) | length) == 0 then
-                "none reported"
-              else
-                ((.checks // []) | map(.name + "=" + .status + (if (.message // "") != "" then " (" + .message + ")" else "" end)) | join("\n") | truncate(450))
-              end;
+            def total_checks: ((.checks // []) | length);
+            def passed_checks: ((.checks // []) | map(select(.status == "passed")) | length);
+            def failed_checks: ((.checks // []) | map(select(.status != "passed")) | map(.name) | join(", "));
+            def target_line:
+              (if (.status == "success" and .phase == "complete" and .cleanup == "success") then "[ok]" else "[fail]" end)
+              + " `" + .target + "` "
+              + (passed_checks | tostring) + "/" + (total_checks | tostring) + " checks"
+              + ", cleanup " + value_or_unknown(.cleanup)
+              + (if (.status == "success" and .phase == "complete" and .cleanup == "success") then
+                  ""
+                else
+                  ", phase " + value_or_unknown(.phase)
+                  + ", " + ((.message // "restore drill failed") | truncate(120))
+                  + (if failed_checks == "" then "" else ", failed: " + failed_checks end)
+                end);
             if length == 0 then
-              [{name: "Targets", value: "No restore result artifacts were available.", inline: false}]
+              "No restore result artifacts were available."
             else
-              map({
-                name: ("Target " + .target),
-                value: (
-                  "Status: " + value_or_unknown(.status) + "\n" +
-                  "Phase: " + value_or_unknown(.phase) + "\n" +
-                  "Cleanup: " + value_or_unknown(.cleanup) + "\n" +
-                  "Message: " + (value_or_unknown(.message) | truncate(180)) + "\n" +
-                  "Health checks: " + checks_text
-                ),
-                inline: false
-              })
+              map(target_line) | join("\n")
             end
           ' <<< "${results}")"
 
@@ -500,11 +532,11 @@ jobs:
             --arg branch "${branch}" \
             --arg actor "${actor}" \
             --arg run_url "${run_url}" \
+            --arg target_lines "${target_lines}" \
             --arg timestamp "${ts}" \
             --arg resolve_result "${RESOLVE_RESULT}" \
             --arg drill_result "${DRILL_RESULT}" \
             --argjson color "${color}" \
-            --argjson target_fields "${target_fields}" \
             '{
               username: "TerraInfra",
               embeds: [
@@ -518,8 +550,9 @@ jobs:
                     {name: "Resolve job", value: $resolve_result, inline: true},
                     {name: "Drill jobs", value: $drill_result, inline: true},
                     {name: "GitHub run", value: ("[Open run](" + $run_url + ")"), inline: true},
-                    {name: "Actor", value: $actor, inline: true}
-                  ] + $target_fields),
+                    {name: "Actor", value: $actor, inline: true},
+                    {name: "Targets", value: (if ($target_lines | length) > 0 then $target_lines else "n/a" end), inline: false}
+                  ]),
                   timestamp: $timestamp
                 }
               ]
@@ -532,7 +565,19 @@ jobs:
             echo "- Resolve job: ${RESOLVE_RESULT}"
             echo "- Drill jobs: ${DRILL_RESULT}"
             echo
-            jq -r '.[] | "- " + .target + ": " + .status + " / " + .phase + " / cleanup=" + (.cleanup // "unknown")' <<< "${results}"
+            echo "| Target | Result | Checks | Cleanup | Phase | Message |"
+            echo "| --- | --- | ---: | --- | --- | --- |"
+            jq -r '
+              def cell($v): (($v // "-") | tostring | gsub("[|]"; "/") | gsub("\n"; " ") | if length > 120 then .[0:117] + "..." else . end);
+              def total_checks: ((.checks // []) | length);
+              def passed_checks: ((.checks // []) | map(select(.status == "passed")) | length);
+              if length == 0 then
+                "| n/a | failed | 0/0 | unknown | unknown | No restore result artifacts were available. |"
+              else
+                .[]
+                | "| `" + .target + "` | " + cell(.status) + " | " + (passed_checks | tostring) + "/" + (total_checks | tostring) + " | " + cell(.cleanup) + " | " + cell(.phase) + " | " + cell(.message) + " |"
+              end
+            ' <<< "${results}"
           } >> "${GITHUB_STEP_SUMMARY}"
 
           curl -fsS -H 'Content-Type: application/json' -d "${payload}" "${SNAPSHOTS_DISCORD_WEBHOOK_URL}" || echo "Discord webhook notification failed" >&2
