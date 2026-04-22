@@ -41,11 +41,11 @@ data:
         globalMatrix:
           entries:
             - user:
-                name: "$${JENKINS_ADMIN_ID}"
+                name: "admin"
                 permissions:
                   - Overall/Administer
             - user:
-                name: "$${JENKINS_METRICS_ID}"
+                name: "jenkins-prometheus"
                 permissions:
                   - Overall/Read
                   - Metrics/View
