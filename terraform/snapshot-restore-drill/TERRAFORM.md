@@ -29,6 +29,7 @@ No modules.
 
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
+| <a name="input_created_at"></a> [created\_at](#input\_created\_at) | UTC timestamp tag used by janitor cleanup for temporary resources | `string` | `""` | no |
 | <a name="input_instance_image"></a> [instance\_image](#input\_instance\_image) | Scaleway instance image label | `string` | `"debian_trixie"` | no |
 | <a name="input_instance_type"></a> [instance\_type](#input\_instance\_type) | Commercial type for the temporary restore verifier instance | `string` | `"DEV1-S"` | no |
 | <a name="input_luks_key_access_key"></a> [luks\_key\_access\_key](#input\_luks\_key\_access\_key) | Access key used by the temporary verifier to fetch the LUKS key | `string` | n/a | yes |

@@ -31,6 +31,12 @@ variable "run_id" {
   description = "External run identifier used to name temporary resources"
 }
 
+variable "created_at" {
+  type        = string
+  description = "UTC timestamp tag used by janitor cleanup for temporary resources"
+  default     = ""
+}
+
 variable "instance_type" {
   type        = string
   description = "Commercial type for the temporary restore verifier instance"

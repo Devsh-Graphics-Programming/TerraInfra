@@ -104,10 +104,12 @@ terraform output -json manual_snapshot_ids
 ## Restore drill (non-prod temporary verifier)
 The `snapshot-restore-drill` workflow (`.github/workflows/snapshot-restore-drill.yml`) verifies that the latest managed snapshots can be restored without touching production nodes or production workloads.
 
-It runs weekly and can be started manually. Inputs:
+It runs daily after the managed snapshot job and can be started manually. Inputs:
 - `target_names` (default `all`; comma-separated allowed, e.g. `chat,jenkins`)
 - `project_id`
 - Terraform state bucket/key settings
+
+Before creating any verifier, the workflow runs a janitor that first destroys any leftover resources still tracked in the dedicated restore-drill Terraform state and then deletes only stale Scaleway resources that match all restore-drill safety gates: the project, the `devsh` and `restore-drill` tags, an allowed target tag/name, a `restore-drill-*` resource name where applicable, a non-current run tag, and the minimum age window. It does not delete production nodes, production volumes, snapshots, buckets, DNS, or any untagged resource.
 
 For each selected target the workflow runs an independent matrix job. Targets can run in parallel because each verifier reads its own snapshot state, uses its own restore-drill backend key, and creates its own temporary resources.
 
@@ -120,7 +122,7 @@ For each target the workflow:
 6. Runs local health checks on `127.0.0.1` using disposable containers.
 7. Destroys the temporary instance and temporary volume.
 8. Verifies that the per-target restore-drill Terraform state is empty after destroy.
-9. Publishes a compact sanitized Discord result with per-target health check counts and cleanup status when `SNAPSHOTS_DISCORD_WEBHOOK_URL` is configured.
+9. Publishes a compact sanitized Discord result with janitor status, per-target health check counts, and cleanup status when `SNAPSHOTS_DISCORD_WEBHOOK_URL` is configured.
 
 Target checks:
 - `node1-main`: restored `/mnt/data` opens, MariaDB data starts locally, Kimai var data is present. The live Kimai node is not restarted and no production pod is touched.
@@ -131,7 +133,7 @@ Target checks:
 The restore drill intentionally does not reuse production DNS, ingress, cert-manager challenges, Flux alerting, or public service endpoints. This avoids duplicate alerts and avoids any interaction with live Kimai, StoatChat, Jenkins, or monitoring workloads.
 Terraform output and apply logs are redacted before they are written to public CI logs. The matrix passed between jobs contains only target keys and instance types, not snapshot IDs.
 The temporary verifier uploads only sanitized status JSON (target, phase, message, check names, check statuses, check messages, and cleanup state) to the restore-drill state prefix so CI can report health checks without exposing temporary IPs or resource IDs.
-The workflow treats cleanup as part of the result: `destroy` must succeed and the per-target restore-drill Terraform state must be empty after cleanup.
+The workflow treats cleanup as part of the result: `destroy` must succeed and the per-target restore-drill Terraform state must be empty after cleanup. The janitor report contains counts only. It does not expose resource IDs, IPs, snapshot IDs, or provider response bodies in public logs or Discord messages.
 
 The current guarantee is crash-consistent Block Storage restore. For databases that need tighter RPO/RTO guarantees, add a second layer of application-aware logical backups later (for example MariaDB and MongoDB dumps) and test those in the same restore-drill pattern.
 

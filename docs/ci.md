@@ -7,7 +7,8 @@ We use GitHub Actions to validate Terraform and to keep a couple of generated ar
 - `push` to `env/prod` or `env/test`: run Terraform checks.
 - `push` to `env/prod` (human actor, not `github-actions[bot]`): generate artifacts and auto-commit back to `env/prod` (one extra bot commit).
 - `schedule` / `workflow_dispatch` on `env/prod`: run the snapshots workflow (daily auto snapshots + manual retention enforcement; see `docs/snapshots.md`).
-- weekly `schedule` / `workflow_dispatch` on `env/prod`: run the snapshot restore drill against temporary verifier infrastructure.
+- daily `schedule` / `workflow_dispatch` on `env/prod`: run the snapshot restore drill against temporary verifier infrastructure.
+- restore drill startup runs a conservative janitor for stale restore-drill resources before any verifier is created.
 - restore drill completion posts sanitized per-target health check and cleanup results to Discord when the webhook secret is configured.
 
 ## Terraform checks (no external creds)

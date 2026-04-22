@@ -1,10 +1,18 @@
 locals {
   safe_target_key = replace(var.target_key, "/", "-")
   resource_prefix = "restore-drill-${local.safe_target_key}-${var.run_id}"
+  common_tags = compact([
+    "devsh",
+    "restore-drill",
+    var.target_key,
+    var.run_id,
+    var.created_at == "" ? "" : "created-${var.created_at}",
+  ])
 }
 
 resource "scaleway_instance_ip" "restore_drill" {
   project_id = var.project_id
+  tags       = local.common_tags
 }
 
 resource "scaleway_instance_security_group" "restore_drill" {
@@ -15,6 +23,7 @@ resource "scaleway_instance_security_group" "restore_drill" {
 
   inbound_default_policy  = "drop"
   outbound_default_policy = "accept"
+  tags                    = local.common_tags
 
   inbound_rule {
     action   = "accept"
@@ -28,7 +37,7 @@ resource "scaleway_block_volume" "restore_drill" {
   name        = "${local.resource_prefix}-data"
   iops        = 5000
   snapshot_id = var.snapshot_id
-  tags        = ["devsh", "restore-drill", var.target_key, var.run_id]
+  tags        = local.common_tags
 }
 
 resource "scaleway_instance_server" "restore_drill" {
@@ -64,10 +73,5 @@ resource "scaleway_instance_server" "restore_drill" {
     })
   }
 
-  tags = [
-    "devsh",
-    "restore-drill",
-    var.target_key,
-    var.run_id,
-  ]
+  tags = local.common_tags
 }

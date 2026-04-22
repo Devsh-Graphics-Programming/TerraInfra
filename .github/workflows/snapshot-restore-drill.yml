@@ -2,7 +2,7 @@ name: snapshot-restore-drill
 
 on:
   schedule:
-    - cron: "30 4 * * 0"
+    - cron: "30 4 * * *"
   workflow_dispatch:
     inputs:
       project_id:
@@ -39,7 +39,72 @@ permissions:
   actions: read
 
 jobs:
+  janitor:
+    if: github.ref_name == 'env/prod'
+    runs-on: ubuntu-latest
+    environment: prod
+    outputs:
+      summary: ${{ steps.janitor.outputs.summary }}
+      status: ${{ steps.janitor.outputs.status }}
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+
+      SCW_ACCESS_KEY: ${{ secrets.SNAPSHOTS_SCW_ACCESS_KEY }}
+      SCW_SECRET_KEY: ${{ secrets.SNAPSHOTS_SCW_SECRET_KEY }}
+
+      AWS_ACCESS_KEY_ID: ${{ secrets.SNAPSHOTS_SCW_ACCESS_KEY }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SNAPSHOTS_SCW_SECRET_KEY }}
+
+      SNAPSHOTS_TFSTATE_BUCKET: ${{ github.event.inputs.tfstate_bucket || 'terra-snapshots-state' }}
+      SNAPSHOTS_TFSTATE_ENDPOINT: ${{ github.event.inputs.tfstate_endpoint || 'https://s3.fr-par.scw.cloud' }}
+      SNAPSHOTS_TFSTATE_REGION: ${{ github.event.inputs.tfstate_region || 'fr-par' }}
+      TF_VAR_project_id: ${{ github.event.inputs.project_id || '4ca4f592-005a-45dc-a016-91bd11dd5348' }}
+      RESTORE_DRILL_TARGET_KEYS: chat,jenkins,node1-main,observability
+      RESTORE_DRILL_CURRENT_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      RESTORE_DRILL_JANITOR_MIN_AGE_HOURS: "6"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 1
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.6
+          terraform_wrapper: false
+
+      - name: Mask sensitive values
+        run: |
+          mask() {
+            if [[ -n "${1:-}" ]]; then
+              echo "::add-mask::$1"
+            fi
+          }
+
+          mask "${SCW_ACCESS_KEY:-}"
+          mask "${SCW_SECRET_KEY:-}"
+          mask "${AWS_ACCESS_KEY_ID:-}"
+          mask "${AWS_SECRET_ACCESS_KEY:-}"
+
+      - name: Restore drill janitor
+        id: janitor
+        run: bash .github/scripts/restore-drill-janitor.sh
+
+      - name: Upload janitor result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: restore-janitor-result
+          path: restore-janitor-result.json
+          if-no-files-found: warn
+          retention-days: 7
+
   resolve:
+    needs: janitor
     if: github.ref_name == 'env/prod'
     runs-on: ubuntu-latest
     environment: prod
@@ -228,6 +293,9 @@ jobs:
             -backend-config="skip_metadata_api_check=true" \
             -backend-config="skip_region_validation=true" \
             -backend-config="force_path_style=true"
+
+      - name: Prepare restore drill metadata
+        run: echo "TF_VAR_created_at=$(date -u +%Y%m%dT%H%M%SZ)" >> "${GITHUB_ENV}"
 
       - name: Terraform apply
         id: apply
@@ -438,6 +506,7 @@ jobs:
 
   notify:
     needs:
+      - janitor
       - resolve
       - drill
     if: always() && github.ref_name == 'env/prod'
@@ -464,6 +533,8 @@ jobs:
       - name: Notify Discord (restore drill status)
         if: env.SNAPSHOTS_DISCORD_WEBHOOK_URL != ''
         env:
+          JANITOR_RESULT: ${{ needs.janitor.result }}
+          JANITOR_SUMMARY: ${{ needs.janitor.outputs.summary }}
           RESOLVE_RESULT: ${{ needs.resolve.result }}
           DRILL_RESULT: ${{ needs.drill.result }}
         run: |
@@ -494,7 +565,7 @@ jobs:
           status="success"
           title="Snapshot restore drill passed"
           color=3066993
-          if [[ "${RESOLVE_RESULT}" != "success" || "${DRILL_RESULT}" != "success" ]]; then
+          if [[ "${JANITOR_RESULT}" != "success" || "${RESOLVE_RESULT}" != "success" || "${DRILL_RESULT}" != "success" ]]; then
             status="failed"
             title="Snapshot restore drill failed"
             color=15158332
@@ -534,6 +605,8 @@ jobs:
             --arg run_url "${run_url}" \
             --arg target_lines "${target_lines}" \
             --arg timestamp "${ts}" \
+            --arg janitor_result "${JANITOR_RESULT}" \
+            --arg janitor_summary "${JANITOR_SUMMARY}" \
             --arg resolve_result "${RESOLVE_RESULT}" \
             --arg drill_result "${DRILL_RESULT}" \
             --argjson color "${color}" \
@@ -547,6 +620,7 @@ jobs:
                     {name: "Status", value: $status, inline: true},
                     {name: "Trigger", value: $trigger, inline: true},
                     {name: "Branch", value: $branch, inline: true},
+                    {name: "Janitor", value: ($janitor_result + " (" + (if ($janitor_summary | length) > 0 then $janitor_summary else "n/a" end) + ")"), inline: false},
                     {name: "Resolve job", value: $resolve_result, inline: true},
                     {name: "Drill jobs", value: $drill_result, inline: true},
                     {name: "GitHub run", value: ("[Open run](" + $run_url + ")"), inline: true},
@@ -562,6 +636,7 @@ jobs:
             echo "## Snapshot restore drill"
             echo
             echo "- Status: ${status}"
+            echo "- Janitor: ${JANITOR_RESULT} (${JANITOR_SUMMARY:-n/a})"
             echo "- Resolve job: ${RESOLVE_RESULT}"
             echo "- Drill jobs: ${DRILL_RESULT}"
             echo
