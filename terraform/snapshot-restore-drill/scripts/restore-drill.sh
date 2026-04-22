@@ -265,6 +265,7 @@ case "${TARGET_KEY}" in
       -e JAVA_OPTS=-Djenkins.install.runSetupWizard=false \
       -e PROMETHEUS_NAMESPACE=jenkins \
       -e COLLECT_DISK_USAGE=false \
+      -e COLLECTING_METRICS_PERIOD_IN_SECONDS=120 \
       -v /mnt/data/jenkins/home:/var/jenkins_home \
       docker.io/jenkins/jenkins:lts-jdk21
     wait_for_http "http://127.0.0.1:8080/login" 600

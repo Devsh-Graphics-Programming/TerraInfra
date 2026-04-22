@@ -67,6 +67,8 @@ spec:
               value: jenkins
             - name: COLLECT_DISK_USAGE
               value: "false"
+            - name: COLLECTING_METRICS_PERIOD_IN_SECONDS
+              value: "120"
           command:
             - bash
             - -c
