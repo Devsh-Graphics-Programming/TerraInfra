@@ -9,10 +9,10 @@ on:
         description: "Scaleway Project ID"
         required: true
         default: "4ca4f592-005a-45dc-a016-91bd11dd5348"
-      volume_name:
-        description: "Block Volume name to snapshot"
+      target_names:
+        description: "Snapshot targets: all or comma-separated keys (node1-main,chat,jenkins,observability)"
         required: true
-        default: "devsh-k3s-prod-data-node1"
+        default: "all"
       manual_ttl_hours:
         description: "TTL (hours) for manual snapshots (default 24)"
         required: false
@@ -65,15 +65,13 @@ jobs:
       SNAPSHOTS_TFSTATE_KEY: ${{ github.event.inputs.tfstate_key || 'terraform/snapshots/terraform.tfstate' }}
       SNAPSHOTS_TFSTATE_REGION: ${{ github.event.inputs.tfstate_region || 'fr-par' }}
 
-      SNAPSHOTS_PROJECT_ID: ${{ github.event.inputs.project_id || '4ca4f592-005a-45dc-a016-91bd11dd5348' }}
-      SNAPSHOTS_VOLUME_NAME: ${{ github.event.inputs.volume_name || 'devsh-k3s-prod-data-node1' }}
+      SNAPSHOTS_TARGET_NAMES: ${{ github.event.inputs.target_names || 'all' }}
       SNAPSHOTS_MANUAL_TTL_HOURS: ${{ github.event.inputs.manual_ttl_hours || '24' }}
       SNAPSHOTS_MANUAL_SNAPSHOT_NAME: ${{ github.event.inputs.manual_snapshot_name || '' }}
 
       SNAPSHOTS_DISCORD_WEBHOOK_URL: ${{ secrets.SNAPSHOTS_DISCORD_WEBHOOK_URL }}
 
       TF_VAR_project_id: ${{ github.event.inputs.project_id || '4ca4f592-005a-45dc-a016-91bd11dd5348' }}
-      TF_VAR_volume_name: ${{ github.event.inputs.volume_name || 'devsh-k3s-prod-data-node1' }}
       TF_VAR_env_name: prod
 
     defaults:
@@ -91,6 +89,20 @@ jobs:
         with:
           terraform_version: 1.6.6
           terraform_wrapper: false
+
+      - name: Mask sensitive values
+        run: |
+          mask() {
+            if [[ -n "${1:-}" ]]; then
+              echo "::add-mask::$1"
+            fi
+          }
+
+          mask "${SCW_ACCESS_KEY:-}"
+          mask "${SCW_SECRET_KEY:-}"
+          mask "${AWS_ACCESS_KEY_ID:-}"
+          mask "${AWS_SECRET_ACCESS_KEY:-}"
+          mask "${SNAPSHOTS_DISCORD_WEBHOOK_URL:-}"
 
       - name: Terraform init (remote state)
         run: |
@@ -150,6 +162,45 @@ jobs:
 
           manual_snapshots='${{ steps.state.outputs.manual_snapshots }}'
           auto_snapshot_trigger_state='${{ steps.state.outputs.auto_snapshot_trigger }}'
+          default_snapshot_targets="$(jq -cn '{
+            "node1-main": {
+              volume_name: "devsh-k3s-prod-data-node1",
+              name_prefix: "devsh-k3s-prod-data",
+              tags: ["node1", "kimai"]
+            },
+            chat: {
+              volume_name: "prod-chat-01-data",
+              name_prefix: "prod-chat-01-data",
+              tags: ["chat", "stoatchat"]
+            },
+            jenkins: {
+              volume_name: "jenkins-prod-data",
+              name_prefix: "jenkins-prod-data",
+              tags: ["jenkins", "ci-controller"]
+            },
+            observability: {
+              volume_name: "prod-observability-01-data",
+              name_prefix: "prod-observability-01-data",
+              tags: ["observability", "monitoring"]
+            }
+          }')"
+
+          requested_targets="$(echo "${SNAPSHOTS_TARGET_NAMES}" | tr -d '[:space:]')"
+          if [[ -z "${requested_targets}" || "${requested_targets}" == "all" ]]; then
+            snapshot_targets="${default_snapshot_targets}"
+          else
+            snapshot_targets="$(jq -c --arg names "${requested_targets}" --argjson defaults "${default_snapshot_targets}" '
+              ($names | split(",") | map(select(length > 0))) as $wanted |
+              if ($wanted | length) == 0 then
+                error("No snapshot targets selected")
+              elif any($wanted[]; $defaults[.] == null) then
+                error("Unknown snapshot target in " + $names)
+              else
+                $defaults | with_entries(select(.key as $k | $wanted | index($k)))
+              end
+            ')"
+          fi
+          selected_target_keys="$(echo "${snapshot_targets}" | jq -c 'keys')"
 
           auto_snapshot_trigger_refresh="${auto_snapshot_trigger_state}"
           if [[ -z "${auto_snapshot_trigger_refresh}" || "${auto_snapshot_trigger_refresh}" == "null" ]] || ! [[ "${auto_snapshot_trigger_refresh}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
@@ -157,17 +208,33 @@ jobs:
           fi
 
           if terraform state pull >/dev/null 2>&1; then
+            redact_tf_output() {
+              sed -E \
+                -e 's/[a-z]{2}-[a-z]+-[0-9]\/[0-9a-fA-F-]{36}/<scw-id>/g' \
+                -e 's/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/<uuid>/g'
+            }
+
             jq -n \
               --arg auto_snapshot_trigger "${auto_snapshot_trigger_refresh}" \
               --arg requested_manual_snapshot_name "" \
               --argjson manual_snapshots "${manual_snapshots}" \
-              '{auto_snapshot_trigger: $auto_snapshot_trigger, requested_manual_snapshot_name: $requested_manual_snapshot_name, manual_snapshots: $manual_snapshots}' \
+              --argjson snapshot_targets "${snapshot_targets}" \
+              '{auto_snapshot_trigger: $auto_snapshot_trigger, requested_manual_snapshot_name: $requested_manual_snapshot_name, manual_snapshots: $manual_snapshots, snapshot_targets: $snapshot_targets}' \
               > refresh.auto.tfvars.json
 
-            terraform apply -refresh-only -auto-approve -no-color -parallelism=1 -var-file=refresh.auto.tfvars.json
+            terraform apply -refresh-only -auto-approve -no-color -parallelism=1 -var-file=refresh.auto.tfvars.json 2>&1 | redact_tf_output
 
-            keep_keys="$(terraform output -json manual_snapshot_ids 2>/dev/null | jq -c 'keys' 2>/dev/null || echo '[]')"
-            manual_snapshots="$(echo "${manual_snapshots}" | jq -c --argjson keep "${keep_keys}" 'with_entries(select(.key as $k | $keep | index($k)))')"
+            keep_targets="$(terraform output -json manual_snapshot_request_targets 2>/dev/null | jq -c . 2>/dev/null || echo '{}')"
+            if [[ "${keep_targets}" == "{}" ]]; then
+              keep_keys="$(terraform output -json manual_snapshot_request_keys 2>/dev/null | jq -c . 2>/dev/null || echo '[]')"
+              keep_targets="$(jq -cn --argjson keep "${keep_keys}" --argjson targets "${selected_target_keys}" '$keep | map({(.): $targets}) | add // {}')"
+            fi
+            manual_snapshots="$(echo "${manual_snapshots}" | jq -c --argjson keep_targets "${keep_targets}" '
+              with_entries(
+                select($keep_targets[.key] != null)
+                | .value.targets = $keep_targets[.key]
+              )
+            ')"
           else
             echo "No Terraform state yet; skipping refresh-only manual snapshot pruning."
           fi
@@ -203,65 +270,79 @@ jobs:
               --arg name "${requested_manual_snapshot_name}" \
               --arg created_at "${created_at}" \
               --argjson ttl_hours "${ttl_hours}" \
-              '. + {($name): {created_at: $created_at, ttl_hours: $ttl_hours}}')"
+              --argjson targets "${selected_target_keys}" \
+              '. + {($name): {created_at: $created_at, ttl_hours: $ttl_hours, targets: $targets}}')"
           fi
 
           jq -n \
             --arg auto_snapshot_trigger "${auto_snapshot_trigger}" \
             --arg requested_manual_snapshot_name "${requested_manual_snapshot_name}" \
             --argjson manual_snapshots "${manual_snapshots}" \
-            '{auto_snapshot_trigger: $auto_snapshot_trigger, requested_manual_snapshot_name: $requested_manual_snapshot_name, manual_snapshots: $manual_snapshots}' \
+            --argjson snapshot_targets "${snapshot_targets}" \
+            '{auto_snapshot_trigger: $auto_snapshot_trigger, requested_manual_snapshot_name: $requested_manual_snapshot_name, manual_snapshots: $manual_snapshots, snapshot_targets: $snapshot_targets}' \
             > ci.auto.tfvars.json
 
           echo "auto_snapshot_trigger=${auto_snapshot_trigger}" >> "${GITHUB_OUTPUT}"
           echo "requested_manual_snapshot_name=${requested_manual_snapshot_name}" >> "${GITHUB_OUTPUT}"
+          echo "snapshot_targets=$(echo "${snapshot_targets}" | jq -c 'keys')" >> "${GITHUB_OUTPUT}"
 
       - name: Terraform apply
         id: apply
         run: |
           set -euo pipefail
-          terraform apply -auto-approve -no-color -parallelism=1 -var-file=ci.auto.tfvars.json 2>&1 | tee terraform-apply.log
+          redact_tf_output() {
+            sed -E \
+              -e 's/[a-z]{2}-[a-z]+-[0-9]\/[0-9a-fA-F-]{36}/<scw-id>/g' \
+              -e 's/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/<uuid>/g'
+          }
+          terraform apply -auto-approve -no-color -parallelism=1 -var-file=ci.auto.tfvars.json 2>&1 | redact_tf_output | tee terraform-apply.log
 
       - name: Capture snapshot info
         id: snapshot
         run: |
           set -euo pipefail
 
-          volume_id="$(terraform output -raw volume_id)"
-
           if [[ "${{ github.event_name }}" == "schedule" ]]; then
             snapshot_kind="auto"
-            snapshot_id="$(terraform output -raw latest_snapshot_id)"
-            snapshot_name="$(terraform output -raw latest_snapshot_name)"
+            snapshot_ids="$(terraform output -json latest_snapshot_ids 2>/dev/null | jq -c .)"
+            snapshot_names="$(terraform output -json latest_snapshot_names 2>/dev/null | jq -c .)"
             retention="24h (rotating, max 1 kept)"
           else
             snapshot_kind="manual"
-            snapshot_id="$(terraform output -raw requested_manual_snapshot_id)"
-            snapshot_name="$(terraform output -raw requested_manual_snapshot_name)"
+            snapshot_ids="$(terraform output -json requested_manual_snapshot_ids 2>/dev/null | jq -c .)"
+            snapshot_names="$(terraform output -json requested_manual_snapshot_names 2>/dev/null | jq -c .)"
             retention="${SNAPSHOTS_MANUAL_TTL_HOURS}h (Terraform-managed)"
           fi
 
-          if [[ -z "${snapshot_id}" ]]; then
-            echo "Snapshot ID is empty (kind=${snapshot_kind})" >&2
+          missing="$(echo "${snapshot_ids}" | jq -r 'to_entries[] | select(.value == "" or .value == null) | .key' | paste -sd ',' -)"
+          if [[ -n "${missing}" ]]; then
+            echo "Snapshot ID is empty for targets: ${missing} (kind=${snapshot_kind})" >&2
             exit 1
           fi
 
+          snapshot_lines="$(jq -rn \
+            --argjson ids "${snapshot_ids}" \
+            --argjson names "${snapshot_names}" \
+            '$ids | keys | map("`" + . + "` `" + ($names[.] // "n/a") + "`") | join("\n")')"
+
           echo "snapshot_kind=${snapshot_kind}" >> "${GITHUB_OUTPUT}"
-          echo "snapshot_id=${snapshot_id}" >> "${GITHUB_OUTPUT}"
-          echo "snapshot_name=${snapshot_name}" >> "${GITHUB_OUTPUT}"
-          echo "volume_id=${volume_id}" >> "${GITHUB_OUTPUT}"
+          {
+            echo "snapshot_lines<<EOF"
+            echo "${snapshot_lines}"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
           echo "retention=${retention}" >> "${GITHUB_OUTPUT}"
 
       - name: Show snapshot details
         env:
-          SNAPSHOT_ID: ${{ steps.snapshot.outputs.snapshot_id }}
-          SNAPSHOT_NAME: ${{ steps.snapshot.outputs.snapshot_name }}
           SNAPSHOT_KIND: ${{ steps.snapshot.outputs.snapshot_kind }}
+          SNAPSHOT_TARGETS: ${{ steps.vars.outputs.snapshot_targets }}
           RETENTION: ${{ steps.snapshot.outputs.retention }}
         run: |
+          snapshot_count="$(echo "${SNAPSHOT_TARGETS}" | jq 'length')"
           echo "Snapshot kind: ${SNAPSHOT_KIND}"
-          echo "Snapshot name: ${SNAPSHOT_NAME}"
-          echo "Snapshot ID: ${SNAPSHOT_ID}"
+          echo "Snapshot target count: ${snapshot_count}"
+          echo "Snapshot targets: ${SNAPSHOT_TARGETS}"
           echo "Retention: ${RETENTION}"
 
       - name: Notify Discord (snapshot status)
@@ -269,11 +350,10 @@ jobs:
         env:
           JOB_STATUS: ${{ job.status }}
           APPLY_OUTCOME: ${{ steps.apply.outcome }}
-          SNAPSHOT_ID: ${{ steps.snapshot.outputs.snapshot_id }}
-          SNAPSHOT_NAME: ${{ steps.snapshot.outputs.snapshot_name }}
+          SNAPSHOT_LINES: ${{ steps.snapshot.outputs.snapshot_lines }}
           SNAPSHOT_KIND: ${{ steps.snapshot.outputs.snapshot_kind }}
           RETENTION: ${{ steps.snapshot.outputs.retention }}
-          VOLUME_ID: ${{ steps.snapshot.outputs.volume_id }}
+          SNAPSHOT_TARGETS: ${{ steps.vars.outputs.snapshot_targets }}
           AUTO_SNAPSHOT_TRIGGER: ${{ steps.vars.outputs.auto_snapshot_trigger }}
           REQUESTED_MANUAL_SNAPSHOT_KEY: ${{ steps.vars.outputs.requested_manual_snapshot_name }}
         run: |
@@ -304,15 +384,12 @@ jobs:
           title="Scaleway snapshot ${status_label}"
 
           snapshot_kind="${SNAPSHOT_KIND}"
-          snapshot_id="${SNAPSHOT_ID}"
-          snapshot_name="${SNAPSHOT_NAME}"
+          snapshot_lines="${SNAPSHOT_LINES:-}"
+          snapshot_targets="${SNAPSHOT_TARGETS:-[]}"
           retention="${RETENTION}"
 
           if [[ "${trigger}" == "workflow_dispatch" ]]; then
             snapshot_kind="${snapshot_kind:-manual}"
-            if [[ -z "${snapshot_name}" && -n "${REQUESTED_MANUAL_SNAPSHOT_KEY}" ]]; then
-              snapshot_name="devsh-k3s-prod-data-manual-${REQUESTED_MANUAL_SNAPSHOT_KEY}"
-            fi
             retention="${retention:-${SNAPSHOTS_MANUAL_TTL_HOURS}h (Terraform-managed)}"
           else
             snapshot_kind="${snapshot_kind:-auto}"
@@ -343,11 +420,8 @@ jobs:
             --arg trigger "${trigger_label}" \
             --arg branch "${branch}" \
             --arg actor "${actor}" \
-            --arg snapshot_name "${snapshot_name}" \
-            --arg snapshot_id "${snapshot_id}" \
-            --arg volume_name "${SNAPSHOTS_VOLUME_NAME}" \
-            --arg volume_id "${VOLUME_ID}" \
-            --arg project_id "${SNAPSHOTS_PROJECT_ID}" \
+            --arg snapshots "${snapshot_lines}" \
+            --arg targets "${snapshot_targets}" \
             --arg retention "${retention}" \
             --arg run_url "${run_url}" \
             --arg timestamp "${ts}" \
@@ -365,10 +439,8 @@ jobs:
                     {name: "Type", value: $kind, inline: true},
                     {name: "Trigger", value: $trigger, inline: true},
                     {name: "Branch", value: $branch, inline: true},
-                    {name: "Snapshot", value: (if ($snapshot_name | length) > 0 then ("`" + $snapshot_name + "`") else "n/a" end), inline: false},
-                    {name: "Snapshot ID", value: (if ($snapshot_id | length) > 0 then ("`" + $snapshot_id + "`") else "n/a" end), inline: false},
-                    {name: "Volume", value: ("`" + $volume_name + "`\n`" + $volume_id + "`"), inline: false},
-                    {name: "Project", value: ("`" + $project_id + "`"), inline: false},
+                    {name: "Targets", value: (if ($targets | length) > 0 then ("`" + $targets + "`") else "n/a" end), inline: false},
+                    {name: "Snapshots", value: (if ($snapshots | length) > 0 then $snapshots else "n/a" end), inline: false},
                     {name: "Retention", value: $retention, inline: true},
                     {name: "GitHub run", value: ("[Open run](" + $run_url + ")"), inline: true},
                     {name: "Actor", value: $actor, inline: true}

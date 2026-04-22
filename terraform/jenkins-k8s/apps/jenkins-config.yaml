@@ -18,6 +18,7 @@ data:
     lockable-resources
     github
     cloudbees-folder
+    mailer
   jenkins.yaml: |
     jenkins:
       systemMessage: "DevSH Jenkins controller managed by TerraInfra."
@@ -39,6 +40,17 @@ data:
     unclassified:
       location:
         url: "https://jenkins.devsh.eu/"
+        adminAddress: "$${GF_SMTP_FROM_ADDRESS}"
+      mailer:
+        charset: "UTF-8"
+        replyToAddress: "$${GF_SMTP_FROM_ADDRESS}"
+        smtpHost: "$${JENKINS_SMTP_HOST}"
+        smtpPort: "$${JENKINS_SMTP_PORT}"
+        useSsl: false
+        useTls: true
+        authentication:
+          username: "$${GF_SMTP_USER}"
+          password: "$${GF_SMTP_PASSWORD}"
 
     jobs:
       - script: |

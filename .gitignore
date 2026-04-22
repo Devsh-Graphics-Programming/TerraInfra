@@ -14,6 +14,13 @@ terraform/snapshots/terraform.tfstate.*
 terraform/snapshots/*.tfstate
 terraform/snapshots/*.tfstate.*
 terraform/snapshots/terraform.tfstate.d/
+terraform/snapshot-restore-drill/.terraform/
+terraform/snapshot-restore-drill/.terraform.lock.hcl
+terraform/snapshot-restore-drill/terraform.tfstate
+terraform/snapshot-restore-drill/terraform.tfstate.*
+terraform/snapshot-restore-drill/*.tfstate
+terraform/snapshot-restore-drill/*.tfstate.*
+terraform/snapshot-restore-drill/terraform.tfstate.d/
 terraform/iam/.terraform/
 terraform/iam/.terraform.lock.hcl
 terraform/iam/terraform.tfstate

@@ -72,6 +72,17 @@ resource "scaleway_iam_policy" "snapshots_block_storage" {
   }
 }
 
+resource "scaleway_iam_policy" "snapshots_instance_restore_drill" {
+  name           = "snapshots-instance-restore-drill"
+  description    = "Instance permissions required to run temporary snapshot restore drill verifiers"
+  application_id = scaleway_iam_application.snapshots.id
+
+  rule {
+    project_ids          = [var.project_id]
+    permission_set_names = var.instance_permission_set_names
+  }
+}
+
 resource "scaleway_object_bucket_policy" "snapshots_state" {
   bucket = var.snapshots_state_bucket_name
   policy = jsonencode({

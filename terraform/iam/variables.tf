@@ -122,3 +122,9 @@ variable "block_storage_permission_set_names" {
   description = "IAM permission sets for managing block storage snapshots"
   default     = ["BlockStorageFullAccess"]
 }
+
+variable "instance_permission_set_names" {
+  type        = list(string)
+  description = "IAM permission sets for temporary restore drill instances"
+  default     = ["InstancesFullAccess"]
+}

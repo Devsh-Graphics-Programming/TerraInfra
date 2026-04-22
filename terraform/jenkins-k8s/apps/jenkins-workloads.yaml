@@ -51,6 +51,8 @@ spec:
           envFrom:
             - secretRef:
                 name: jenkins-admin
+            - secretRef:
+                name: notification-smtp
           env:
             - name: JAVA_OPTS
               value: -Djenkins.install.runSetupWizard=false
@@ -60,7 +62,17 @@ spec:
             - bash
             - -c
           args:
-            - set -euo pipefail; jenkins-plugin-cli --plugin-file /var/jenkins_config/plugins.txt --plugin-download-directory /var/jenkins_home/plugins; exec /usr/local/bin/jenkins.sh
+            - |
+              set -euo pipefail
+              if [[ "${GF_SMTP_HOST:-}" == *:* ]]; then
+                export JENKINS_SMTP_HOST="${GF_SMTP_HOST%:*}"
+                export JENKINS_SMTP_PORT="${GF_SMTP_HOST##*:}"
+              else
+                export JENKINS_SMTP_HOST="${GF_SMTP_HOST:-mail.devsh.eu}"
+                export JENKINS_SMTP_PORT="587"
+              fi
+              jenkins-plugin-cli --plugin-file /var/jenkins_config/plugins.txt --plugin-download-directory /var/jenkins_home/plugins
+              exec /usr/local/bin/jenkins.sh
           ports:
             - name: http
               containerPort: 8080

@@ -2,22 +2,29 @@
 
 Goal: keep prod data, test against a snapshot without touching prod.
 
-## Managed daily snapshot (rotating)
-Terraform keeps exactly one managed "daily" snapshot in prod (`latest_snapshot_id`). It is maintained by a dedicated Terraform root in `terraform/snapshots/` and applied by GitHub Actions (`.github/workflows/terraform-snapshots.yml`):
-- `schedule` (daily, 03:00): creates a new **auto** snapshot (replacing the previous one; max 1 auto kept)
-- `workflow_dispatch` (manual): creates a **manual** snapshot (default TTL 24h; does not replace the auto snapshot and does not delete other manual snapshots)
+## Managed daily snapshots (rotating)
+Terraform keeps exactly one managed "daily" snapshot per prod data volume. The snapshots are maintained by a dedicated Terraform root in `terraform/snapshots/` and applied by GitHub Actions (`.github/workflows/terraform-snapshots.yml`):
+- `schedule` (daily, 03:00): creates new **auto** snapshots (replacing the previous auto snapshots; max 1 auto kept per target)
+- `workflow_dispatch` (manual): creates **manual** snapshots (default TTL 24h; does not replace auto snapshots and does not delete other manual snapshots)
 - each run also enforces manual retention (expired manual snapshots are deleted) and prunes manual snapshots that were deleted in Scaleway UI (so they are not recreated)
 
+Managed targets:
+- `node1-main` -> `devsh-k3s-prod-data-node1` (Kimai/node1 data)
+- `chat` -> `prod-chat-01-data` (StoatChat data)
+- `jenkins` -> `jenkins-prod-data` (Jenkins home)
+- `observability` -> `prod-observability-01-data` (Grafana/monitoring data)
+
 ### CI setup (once)
-Workflow expects a dedicated Object Storage bucket for Terraform state (separate from the LUKS bucket) and a Scaleway IAM key scoped to the minimum required permissions (Block snapshots + read volume, and Object Storage access to the state bucket only).
+Workflow expects a dedicated Object Storage bucket for Terraform state (separate from the LUKS bucket) and a Scaleway IAM key scoped to the minimum required permissions: Block Storage snapshot/volume access, temporary Instance access for restore-drill verifier machines, Object Storage access to the snapshot state bucket, and read-only access to the single LUKS key object used by the restore drill.
 
 Configure GitHub repository secrets (or Environment `prod` secrets):
 - `SNAPSHOTS_SCW_ACCESS_KEY`
 - `SNAPSHOTS_SCW_SECRET_KEY`
 - `SNAPSHOTS_DISCORD_WEBHOOK_URL` (optional) - Discord webhook URL for snapshot success/failure notifications
 
-Snapshot configuration (project ID, volume name, tfstate bucket/key/region/endpoint) is defined in `.github/workflows/terraform-snapshots.yml` and can be overridden when running the workflow manually (`workflow_dispatch` inputs).
+Snapshot configuration (project ID, target names, tfstate bucket/key/region/endpoint) is defined in `.github/workflows/terraform-snapshots.yml` and can be overridden when running the workflow manually (`workflow_dispatch` inputs).
 Manual snapshots support `manual_ttl_hours` (default `24`) and `manual_snapshot_name` (optional).
+When a manual run targets only a subset of volumes, the request stores that target list in state. During the next refresh pass, the workflow keeps only the target snapshots that still exist in Scaleway, so manually deleted snapshots are pruned instead of being recreated.
 
 When creating the IAM API key used by GitHub Actions, set its `default_project_id` to the project that owns the Object Storage buckets (otherwise S3 requests fail with `403 Forbidden` during `HeadObject` / Terraform backend init).
 
@@ -72,18 +79,48 @@ Manual snapshots are separate from the rotating daily snapshot. They do not repl
 Use the `terraform-snapshots` workflow (`workflow_dispatch`) on branch `env/prod`.
 
 Inputs:
+- `target_names` (default `all`; comma-separated allowed, e.g. `chat,jenkins`)
 - `manual_ttl_hours` (default `24`)
 - `manual_snapshot_name` (optional) - keep it short and unique (e.g. `incident-2025-12-14`)
 
-The run output contains the created snapshot name and ID. If `SNAPSHOTS_DISCORD_WEBHOOK_URL` is set, a Discord notification is sent on success and failure.
+The run output prints only target keys and counts. Snapshot IDs, volume IDs, and temporary verifier resource IDs are treated as sensitive Terraform outputs and are not printed to public Actions logs. If `SNAPSHOTS_DISCORD_WEBHOOK_URL` is set, a Discord notification is sent on success and failure.
 
 ### List snapshot IDs (from Terraform state)
 From the dedicated snapshots root:
 ```
 cd terraform/snapshots
 terraform output -raw latest_snapshot_id
+terraform output -json latest_snapshot_ids
 terraform output -json manual_snapshot_ids
 ```
+
+## Restore drill (non-prod temporary verifier)
+The `snapshot-restore-drill` workflow (`.github/workflows/snapshot-restore-drill.yml`) verifies that the latest managed snapshots can be restored without touching production nodes or production workloads.
+
+It runs weekly and can be started manually. Inputs:
+- `target_names` (default `all`; comma-separated allowed, e.g. `chat,jenkins`)
+- `project_id`
+- Terraform state bucket settings
+
+For each selected target the workflow:
+1. Reads the latest snapshot ID from the snapshots Terraform state.
+2. Creates a temporary Block volume from that snapshot.
+3. Starts a temporary verifier instance.
+4. Allows SSH only from the current GitHub runner public IP for the duration of the job.
+5. Unlocks and mounts the restored data volume with the existing LUKS key.
+6. Runs local health checks on `127.0.0.1` using disposable containers.
+7. Destroys the temporary instance and temporary volume.
+
+Target checks:
+- `node1-main`: restored `/mnt/data` opens, MariaDB data starts locally, Kimai var data is present. The live Kimai node is not restarted and no production pod is touched.
+- `chat`: restored MongoDB, MinIO and RabbitMQ data start locally and respond to health checks.
+- `jenkins`: restored Jenkins home starts locally and `/login` responds.
+- `observability`: restored Grafana and OnCall Grafana data start locally and `/api/health` responds; local-path data root is present.
+
+The restore drill intentionally does not reuse production DNS, ingress, cert-manager challenges, Flux alerting, or public service endpoints. This avoids duplicate alerts and avoids any interaction with live Kimai, StoatChat, Jenkins, or monitoring workloads.
+Terraform output and apply logs are redacted before they are written to public CI logs. The matrix passed between jobs contains only target keys and instance types, not snapshot IDs.
+
+The current guarantee is crash-consistent Block Storage restore. For databases that need tighter RPO/RTO guarantees, add a second layer of application-aware logical backups later (for example MariaDB and MongoDB dumps) and test those in the same restore-drill pattern.
 
 ### Legacy local/manual snapshots (not used by CI)
 There is an older local helper `terraform/manual-snapshot.ps1` that manages manual snapshots via the main `terraform/` root.
@@ -108,7 +145,7 @@ terraform apply -auto-approve
 
 ### Notes
 - Prod volume is never destroyed (`prevent_destroy_data_volume=true` by default).
-- Terraform keeps only the latest managed daily snapshot (replaces the previous one after the new snapshot is created).
+- Terraform keeps only the latest managed daily snapshot per target (replaces the previous one after the new snapshot is created).
 - Manual snapshots do not affect the daily snapshot and do not delete each other. Expired manual snapshots are removed on the next workflow run (at latest the daily schedule).
 - If you delete a manual snapshot in Scaleway UI, the next workflow run will prune it from Terraform state and it will not be recreated.
 - Test infra can be destroyed/recreated freely with a chosen snapshot ID.

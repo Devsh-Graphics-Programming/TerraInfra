@@ -286,6 +286,30 @@ spec:
           envFrom:
             - secretRef:
                 name: stoat-secrets
+            - secretRef:
+                name: notification-smtp
+          env:
+            - name: REVOLT__API__SMTP__HOST
+              value: mail.devsh.eu
+            - name: REVOLT__API__SMTP__PORT
+              value: "587"
+            - name: REVOLT__API__SMTP__USE_TLS
+              value: "true"
+            - name: REVOLT__API__SMTP__USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: notification-smtp
+                  key: GF_SMTP_USER
+            - name: REVOLT__API__SMTP__PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: notification-smtp
+                  key: GF_SMTP_PASSWORD
+            - name: REVOLT__API__SMTP__FROM_ADDRESS
+              valueFrom:
+                secretKeyRef:
+                  name: notification-smtp
+                  key: GF_SMTP_FROM_ADDRESS
           ports:
             - name: http
               containerPort: 14702

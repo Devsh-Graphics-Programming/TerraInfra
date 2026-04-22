@@ -1,0 +1,48 @@
+#cloud-config
+package_update: true
+package_upgrade: false
+
+disable_root: false
+users:
+  - name: root
+    lock_passwd: true
+    ssh_authorized_keys:
+      - ${ssh_public_key}
+
+packages:
+  - curl
+  - jq
+  - awscli
+  - cryptsetup
+  - docker.io
+
+write_files:
+  - path: /usr/local/bin/ensure-data-mount.sh
+    permissions: "0755"
+    owner: root:root
+    encoding: b64
+    content: ${ensure_data_mount_b64}
+  - path: /usr/local/bin/terra-restore-drill.sh
+    permissions: "0755"
+    owner: root:root
+    encoding: b64
+    content: ${restore_drill_b64}
+  - path: /etc/default/terra-data
+    permissions: "0600"
+    owner: root:root
+    content: |
+      LUKS_KEY_URL=${luks_key_url}
+      LUKS_KEY_ACCESS_KEY=${luks_key_access_key}
+      LUKS_KEY_SECRET_KEY=${luks_key_secret_key}
+      ALLOW_LUKS_FORMAT=false
+  - path: /etc/default/terra-restore-drill
+    permissions: "0644"
+    owner: root:root
+    content: |
+      TARGET_KEY=${target_key}
+      RUN_ID=${run_id}
+
+runcmd:
+  - systemctl enable --now docker
+  - set -a; . /etc/default/terra-data; set +a; /usr/local/bin/ensure-data-mount.sh
+  - /usr/local/bin/terra-restore-drill.sh 2>&1 | tee /var/log/terra-restore-drill.log

@@ -41,6 +41,24 @@ jobs:
       - name: Terraform validate
         run: terraform validate -no-color
 
+      - name: Terraform init snapshots (no backend)
+        run: terraform -chdir=snapshots init -backend=false -input=false
+
+      - name: Terraform validate snapshots
+        run: terraform -chdir=snapshots validate -no-color
+
+      - name: Terraform init snapshot restore drill (no backend)
+        run: terraform -chdir=snapshot-restore-drill init -backend=false -input=false
+
+      - name: Terraform validate snapshot restore drill
+        run: terraform -chdir=snapshot-restore-drill validate -no-color
+
+      - name: Terraform init IAM (no backend)
+        run: terraform -chdir=iam init -backend=false -input=false
+
+      - name: Terraform validate IAM
+        run: terraform -chdir=iam validate -no-color
+
   generate:
     needs: qa
     if: github.event_name == 'push' && github.ref_name == 'env/prod' && github.actor != 'github-actions[bot]'
@@ -62,6 +80,12 @@ jobs:
       - uses: terraform-docs/gh-actions@v1.3.0
         with:
           working-dir: terraform/snapshots
+          output-file: TERRAFORM.md
+          output-method: replace
+
+      - uses: terraform-docs/gh-actions@v1.3.0
+        with:
+          working-dir: terraform/snapshot-restore-drill
           output-file: TERRAFORM.md
           output-method: replace
 
@@ -104,13 +128,13 @@ jobs:
       - name: Commit and push if changed
         run: |
           set -euo pipefail
-          if [ -z "$(git status --porcelain -- terraform/TERRAFORM.md terraform/snapshots/TERRAFORM.md terraform/iam/TERRAFORM.md KUBEDIAGRAM.svg KUBEDIAGRAM.png)" ]; then
+          if [ -z "$(git status --porcelain -- terraform/TERRAFORM.md terraform/snapshots/TERRAFORM.md terraform/snapshot-restore-drill/TERRAFORM.md terraform/iam/TERRAFORM.md KUBEDIAGRAM.svg KUBEDIAGRAM.png)" ]; then
             echo "No changes to generated files."
             exit 0
           fi
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add terraform/TERRAFORM.md terraform/snapshots/TERRAFORM.md terraform/iam/TERRAFORM.md KUBEDIAGRAM.svg KUBEDIAGRAM.png
+          git add terraform/TERRAFORM.md terraform/snapshots/TERRAFORM.md terraform/snapshot-restore-drill/TERRAFORM.md terraform/iam/TERRAFORM.md KUBEDIAGRAM.svg KUBEDIAGRAM.png
           git commit -m "chore(ci): update generated files [skip ci]"
           git push
