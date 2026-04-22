@@ -22,6 +22,7 @@ No modules.
 |------|------|
 | [scaleway_iam_application.snapshots](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/iam_application) | resource |
 | [scaleway_iam_policy.snapshots_block_storage](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/iam_policy) | resource |
+| [scaleway_iam_policy.snapshots_instance_restore_drill](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/iam_policy) | resource |
 | [scaleway_iam_policy.snapshots_terraform_state](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/iam_policy) | resource |
 | [scaleway_object_bucket_policy.luks_keys](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/object_bucket_policy) | resource |
 | [scaleway_object_bucket_policy.snapshots_state](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/object_bucket_policy) | resource |
@@ -34,6 +35,7 @@ No modules.
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
 | <a name="input_block_storage_permission_set_names"></a> [block\_storage\_permission\_set\_names](#input\_block\_storage\_permission\_set\_names) | IAM permission sets for managing block storage snapshots | `list(string)` | <pre>[<br/>  "BlockStorageFullAccess"<br/>]</pre> | no |
+| <a name="input_instance_permission_set_names"></a> [instance\_permission\_set\_names](#input\_instance\_permission\_set\_names) | IAM permission sets for temporary restore drill instances | `list(string)` | <pre>[<br/>  "InstancesFullAccess"<br/>]</pre> | no |
 | <a name="input_luks_bucket_name"></a> [luks\_bucket\_name](#input\_luks\_bucket\_name) | Object Storage bucket name holding the LUKS key | `string` | `"terra-luks-keys"` | no |
 | <a name="input_luks_key_access_key"></a> [luks\_key\_access\_key](#input\_luks\_key\_access\_key) | Access key of the LUKS reader (used to resolve application/user automatically) | `string` | `""` | no |
 | <a name="input_luks_key_object_name"></a> [luks\_key\_object\_name](#input\_luks\_key\_object\_name) | Object name inside luks\_bucket\_name containing the LUKS key | `string` | `"luks.key"` | no |
@@ -59,5 +61,6 @@ No modules.
 |------|-------------|
 | <a name="output_snapshots_application_id"></a> [snapshots\_application\_id](#output\_snapshots\_application\_id) | IAM application ID used by GitHub Actions snapshots |
 | <a name="output_snapshots_block_storage_policy_id"></a> [snapshots\_block\_storage\_policy\_id](#output\_snapshots\_block\_storage\_policy\_id) | IAM policy ID for Block Storage snapshot permissions |
+| <a name="output_snapshots_instance_restore_drill_policy_id"></a> [snapshots\_instance\_restore\_drill\_policy\_id](#output\_snapshots\_instance\_restore\_drill\_policy\_id) | IAM policy ID for temporary restore drill instance permissions |
 | <a name="output_snapshots_terraform_state_policy_id"></a> [snapshots\_terraform\_state\_policy\_id](#output\_snapshots\_terraform\_state\_policy\_id) | IAM policy ID for Object Storage Terraform state access |
 <!-- END_TF_DOCS -->
