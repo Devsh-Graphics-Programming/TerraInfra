@@ -293,6 +293,8 @@ spec:
               value: mail.devsh.eu
             - name: REVOLT__API__SMTP__PORT
               value: "587"
+            - name: REVOLT__API__SMTP__USE_STARTTLS
+              value: "true"
             - name: REVOLT__API__SMTP__USE_TLS
               value: "true"
             - name: REVOLT__API__SMTP__USERNAME
