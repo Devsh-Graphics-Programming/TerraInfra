@@ -58,6 +58,8 @@ patches:
       name: oncall
       namespace: monitoring-oncall
     patch: |-
+      - op: remove
+        path: /spec/values/env/MIRAGE_CIPHER_IV
       - op: replace
         path: /spec/values/postgresql/primary/persistence/size
         value: 2Gi
