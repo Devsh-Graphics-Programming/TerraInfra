@@ -53,19 +53,19 @@ data:
               cps {
                 sandbox()
                 script('''pipeline {
-          agent none
-          options {
-            timestamps()
-            buildDiscarder(logRotator(numToKeepStr: '20'))
-          }
-          stages {
-            stage('Smoke') {
-              steps {
-                echo 'Jenkins configuration loaded.'
-              }
-            }
-          }
-        }''')
+                  agent none
+                  options {
+                    timestamps()
+                    buildDiscarder(logRotator(numToKeepStr: '20'))
+                  }
+                  stages {
+                    stage('Smoke') {
+                      steps {
+                        echo 'Jenkins configuration loaded.'
+                      }
+                    }
+                  }
+                }''')
               }
             }
           }
