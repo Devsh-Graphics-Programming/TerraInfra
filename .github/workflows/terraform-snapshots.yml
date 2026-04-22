@@ -97,7 +97,8 @@ jobs:
           if [[ -z "${requested_targets}" || "${requested_targets}" == "all" ]]; then
             snapshot_targets="${default_snapshot_targets}"
           else
-            snapshot_targets="$(jq -c --arg names "${requested_targets}" --argjson defaults "${default_snapshot_targets}" '
+            snapshot_targets="$(jq -cn --arg names "${requested_targets}" --arg defaults_json "${default_snapshot_targets}" '
+              ($defaults_json | fromjson) as $defaults |
               ($names | split(",") | map(select(length > 0))) as $wanted |
               if ($wanted | length) == 0 then
                 error("No snapshot targets selected")
