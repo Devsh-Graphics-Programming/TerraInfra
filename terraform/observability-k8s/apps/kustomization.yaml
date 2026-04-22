@@ -4,6 +4,7 @@ resources:
   - ../../k8s/cluster-issuer.yaml
   - ../../k8s/priority-classes.tpl.yaml
   - local-path-config.yaml
+  - storage-dirs.yaml
   - ../../k8s/monitoring-grafana.tpl.yaml
   - ../../k8s/monitoring-oncall.tpl.yaml
   - monitoring-kustomization.yaml

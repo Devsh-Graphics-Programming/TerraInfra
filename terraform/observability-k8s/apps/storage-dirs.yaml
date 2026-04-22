@@ -1,0 +1,30 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: observability-storage-dirs
+  namespace: monitoring
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mkdir
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              mkdir -p /host-data/grafana /host-data/oncall-grafana /host-data/local-path
+              chown 472:472 /host-data/grafana /host-data/oncall-grafana
+              chmod 0750 /host-data/grafana /host-data/oncall-grafana
+              chmod 0777 /host-data/local-path
+          volumeMounts:
+            - name: host-data
+              mountPath: /host-data
+      volumes:
+        - name: host-data
+          hostPath:
+            path: /mnt/data
+            type: Directory
