@@ -252,13 +252,25 @@ case "${TARGET_KEY}" in
     write_status "running" "checking Jenkins from restored home"
     require_path "/mnt/data/jenkins/home"
     pass_check "jenkins-home" "restored Jenkins home path exists"
+    require_path "/mnt/data/jenkins/home/config.xml"
+    pass_check "jenkins-config" "restored Jenkins controller config exists"
+    require_path "/mnt/data/jenkins/home/secrets/master.key"
+    pass_check "jenkins-master-key" "restored Jenkins master key exists"
+    require_path "/mnt/data/jenkins/home/plugins"
+    pass_check "jenkins-plugins" "restored Jenkins plugins directory exists"
+    require_path "/mnt/data/jenkins/home/jobs/system/jobs/smoke/config.xml"
+    pass_check "jenkins-smoke-job" "restored smoke job configuration exists"
     run_container drill-jenkins \
       -p 127.0.0.1:8080:8080 \
       -e JAVA_OPTS=-Djenkins.install.runSetupWizard=false \
+      -e PROMETHEUS_NAMESPACE=jenkins \
+      -e COLLECT_DISK_USAGE=false \
       -v /mnt/data/jenkins/home:/var/jenkins_home \
       docker.io/jenkins/jenkins:lts-jdk21
     wait_for_http "http://127.0.0.1:8080/login" 600
     pass_check "jenkins-login" "Jenkins login endpoint responded"
+    wait_for_http "http://127.0.0.1:8080/prometheus/" 300
+    pass_check "jenkins-metrics" "Jenkins Prometheus endpoint responded"
     ;;
 
   observability)

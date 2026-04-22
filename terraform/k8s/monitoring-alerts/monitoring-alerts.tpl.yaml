@@ -90,6 +90,15 @@ spec:
           annotations:
             summary: Flux reconciliation stalled
             description: Flux resource {{ $labels.name }} is stalled for more than 15 minutes.
+        - alert: JenkinsMetricsDown
+          expr: up{job="devsh-jenkins-app"} == 0
+          for: 5m
+          labels:
+            severity: warning
+            team: devops
+          annotations:
+            summary: Jenkins metrics scrape down
+            description: Central Prometheus cannot scrape Jenkins application metrics for more than 5 minutes.
         - alert: RestartStorm
           expr: rate(kube_pod_container_status_restarts_total[10m]) > 5
           for: 10m

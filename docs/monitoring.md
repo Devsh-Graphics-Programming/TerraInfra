@@ -6,6 +6,7 @@ Provisioning
 - The dedicated observability cluster uses the GitOps tree under `terraform/observability-k8s/` and serves `monitoring.devsh.eu` and `oncall.devsh.eu`.
 - `prod-observability-01` is the central Prometheus/Grafana/OnCall node.
 - Host metrics from the app node, chat node, and Jenkins node are scraped by the central Prometheus through `node_exporter`.
+- Jenkins application metrics are scraped centrally from `https://jenkins.devsh.eu/prometheus/`; the metrics ingress path is limited to the observability node source address.
 - Terraform security groups expose the metrics port only to the observability node public IP.
 
 View current dashboards
@@ -34,7 +35,7 @@ Notes
 
 ## Alerting (Alertmanager → OnCall → Discord)
 - See `docs/alerts.md` for the full flow and smoke tests.
-- Alert rules live in `terraform/k8s/monitoring-alerts.tpl.yaml` (node readiness, disk/pvc pressure, CoreDNS/control-plane targets, Flux stalled/failed, CrashLoop, HPA max, etc.).
+- Alert rules live in `terraform/k8s/monitoring-alerts.tpl.yaml` (node readiness, disk/pvc pressure, CoreDNS/control-plane targets, Jenkins metrics scrape, Flux stalled/failed, CrashLoop, HPA max, etc.).
 
 ## Image digest rollout (www/blog)
 - Flux image automation resources live in `terraform/k8s/image-automation.yaml` (ImageRepository/ImagePolicy/ImageUpdateAutomation) and can update manifests in-repo when images are published as immutable tags.

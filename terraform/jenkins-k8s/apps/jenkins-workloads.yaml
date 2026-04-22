@@ -29,6 +29,9 @@ spec:
         app.kubernetes.io/name: jenkins
     spec:
       enableServiceLinks: false
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
       initContainers:
         - name: prepare-home
           image: docker.io/busybox:1.37
@@ -58,6 +61,12 @@ spec:
               value: -Djenkins.install.runSetupWizard=false
             - name: CASC_JENKINS_CONFIG
               value: /var/jenkins_config/jenkins.yaml
+            - name: JENKINS_OPTS
+              value: --httpPort=8080
+            - name: PROMETHEUS_NAMESPACE
+              value: jenkins
+            - name: COLLECT_DISK_USAGE
+              value: "false"
           command:
             - bash
             - -c
@@ -76,6 +85,28 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+          startupProbe:
+            httpGet:
+              path: /login
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /login
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /login
+              port: http
+            initialDelaySeconds: 180
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
           volumeMounts:
             - name: home
               mountPath: /var/jenkins_home
@@ -86,6 +117,14 @@ spec:
               mountPath: /var/jenkins_home/init.groovy.d/10-sync-admin-user.groovy
               subPath: sync-admin-user.groovy
               readOnly: true
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           resources:
             requests:
               cpu: 250m

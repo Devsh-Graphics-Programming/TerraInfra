@@ -19,6 +19,7 @@ data:
     github
     cloudbees-folder
     mailer
+    prometheus
   jenkins.yaml: |
     jenkins:
       systemMessage: "DevSH Jenkins controller managed by TerraInfra."

@@ -48,3 +48,14 @@ patches:
                 labels:
                   node: jenkins-prod
                   role: ci
+          - job_name: devsh-jenkins-app
+            scrape_interval: 60s
+            scheme: https
+            metrics_path: /prometheus/
+            static_configs:
+              - targets:
+                  - jenkins.devsh.eu
+                labels:
+                  node: jenkins-prod
+                  role: ci
+                  service: jenkins

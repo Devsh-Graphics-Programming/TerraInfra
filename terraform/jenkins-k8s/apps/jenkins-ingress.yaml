@@ -37,3 +37,28 @@ spec:
                 name: jenkins
                 port:
                   name: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: jenkins-metrics
+  namespace: jenkins
+  annotations:
+    nginx.ingress.kubernetes.io/whitelist-source-range: 51.158.99.238/32
+spec:
+  ingressClassName: nginx
+  tls:
+    - secretName: jenkins-tls
+      hosts:
+        - jenkins.devsh.eu
+  rules:
+    - host: jenkins.devsh.eu
+      http:
+        paths:
+          - path: /prometheus
+            pathType: Prefix
+            backend:
+              service:
+                name: jenkins
+                port:
+                  name: http
