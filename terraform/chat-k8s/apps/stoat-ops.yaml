@@ -34,6 +34,8 @@ spec:
               value: https://stoatchat.devsh.eu
             - name: STOAT_INVITE_TEMPLATE
               value: /opt/stoat-ops/invite-email.txt
+            - name: STOAT_INVITE_HTML_TEMPLATE
+              value: /opt/stoat-ops/invite-email.html
             - name: STOAT_INVITE_SUBJECT
               value: StoatChat invite
           volumeMounts:
