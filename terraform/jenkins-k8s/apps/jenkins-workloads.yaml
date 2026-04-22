@@ -27,6 +27,8 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: jenkins
+      annotations:
+        devsh.eu/config-revision: "2026-04-22-jenkins-metrics-auth"
     spec:
       enableServiceLinks: false
       securityContext:
