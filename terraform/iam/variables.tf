@@ -64,6 +64,12 @@ variable "snapshots_state_object_prefix" {
   default     = "terraform/snapshots/"
 }
 
+variable "snapshot_restore_drill_state_object_prefix" {
+  type        = string
+  description = "Object key prefix in the state bucket used by the snapshot restore drill Terraform backend"
+  default     = "terraform/snapshot-restore-drill/"
+}
+
 variable "luks_bucket_name" {
   type        = string
   description = "Object Storage bucket name holding the LUKS key"

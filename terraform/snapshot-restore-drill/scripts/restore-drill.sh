@@ -3,6 +3,7 @@ set -euo pipefail
 
 STATUS_DIR="/var/lib/terra-restore-drill"
 STATUS_FILE="${STATUS_DIR}/status.json"
+CHECKS_FILE="${STATUS_DIR}/checks.jsonl"
 
 if [ -f /etc/default/terra-restore-drill ]; then
   # shellcheck disable=SC1091
@@ -11,25 +12,48 @@ fi
 
 TARGET_KEY="${TARGET_KEY:-}"
 PHASE="init"
+STATUS_FINALIZED=0
 
 mkdir -p "${STATUS_DIR}"
+: > "${CHECKS_FILE}"
+
+record_check() {
+  local name="$1"
+  local status="$2"
+  local message="$3"
+  jq -cn \
+    --arg name "${name}" \
+    --arg status "${status}" \
+    --arg message "${message}" \
+    '{name: $name, status: $status, message: $message}' \
+    >> "${CHECKS_FILE}"
+}
+
+pass_check() {
+  local name="$1"
+  local message="$2"
+  record_check "${name}" "passed" "${message}"
+}
 
 write_status() {
   local status="$1"
   local message="$2"
   jq -n \
+    --slurpfile checks "${CHECKS_FILE}" \
     --arg target "${TARGET_KEY}" \
     --arg phase "${PHASE}" \
     --arg status "${status}" \
     --arg message "${message}" \
     --arg timestamp "$(date -u +%FT%TZ)" \
-    '{target: $target, phase: $phase, status: $status, message: $message, timestamp: $timestamp}' \
+    '{target: $target, phase: $phase, status: $status, message: $message, timestamp: $timestamp, checks: $checks}' \
     > "${STATUS_FILE}"
 }
 
 fail() {
   local message="$1"
+  record_check "${PHASE}" "failed" "${message}"
   write_status "failed" "${message}"
+  STATUS_FINALIZED=1
   echo "[restore-drill] ${message}" >&2
   exit 1
 }
@@ -37,7 +61,8 @@ fail() {
 on_exit() {
   local rc=$?
   cleanup_containers
-  if [ "${rc}" -ne 0 ]; then
+  if [ "${rc}" -ne 0 ] && [ "${STATUS_FINALIZED}" -eq 0 ]; then
+    record_check "${PHASE}" "failed" "restore drill failed in phase ${PHASE}"
     write_status "failed" "restore drill failed in phase ${PHASE}"
   fi
 }
@@ -104,26 +129,31 @@ trap on_exit EXIT
 PHASE="mount"
 write_status "running" "checking restored data mount"
 findmnt -n /mnt/data >/dev/null 2>&1 || fail "/mnt/data is not mounted"
+pass_check "data-mount" "restored data volume is mounted"
 
 PHASE="docker"
 write_status "running" "checking docker runtime"
 systemctl is-active --quiet docker || systemctl start docker
 docker info >/dev/null
+pass_check "docker" "docker runtime is available"
 
 case "${TARGET_KEY}" in
   chat)
     PHASE="chat-mongo"
     write_status "running" "checking MongoDB from restored chat data"
     require_path "/mnt/data/stoat/self-hosted/data/db"
+    pass_check "mongodb-data" "restored MongoDB data path exists"
     run_container drill-mongo \
       -p 127.0.0.1:27017:27017 \
       -v /mnt/data/stoat/self-hosted/data/db:/data/db \
       docker.io/mongo
     wait_for_exec 300 docker exec drill-mongo mongosh localhost:27017/test --quiet --eval 'db.runCommand("ping").ok'
+    pass_check "mongodb-ping" "MongoDB ping succeeded"
 
     PHASE="chat-minio"
     write_status "running" "checking MinIO from restored chat data"
     require_path "/mnt/data/stoat/self-hosted/data/minio"
+    pass_check "minio-data" "restored MinIO data path exists"
     run_container drill-minio \
       -p 127.0.0.1:9000:9000 \
       -e MINIO_ROOT_USER=restorecheck \
@@ -132,10 +162,12 @@ case "${TARGET_KEY}" in
       -v /mnt/data/stoat/self-hosted/data/minio:/data \
       docker.io/minio/minio server /data
     wait_for_http "http://127.0.0.1:9000/minio/health/ready" 300
+    pass_check "minio-health" "MinIO health endpoint is ready"
 
     PHASE="chat-rabbit"
     write_status "running" "checking RabbitMQ from restored chat data"
     require_path "/mnt/data/stoat/self-hosted/data/rabbit"
+    pass_check "rabbitmq-data" "restored RabbitMQ data path exists"
     run_container drill-rabbit \
       --hostname rabbit-0 \
       -p 127.0.0.1:5672:5672 \
@@ -143,55 +175,66 @@ case "${TARGET_KEY}" in
       -v /mnt/data/stoat/self-hosted/data/rabbit:/var/lib/rabbitmq \
       docker.io/rabbitmq:4
     wait_for_exec 300 docker exec drill-rabbit rabbitmq-diagnostics -q ping
+    pass_check "rabbitmq-ping" "RabbitMQ ping succeeded"
     ;;
 
   jenkins)
     PHASE="jenkins"
     write_status "running" "checking Jenkins from restored home"
     require_path "/mnt/data/jenkins/home"
+    pass_check "jenkins-home" "restored Jenkins home path exists"
     run_container drill-jenkins \
       -p 127.0.0.1:8080:8080 \
       -e JAVA_OPTS=-Djenkins.install.runSetupWizard=false \
       -v /mnt/data/jenkins/home:/var/jenkins_home \
       docker.io/jenkins/jenkins:lts-jdk21
     wait_for_http "http://127.0.0.1:8080/login" 600
+    pass_check "jenkins-login" "Jenkins login endpoint responded"
     ;;
 
   observability)
     PHASE="grafana"
     write_status "running" "checking Grafana from restored data"
     require_path "/mnt/data/grafana"
+    pass_check "grafana-data" "restored Grafana data path exists"
     run_container drill-grafana \
       -p 127.0.0.1:3000:3000 \
       -v /mnt/data/grafana:/var/lib/grafana \
       docker.io/grafana/grafana:11.2.2
     wait_for_http "http://127.0.0.1:3000/api/health" 300
+    pass_check "grafana-health" "Grafana health endpoint responded"
     docker rm -f drill-grafana >/dev/null 2>&1 || true
 
     PHASE="oncall-grafana"
     write_status "running" "checking OnCall Grafana from restored data"
     require_path "/mnt/data/oncall-grafana"
+    pass_check "oncall-grafana-data" "restored OnCall Grafana data path exists"
     run_container drill-oncall-grafana \
       -p 127.0.0.1:3001:3000 \
       -v /mnt/data/oncall-grafana:/var/lib/grafana \
       docker.io/grafana/grafana:11.2.2
     wait_for_http "http://127.0.0.1:3001/api/health" 300
+    pass_check "oncall-grafana-health" "OnCall Grafana health endpoint responded"
 
     PHASE="prometheus-data"
     write_status "running" "checking local-path data root"
     require_path "/mnt/data/local-path"
+    pass_check "local-path-data" "restored local-path data root exists"
     ;;
 
   node1-main)
     PHASE="kimai-mariadb"
     write_status "running" "checking MariaDB from restored node1 data"
     require_path "/mnt/data/mariadb"
+    pass_check "mariadb-data" "restored MariaDB data path exists"
     require_path "/mnt/data/kimai-var"
+    pass_check "kimai-var" "restored Kimai var path exists"
     run_container drill-mariadb \
       -p 127.0.0.1:3306:3306 \
       -v /mnt/data/mariadb:/var/lib/mysql \
       docker.io/mariadb:11
     wait_for_tcp "127.0.0.1" "3306" 300
+    pass_check "mariadb-tcp" "MariaDB port responded locally"
     ;;
 
   *)
@@ -201,4 +244,5 @@ esac
 
 PHASE="complete"
 write_status "success" "restore drill passed"
+STATUS_FINALIZED=1
 log "restore drill passed"

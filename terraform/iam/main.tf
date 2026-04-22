@@ -30,6 +30,18 @@ locals {
     var.snapshots_state_bucket_name
   )
 
+  restore_drill_state_object_prefix_trimmed = trim(var.snapshot_restore_drill_state_object_prefix, "/")
+  restore_drill_state_object_resource = local.restore_drill_state_object_prefix_trimmed != "" ? format(
+    "%s/%s/*",
+    var.snapshots_state_bucket_name,
+    local.restore_drill_state_object_prefix_trimmed
+  ) : ""
+
+  state_object_resources = distinct(compact([
+    local.state_object_resource,
+    local.restore_drill_state_object_resource,
+  ]))
+
   luks_object_resource = format(
     "%s/%s",
     var.luks_bucket_name,
@@ -119,10 +131,10 @@ resource "scaleway_object_bucket_policy" "snapshots_state" {
           "s3:PutObject",
           "s3:DeleteObject",
         ]
-        Resource = [
-          var.snapshots_state_bucket_name,
-          local.state_object_resource,
-        ]
+        Resource = concat(
+          [var.snapshots_state_bucket_name],
+          local.state_object_resources,
+        )
       },
     ]
   })

@@ -20,7 +20,7 @@ Workflow expects a dedicated Object Storage bucket for Terraform state (separate
 Configure GitHub repository secrets (or Environment `prod` secrets):
 - `SNAPSHOTS_SCW_ACCESS_KEY`
 - `SNAPSHOTS_SCW_SECRET_KEY`
-- `SNAPSHOTS_DISCORD_WEBHOOK_URL` (optional) - Discord webhook URL for snapshot success/failure notifications
+- `SNAPSHOTS_DISCORD_WEBHOOK_URL` (optional) - Discord webhook URL for snapshot and restore-drill success/failure notifications
 
 Snapshot configuration (project ID, target names, tfstate bucket/key/region/endpoint) is defined in `.github/workflows/terraform-snapshots.yml` and can be overridden when running the workflow manually (`workflow_dispatch` inputs).
 Manual snapshots support `manual_ttl_hours` (default `24`) and `manual_snapshot_name` (optional).
@@ -30,6 +30,7 @@ When creating the IAM API key used by GitHub Actions, set its `default_project_i
 
 ### IAM + bucket policies as code (manual apply)
 IAM resources and Object Storage bucket policies for snapshots live in `terraform/iam/`. This is not applied by CI. Run it manually with your full-privilege Scaleway key when you want to reconcile:
+The state bucket policy grants the snapshot application access to the snapshots state prefix and the restore-drill state prefix, not the full bucket.
 
 Prepare your local env (recommended):
 - Load `terraform/.env` (SCW creds, `TF_VAR_project_id`, `TF_VAR_luks_key_access_key`, etc.): `cd terraform; .\env.ps1`
@@ -40,7 +41,8 @@ Create a local (not committed) vars file, e.g. `terraform/iam/local.auto.tfvars.
 {
   "owner_user_email": "you@example.com",
   "snapshots_state_bucket_name": "terra-snapshots-state",
-  "snapshots_state_object_prefix": "terraform/snapshots/"
+  "snapshots_state_object_prefix": "terraform/snapshots/",
+  "snapshot_restore_drill_state_object_prefix": "terraform/snapshot-restore-drill/"
 }
 ```
 
@@ -110,6 +112,7 @@ For each selected target the workflow:
 5. Unlocks and mounts the restored data volume with the existing LUKS key.
 6. Runs local health checks on `127.0.0.1` using disposable containers.
 7. Destroys the temporary instance and temporary volume.
+8. Publishes a sanitized Discord result with per-target health checks and cleanup status when `SNAPSHOTS_DISCORD_WEBHOOK_URL` is configured.
 
 Target checks:
 - `node1-main`: restored `/mnt/data` opens, MariaDB data starts locally, Kimai var data is present. The live Kimai node is not restarted and no production pod is touched.

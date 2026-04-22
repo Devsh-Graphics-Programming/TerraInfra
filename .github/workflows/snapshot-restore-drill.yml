@@ -32,6 +32,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   resolve:
@@ -245,6 +246,7 @@ jobs:
           echo "TF_VAR_ssh_public_key=$(cat "${key_path}.pub")" >> "${GITHUB_ENV}"
 
       - name: Terraform init (restore drill state)
+        id: restore_init
         run: |
           terraform init -input=false \
             -backend-config="bucket=${SNAPSHOTS_TFSTATE_BUCKET}" \
@@ -258,6 +260,7 @@ jobs:
             -backend-config="force_path_style=true"
 
       - name: Terraform apply
+        id: apply
         run: |
           set -euo pipefail
           redact_tf_output() {
@@ -268,6 +271,7 @@ jobs:
           terraform apply -auto-approve -no-color -parallelism=1 2>&1 | redact_tf_output
 
       - name: Wait for restore drill
+        id: wait
         run: |
           set -euo pipefail
 
@@ -326,12 +330,215 @@ jobs:
           fi
 
       - name: Terraform destroy
+        id: destroy
         if: always()
         run: |
-          set -euo pipefail
+          set +e
           redact_tf_output() {
             sed -E \
               -e 's/[a-z]{2}-[a-z]+-[0-9]\/[0-9a-fA-F-]{36}/<scw-id>/g' \
               -e 's/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/<uuid>/g'
           }
           terraform destroy -auto-approve -no-color -parallelism=1 2>&1 | redact_tf_output
+          rc=${PIPESTATUS[0]}
+          if [[ "${rc}" -eq 0 ]]; then
+            echo "success" > destroy-status.txt
+          else
+            echo "failed" > destroy-status.txt
+          fi
+          exit "${rc}"
+
+      - name: Write restore drill result
+        if: always()
+        env:
+          TARGET_KEY: ${{ matrix.target_key }}
+          RESTORE_INIT_OUTCOME: ${{ steps.restore_init.outcome }}
+          APPLY_OUTCOME: ${{ steps.apply.outcome }}
+          WAIT_OUTCOME: ${{ steps.wait.outcome }}
+          DESTROY_OUTCOME: ${{ steps.destroy.outcome }}
+        run: |
+          set -euo pipefail
+
+          cleanup="$(cat destroy-status.txt 2>/dev/null || true)"
+          if [[ -z "${cleanup}" ]]; then
+            case "${DESTROY_OUTCOME:-}" in
+              success) cleanup="success" ;;
+              failure) cleanup="failed" ;;
+              *) cleanup="not-run" ;;
+            esac
+          fi
+
+          if [[ -f status.json ]]; then
+            jq \
+              --arg target "${TARGET_KEY}" \
+              --arg cleanup "${cleanup}" \
+              '.target = $target | .cleanup = $cleanup | .checks = (.checks // [])' \
+              status.json > "restore-result-${TARGET_KEY}.json"
+          else
+            phase="unknown"
+            message="restore drill did not produce a verifier status file"
+
+            if [[ "${RESTORE_INIT_OUTCOME:-}" == "failure" ]]; then
+              phase="terraform-init"
+              message="Terraform backend initialization failed before verifier startup"
+            elif [[ "${APPLY_OUTCOME:-}" == "failure" ]]; then
+              phase="terraform-apply"
+              message="Terraform apply failed before verifier health checks completed"
+            elif [[ "${WAIT_OUTCOME:-}" == "failure" ]]; then
+              phase="wait-for-health-checks"
+              message="Verifier health checks did not complete successfully"
+            fi
+
+            jq -n \
+              --arg target "${TARGET_KEY}" \
+              --arg phase "${phase}" \
+              --arg status "failed" \
+              --arg message "${message}" \
+              --arg cleanup "${cleanup}" \
+              --arg timestamp "$(date -u +%FT%TZ)" \
+              '{target: $target, phase: $phase, status: $status, message: $message, cleanup: $cleanup, timestamp: $timestamp, checks: []}' \
+              > "restore-result-${TARGET_KEY}.json"
+          fi
+
+          jq -r '"Restore result: \(.target) status=\(.status) phase=\(.phase) cleanup=\(.cleanup)"' "restore-result-${TARGET_KEY}.json"
+
+      - name: Upload restore drill result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: restore-result-${{ matrix.target_key }}
+          path: terraform/snapshot-restore-drill/restore-result-${{ matrix.target_key }}.json
+          if-no-files-found: error
+          retention-days: 7
+
+  notify:
+    needs:
+      - resolve
+      - drill
+    if: always() && github.ref_name == 'env/prod'
+    runs-on: ubuntu-latest
+    environment: prod
+    env:
+      SNAPSHOTS_DISCORD_WEBHOOK_URL: ${{ secrets.SNAPSHOTS_DISCORD_WEBHOOK_URL }}
+    steps:
+      - name: Mask sensitive values
+        run: |
+          if [[ -n "${SNAPSHOTS_DISCORD_WEBHOOK_URL:-}" ]]; then
+            echo "::add-mask::${SNAPSHOTS_DISCORD_WEBHOOK_URL}"
+          fi
+
+      - name: Download restore drill results
+        if: env.SNAPSHOTS_DISCORD_WEBHOOK_URL != ''
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: restore-result-*
+          path: restore-results
+          merge-multiple: true
+
+      - name: Notify Discord (restore drill status)
+        if: env.SNAPSHOTS_DISCORD_WEBHOOK_URL != ''
+        env:
+          RESOLVE_RESULT: ${{ needs.resolve.result }}
+          DRILL_RESULT: ${{ needs.drill.result }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p restore-results
+          mapfile -t result_files < <(find restore-results -type f -name '*.json' | sort)
+          if [[ "${#result_files[@]}" -gt 0 ]]; then
+            results="$(jq -s '.' "${result_files[@]}")"
+          else
+            results="[]"
+          fi
+
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          trigger="${{ github.event_name }}"
+          schedule="${{ github.event.schedule }}"
+          branch="${{ github.ref_name }}"
+          actor="${{ github.actor }}"
+          ts="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+
+          trigger_label="${trigger}"
+          if [[ "${trigger}" == "schedule" && -n "${schedule}" ]]; then
+            trigger_label="cron (${schedule})"
+          elif [[ "${trigger}" == "workflow_dispatch" ]]; then
+            trigger_label="dispatch"
+          fi
+
+          status="success"
+          title="Snapshot restore drill passed"
+          color=3066993
+          if [[ "${RESOLVE_RESULT}" != "success" || "${DRILL_RESULT}" != "success" ]]; then
+            status="failed"
+            title="Snapshot restore drill failed"
+            color=15158332
+          fi
+
+          target_fields="$(jq -c '
+            def value_or_unknown($v): if ($v == null or $v == "") then "unknown" else $v end;
+            def checks_text:
+              if ((.checks // []) | length) == 0 then
+                "none reported"
+              else
+                ((.checks // []) | map(.name + "=" + .status) | join(", "))
+              end;
+            if length == 0 then
+              [{name: "Targets", value: "No restore result artifacts were available.", inline: false}]
+            else
+              map({
+                name: ("Target " + .target),
+                value: (
+                  "Status: " + value_or_unknown(.status) + "\n" +
+                  "Phase: " + value_or_unknown(.phase) + "\n" +
+                  "Cleanup: " + value_or_unknown(.cleanup) + "\n" +
+                  "Health checks: " + checks_text
+                ),
+                inline: false
+              })
+            end
+          ' <<< "${results}")"
+
+          payload="$(jq -n \
+            --arg title "${title}" \
+            --arg status "${status}" \
+            --arg trigger "${trigger_label}" \
+            --arg branch "${branch}" \
+            --arg actor "${actor}" \
+            --arg run_url "${run_url}" \
+            --arg timestamp "${ts}" \
+            --arg resolve_result "${RESOLVE_RESULT}" \
+            --arg drill_result "${DRILL_RESULT}" \
+            --argjson color "${color}" \
+            --argjson target_fields "${target_fields}" \
+            '{
+              username: "TerraInfra",
+              embeds: [
+                {
+                  title: $title,
+                  color: $color,
+                  fields: ([
+                    {name: "Status", value: $status, inline: true},
+                    {name: "Trigger", value: $trigger, inline: true},
+                    {name: "Branch", value: $branch, inline: true},
+                    {name: "Resolve job", value: $resolve_result, inline: true},
+                    {name: "Drill jobs", value: $drill_result, inline: true},
+                    {name: "GitHub run", value: ("[Open run](" + $run_url + ")"), inline: true},
+                    {name: "Actor", value: $actor, inline: true}
+                  ] + $target_fields),
+                  timestamp: $timestamp
+                }
+              ]
+            }')"
+
+          {
+            echo "## Snapshot restore drill"
+            echo
+            echo "- Status: ${status}"
+            echo "- Resolve job: ${RESOLVE_RESULT}"
+            echo "- Drill jobs: ${DRILL_RESULT}"
+            echo
+            jq -r '.[] | "- " + .target + ": " + .status + " / " + .phase + " / cleanup=" + (.cleanup // "unknown")' <<< "${results}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          curl -fsS -H 'Content-Type: application/json' -d "${payload}" "${SNAPSHOTS_DISCORD_WEBHOOK_URL}" || echo "Discord webhook notification failed" >&2
