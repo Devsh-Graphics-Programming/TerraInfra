@@ -53,9 +53,10 @@ resource "scaleway_iam_application" "snapshots" {
 }
 
 resource "scaleway_iam_policy" "snapshots_terraform_state" {
-  name           = "snapshots-terra-state-accessor"
-  description    = "Access to the dedicated Object Storage bucket holding Terraform state for snapshots"
-  application_id = scaleway_iam_application.snapshots.id
+  name            = "snapshots-terra-state-accessor"
+  description     = "Access to the dedicated Object Storage bucket holding Terraform state for snapshots"
+  application_id  = scaleway_iam_application.snapshots.id
+  organization_id = scaleway_iam_application.snapshots.organization_id
 
   rule {
     project_ids          = [var.project_id]
@@ -64,9 +65,10 @@ resource "scaleway_iam_policy" "snapshots_terraform_state" {
 }
 
 resource "scaleway_iam_policy" "snapshots_block_storage" {
-  name           = "snapshots-block-storage-reader"
-  description    = "Block Storage permissions required to create/delete snapshots"
-  application_id = scaleway_iam_application.snapshots.id
+  name            = "snapshots-block-storage-reader"
+  description     = "Block Storage permissions required to create/delete snapshots"
+  application_id  = scaleway_iam_application.snapshots.id
+  organization_id = scaleway_iam_application.snapshots.organization_id
 
   rule {
     project_ids          = [var.project_id]
@@ -75,9 +77,10 @@ resource "scaleway_iam_policy" "snapshots_block_storage" {
 }
 
 resource "scaleway_iam_policy" "snapshots_instance_restore_drill" {
-  name           = "snapshots-instance-restore-drill"
-  description    = "Instance permissions required to run temporary snapshot restore drill verifiers"
-  application_id = scaleway_iam_application.snapshots.id
+  name            = "snapshots-instance-restore-drill"
+  description     = "Instance permissions required to run temporary snapshot restore drill verifiers"
+  application_id  = scaleway_iam_application.snapshots.id
+  organization_id = scaleway_iam_application.snapshots.organization_id
 
   rule {
     project_ids          = [var.project_id]
