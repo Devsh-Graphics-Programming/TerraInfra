@@ -1,0 +1,218 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: stoat-ops-scripts
+  namespace: chat
+data:
+  invite-email.txt: |
+    Hello,
+
+    You have been invited to StoatChat.
+
+    Register here:
+    {{invite_url}}
+
+    Invite code:
+    {{invite_code}}
+
+    This invite was requested for {{email}}.
+    This invite is single-use. After registration, StoatChat will send a separate email verification message.
+
+    If you did not expect this invite, you can ignore this email.
+  stoat-invite: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    usage() {
+      echo "Usage: stoat-invite invite <email>" >&2
+      exit 64
+    }
+
+    die() {
+      echo "error: $*" >&2
+      exit 1
+    }
+
+    require_command() {
+      command -v "$1" >/dev/null 2>&1 || die "missing required command: $1"
+    }
+
+    extract_address() {
+      local value="$1"
+      if [[ "$value" =~ \<([^>]*)\> ]]; then
+        printf '%s\n' "${BASH_REMATCH[1]}"
+      else
+        printf '%s\n' "$value"
+      fi
+    }
+
+    render_template() {
+      local line
+      while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line//\{\{email\}\}/$invite_email}"
+        line="${line//\{\{invite_url\}\}/$invite_url}"
+        line="${line//\{\{invite_code\}\}/$invite_code}"
+        printf '%s\n' "$line"
+      done < "$template_path"
+    }
+
+    mongo_cleanup_invite() {
+      INVITE_CODE="$invite_code" mongosh "$mongo_url" --quiet >/dev/null 2>&1 <<'MONGO' || true
+    db.invites.deleteOne({ _id: process.env.INVITE_CODE, used: false });
+    MONGO
+    }
+
+    smtp_read_response() {
+      local line
+      SMTP_REPLY_CODE=""
+      while IFS= read -r -t 30 line <&"${SMTP[0]}"; do
+        line="${line%$'\r'}"
+        if [[ "$line" =~ ^([0-9][0-9][0-9])([[:space:]-]) ]]; then
+          SMTP_REPLY_CODE="${BASH_REMATCH[1]}"
+          [[ "${BASH_REMATCH[2]}" == " " ]] && return 0
+        fi
+      done
+      return 1
+    }
+
+    smtp_expect() {
+      local expected=" $1 "
+      smtp_read_response || return 1
+      [[ "$expected" == *" $SMTP_REPLY_CODE "* ]]
+    }
+
+    smtp_send_cmd() {
+      printf '%s\r\n' "$1" >&"${SMTP[1]}"
+    }
+
+    smtp_send_data_line() {
+      local line="$1"
+      [[ "$line" == .* ]] && line=".$line"
+      printf '%s\r\n' "$line" >&"${SMTP[1]}"
+    }
+
+    smtp_send_message() {
+      smtp_send_data_line "From: $smtp_from_header"
+      smtp_send_data_line "To: <$invite_email>"
+      smtp_send_data_line "Subject: $smtp_subject"
+      smtp_send_data_line "Date: $(date -R)"
+      smtp_send_data_line "MIME-Version: 1.0"
+      smtp_send_data_line "Content-Type: text/plain; charset=UTF-8"
+      smtp_send_data_line "Content-Transfer-Encoding: 8bit"
+      smtp_send_data_line ""
+
+      while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line%$'\r'}"
+        smtp_send_data_line "$line"
+      done <<< "$mail_body"
+
+      printf '.\r\n' >&"${SMTP[1]}"
+    }
+
+    send_invite_email() {
+      local auth_plain
+      auth_plain="$(printf '%s\0%s\0%s' "$smtp_user" "$smtp_user" "$smtp_password" | base64 | tr -d '\n')"
+
+      coproc SMTP { openssl s_client -starttls smtp -connect "$smtp_host:$smtp_port" -servername "$smtp_host" -quiet 2>/dev/null; }
+      local smtp_pid="$COPROC_PID"
+
+      {
+        smtp_expect "220" &&
+        smtp_send_cmd "EHLO stoat-ops.devsh.eu" &&
+        smtp_expect "250" &&
+        smtp_send_cmd "AUTH PLAIN $auth_plain" &&
+        smtp_expect "235" &&
+        smtp_send_cmd "MAIL FROM:<$smtp_mail_from>" &&
+        smtp_expect "250" &&
+        smtp_send_cmd "RCPT TO:<$invite_email>" &&
+        smtp_expect "250 251" &&
+        smtp_send_cmd "DATA" &&
+        smtp_expect "354" &&
+        smtp_send_message &&
+        smtp_expect "250" &&
+        smtp_send_cmd "QUIT"
+      } || {
+        kill "$smtp_pid" >/dev/null 2>&1 || true
+        wait "$smtp_pid" >/dev/null 2>&1 || true
+        return 1
+      }
+
+      smtp_read_response >/dev/null 2>&1 || true
+      wait "$smtp_pid" >/dev/null 2>&1 || true
+    }
+
+    [[ "${1:-}" == "invite" ]] || usage
+    [[ "$#" -eq 2 ]] || usage
+
+    require_command base64
+    require_command date
+    require_command mongosh
+    require_command openssl
+    require_command tr
+
+    invite_email="$2"
+    [[ "$invite_email" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] || die "invalid email address"
+
+    mongo_url="${MONGO_URL:-mongodb://database:27017/revolt}"
+    app_url="${STOAT_APP_URL:-https://stoatchat.devsh.eu}"
+    template_path="${STOAT_INVITE_TEMPLATE:-/opt/stoat-ops/invite-email.txt}"
+    smtp_subject="${STOAT_INVITE_SUBJECT:-StoatChat invite}"
+
+    smtp_host_value="${GF_SMTP_HOST:-${SMTP_HOST:-mail.devsh.eu:587}}"
+    smtp_host="${smtp_host_value%%:*}"
+    if [[ "$smtp_host_value" == *:* ]]; then
+      smtp_port="${smtp_host_value##*:}"
+    else
+      smtp_port="${SMTP_PORT:-587}"
+    fi
+
+    smtp_user="${GF_SMTP_USER:-${SMTP_USERNAME:-}}"
+    smtp_password="${GF_SMTP_PASSWORD:-${SMTP_PASSWORD:-}}"
+    smtp_from_address="${GF_SMTP_FROM_ADDRESS:-${SMTP_FROM_ADDRESS:-}}"
+    smtp_from_name="${GF_SMTP_FROM_NAME:-StoatChat}"
+
+    [[ -n "$smtp_host" ]] || die "SMTP host is not configured"
+    [[ -n "$smtp_port" ]] || die "SMTP port is not configured"
+    [[ -n "$smtp_user" ]] || die "SMTP username is not configured"
+    [[ -n "$smtp_password" ]] || die "SMTP password is not configured"
+    [[ -n "$smtp_from_address" ]] || die "SMTP from address is not configured"
+    [[ -f "$template_path" ]] || die "invite template not found: $template_path"
+
+    smtp_mail_from="$(extract_address "$smtp_from_address")"
+    if [[ "$smtp_from_address" == *"<"* ]]; then
+      smtp_from_header="$smtp_from_address"
+    else
+      smtp_from_header="$smtp_from_name <$smtp_from_address>"
+    fi
+
+    invite_code="$(openssl rand -base64 18 | tr '+/' '-_' | tr -d '=\n')"
+    invite_url="${app_url%/}/register?invite=$invite_code"
+    mail_body="$(render_template)"
+
+    set +e
+    mongo_output="$(
+      INVITE_CODE="$invite_code" mongosh "$mongo_url" --quiet 2>&1 <<'MONGO'
+    const code = process.env.INVITE_CODE;
+
+    if (db.invites.findOne({ _id: code }, { _id: 1 })) {
+      print("INVITE_COLLISION");
+      quit(21);
+    }
+
+    db.invites.insertOne({ _id: code, used: false });
+    print("INVITE_CREATED");
+    MONGO
+    )"
+    mongo_status="$?"
+    set -e
+
+    if [[ "$mongo_status" -ne 0 ]]; then
+      die "failed to create invite"
+    fi
+
+    if ! send_invite_email; then
+      mongo_cleanup_invite
+      die "failed to send invite email; unused invite was removed"
+    fi
+
+    echo "Invite email sent to $invite_email."

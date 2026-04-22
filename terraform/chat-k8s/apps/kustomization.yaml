@@ -4,6 +4,7 @@ resources:
   - ../../k8s/cluster-issuer.yaml
   - node-exporter.yaml
   - stoat-config.yaml
+  - stoat-ops-scripts.yaml
+  - stoat-ops.yaml
   - stoat-workloads.yaml
   - stoat-ingress.yaml
-

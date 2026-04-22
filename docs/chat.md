@@ -17,6 +17,14 @@ invite_only = true
 
 The bootstrap does not create a default application user or admin password. Create the first user through an invite code and keep the code out of the repository.
 
+Registration invites are created from the Flux-managed ops pod:
+
+```bash
+kubectl -n chat exec deploy/stoat-ops -- stoat-invite invite user@example.com
+```
+
+The command creates a single-use registration invite in MongoDB and sends the invite email through the shared notification SMTP credentials. The invite code is not printed to stdout.
+
 Operational notes:
 
 - `stoatchat.devsh.eu` is served by the chat k3s ingress.
