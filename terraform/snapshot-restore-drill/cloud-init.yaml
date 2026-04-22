@@ -41,8 +41,11 @@ write_files:
     content: |
       TARGET_KEY=${target_key}
       RUN_ID=${run_id}
+      RESULT_BUCKET_NAME=${result_bucket_name}
+      RESULT_OBJECT_KEY=${result_object_key}
+      RESULT_REGION=${result_region}
+      RESULT_ENDPOINT=${result_endpoint}
 
 runcmd:
   - systemctl enable --now docker
-  - set -a; . /etc/default/terra-data; set +a; /usr/local/bin/ensure-data-mount.sh
-  - /usr/local/bin/terra-restore-drill.sh 2>&1 | tee /var/log/terra-restore-drill.log
+  - bash -o pipefail -c '/usr/local/bin/terra-restore-drill.sh 2>&1 | tee /var/log/terra-restore-drill.log'

@@ -72,3 +72,27 @@ variable "luks_key_url" {
   sensitive   = true
   default     = ""
 }
+
+variable "result_bucket_name" {
+  type        = string
+  description = "Object Storage bucket where the temporary verifier uploads sanitized status JSON"
+  default     = "terra-snapshots-state"
+}
+
+variable "result_object_key" {
+  type        = string
+  description = "Object key where the temporary verifier uploads sanitized status JSON"
+  default     = ""
+}
+
+variable "result_region" {
+  type        = string
+  description = "Object Storage region used for sanitized restore drill status upload"
+  default     = "fr-par"
+}
+
+variable "result_endpoint" {
+  type        = string
+  description = "Object Storage endpoint used for sanitized restore drill status upload"
+  default     = "https://s3.fr-par.scw.cloud"
+}

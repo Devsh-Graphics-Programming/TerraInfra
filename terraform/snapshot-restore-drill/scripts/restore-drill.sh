@@ -10,6 +10,16 @@ if [ -f /etc/default/terra-restore-drill ]; then
   . /etc/default/terra-restore-drill
 fi
 
+if [ -f /etc/default/terra-data ]; then
+  # shellcheck disable=SC1091
+  . /etc/default/terra-data
+fi
+
+export LUKS_KEY_URL="${LUKS_KEY_URL:-}"
+export LUKS_KEY_ACCESS_KEY="${LUKS_KEY_ACCESS_KEY:-}"
+export LUKS_KEY_SECRET_KEY="${LUKS_KEY_SECRET_KEY:-}"
+export ALLOW_LUKS_FORMAT="${ALLOW_LUKS_FORMAT:-false}"
+
 TARGET_KEY="${TARGET_KEY:-}"
 PHASE="init"
 STATUS_FINALIZED=0
@@ -35,6 +45,21 @@ pass_check() {
   record_check "${name}" "passed" "${message}"
 }
 
+upload_status() {
+  if [ -z "${RESULT_BUCKET_NAME:-}" ] || [ -z "${RESULT_OBJECT_KEY:-}" ]; then
+    return
+  fi
+  if [ -z "${LUKS_KEY_ACCESS_KEY:-}" ] || [ -z "${LUKS_KEY_SECRET_KEY:-}" ]; then
+    return
+  fi
+  AWS_ACCESS_KEY_ID="${LUKS_KEY_ACCESS_KEY}" \
+  AWS_SECRET_ACCESS_KEY="${LUKS_KEY_SECRET_KEY}" \
+  AWS_DEFAULT_REGION="${RESULT_REGION:-fr-par}" \
+    aws --endpoint-url="${RESULT_ENDPOINT:-https://s3.fr-par.scw.cloud}" \
+      s3 cp "${STATUS_FILE}" "s3://${RESULT_BUCKET_NAME}/${RESULT_OBJECT_KEY}" \
+      >/dev/null 2>&1 || true
+}
+
 write_status() {
   local status="$1"
   local message="$2"
@@ -47,6 +72,7 @@ write_status() {
     --arg timestamp "$(date -u +%FT%TZ)" \
     '{target: $target, phase: $phase, status: $status, message: $message, timestamp: $timestamp, checks: $checks}' \
     > "${STATUS_FILE}"
+  upload_status
 }
 
 fail() {
@@ -127,7 +153,8 @@ cleanup_containers() {
 trap on_exit EXIT
 
 PHASE="mount"
-write_status "running" "checking restored data mount"
+write_status "running" "mounting restored data volume"
+/usr/local/bin/ensure-data-mount.sh || fail "restored data mount setup failed"
 findmnt -n /mnt/data >/dev/null 2>&1 || fail "/mnt/data is not mounted"
 pass_check "data-mount" "restored data volume is mounted"
 

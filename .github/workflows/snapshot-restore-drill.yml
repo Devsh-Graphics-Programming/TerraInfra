@@ -167,6 +167,10 @@ jobs:
       TF_VAR_run_id: ${{ github.run_id }}-${{ github.run_attempt }}
       TF_VAR_luks_key_access_key: ${{ secrets.SNAPSHOTS_SCW_ACCESS_KEY }}
       TF_VAR_luks_key_secret_key: ${{ secrets.SNAPSHOTS_SCW_SECRET_KEY }}
+      TF_VAR_result_bucket_name: ${{ github.event.inputs.tfstate_bucket || 'terra-snapshots-state' }}
+      TF_VAR_result_object_key: terraform/snapshot-restore-drill/results/${{ github.run_id }}-${{ github.run_attempt }}/${{ matrix.target_key }}.json
+      TF_VAR_result_region: ${{ github.event.inputs.tfstate_region || 'fr-par' }}
+      TF_VAR_result_endpoint: ${{ github.event.inputs.tfstate_endpoint || 'https://s3.fr-par.scw.cloud' }}
     defaults:
       run:
         shell: bash
@@ -275,22 +279,34 @@ jobs:
         run: |
           set -euo pipefail
 
-          ip="$(terraform output -raw server_ip 2>/dev/null)"
-          echo "::add-mask::${ip}"
+          if ! command -v aws >/dev/null 2>&1; then
+            sudo apt-get update -y
+            sudo apt-get install -y awscli
+          fi
+
           key_path="${{ steps.ssh.outputs.key_path }}"
-          ssh_opts=(
-            -i "${key_path}"
-            -o StrictHostKeyChecking=no
-            -o UserKnownHostsFile=/dev/null
-            -o ConnectTimeout=10
-            -o ServerAliveInterval=10
-            -o LogLevel=ERROR
-          )
+          result_uri="s3://${TF_VAR_result_bucket_name}/${TF_VAR_result_object_key}"
+
+          tail_remote_logs() {
+            local ip
+            ip="$(terraform output -raw server_ip 2>/dev/null || true)"
+            if [[ -z "${ip}" || ! -f "${key_path}" ]]; then
+              return
+            fi
+            echo "::add-mask::${ip}"
+            ssh -i "${key_path}" \
+              -o StrictHostKeyChecking=no \
+              -o UserKnownHostsFile=/dev/null \
+              -o ConnectTimeout=10 \
+              -o ServerAliveInterval=10 \
+              -o LogLevel=ERROR \
+              "root@${ip}" 'tail -n 200 /var/log/terra-restore-drill.log || true' || true
+          }
 
           deadline=$((SECONDS + 2700))
           last_status=""
           while [ "${SECONDS}" -lt "${deadline}" ]; do
-            if ssh "${ssh_opts[@]}" "root@${ip}" 'test -f /var/lib/terra-restore-drill/status.json && cat /var/lib/terra-restore-drill/status.json' > status.json 2>/dev/null; then
+            if aws --endpoint-url="${SNAPSHOTS_TFSTATE_ENDPOINT}" s3 cp "${result_uri}" status.json >/dev/null 2>&1 && jq -e . status.json >/dev/null 2>&1; then
               status="$(jq -r '.status // "unknown"' status.json)"
               phase="$(jq -r '.phase // "unknown"' status.json)"
               message="$(jq -r '.message // ""' status.json)"
@@ -306,7 +322,7 @@ jobs:
               fi
               if [[ "${status}" == "failed" ]]; then
                 cat status.json
-                ssh "${ssh_opts[@]}" "root@${ip}" 'tail -n 200 /var/log/terra-restore-drill.log || true'
+                tail_remote_logs
                 exit 1
               fi
             fi
@@ -314,7 +330,7 @@ jobs:
           done
 
           echo "Restore drill timed out for ${{ matrix.target_key }}" >&2
-          ssh "${ssh_opts[@]}" "root@${ip}" 'tail -n 200 /var/log/terra-restore-drill.log || true' || true
+          tail_remote_logs
           exit 1
 
       - name: Collect restore drill logs
@@ -326,7 +342,7 @@ jobs:
           if [[ -n "${ip}" && -f "${key_path}" ]]; then
             echo "::add-mask::${ip}"
             ssh -i "${key_path}" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR "root@${ip}" \
-              'echo "--- status ---"; cat /var/lib/terra-restore-drill/status.json 2>/dev/null || true; echo "--- restore log ---"; tail -n 200 /var/log/terra-restore-drill.log 2>/dev/null || true'
+              'echo "--- status ---"; cat /var/lib/terra-restore-drill/status.json 2>/dev/null || true; echo "--- restore log ---"; tail -n 200 /var/log/terra-restore-drill.log 2>/dev/null || true' || true
           fi
 
       - name: Terraform destroy
@@ -368,7 +384,7 @@ jobs:
             esac
           fi
 
-          if [[ -f status.json ]]; then
+          if [[ -s status.json ]] && jq -e . status.json >/dev/null 2>&1; then
             jq \
               --arg target "${TARGET_KEY}" \
               --arg cleanup "${cleanup}" \
@@ -410,6 +426,16 @@ jobs:
           path: terraform/snapshot-restore-drill/restore-result-${{ matrix.target_key }}.json
           if-no-files-found: error
           retention-days: 7
+
+      - name: Remove remote restore drill result
+        if: always()
+        run: |
+          set +e
+          if command -v aws >/dev/null 2>&1; then
+            aws --endpoint-url="${SNAPSHOTS_TFSTATE_ENDPOINT}" \
+              s3 rm "s3://${TF_VAR_result_bucket_name}/${TF_VAR_result_object_key}" \
+              >/dev/null 2>&1 || true
+          fi
 
   notify:
     needs:
