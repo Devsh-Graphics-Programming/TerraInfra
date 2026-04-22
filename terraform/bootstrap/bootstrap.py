@@ -98,6 +98,10 @@ def log_status(subject: str, status: str, detail: str = "") -> None:
     log(msg, level=level)
 
 
+def yaml_string(value: str) -> str:
+    return json.dumps(value)
+
+
 def run(
     cmd: str,
     check: bool = True,
@@ -722,9 +726,9 @@ metadata:
   namespace: flux-system
 spec:
   interval: 2m
-  url: {config_repo_url}
+  url: {yaml_string(config_repo_url)}
   ref:
-    branch: {config_repo_branch}
+    branch: {yaml_string(config_repo_branch)}
   secretRef:
     name: git-credentials
 """
@@ -744,7 +748,7 @@ metadata:
 spec:
   interval: 2m
   prune: true
-  path: ./{vars_path}
+  path: {yaml_string(f"./{vars_path}")}
   sourceRef:
     kind: GitRepository
     name: terralinfra
@@ -752,10 +756,10 @@ spec:
 {decryption_section}  timeout: 1m
   postBuild:
     substitute:
-      BASE_DOMAIN: {base_domain}
-      ENV_PREFIX: {env_prefix}
-      ACME_EMAIL: {acme_email}
-      NODE_NAME: {node_name}
+      BASE_DOMAIN: {yaml_string(base_domain)}
+      ENV_PREFIX: {yaml_string(env_prefix)}
+      ACME_EMAIL: {yaml_string(acme_email)}
+      NODE_NAME: {yaml_string(node_name)}
 """
     flux_kustomization_infra = (
         "apiVersion: kustomize.toolkit.fluxcd.io/v1\n"
@@ -766,7 +770,7 @@ spec:
         "spec:\n"
         "  interval: 2m\n"
         "  prune: true\n"
-        f"  path: ./{config_repo_path}/infra\n"
+        f"  path: {yaml_string(f'./{config_repo_path}/infra')}\n"
         "  sourceRef:\n"
         "    kind: GitRepository\n"
         "    name: terralinfra\n"
@@ -786,7 +790,7 @@ spec:
         "spec:\n"
         "  interval: 2m\n"
         "  prune: true\n"
-        f"  path: ./{apps_path}\n"
+        f"  path: {yaml_string(f'./{apps_path}')}\n"
         "  sourceRef:\n"
         "    kind: GitRepository\n"
         "    name: terralinfra\n"
@@ -798,7 +802,7 @@ spec:
         "  timeout: 2m\n"
         "  postBuild:\n"
         "    substitute:\n"
-        f"      GITHUB_WEBHOOK_SECRET: {webhook_secret}\n"
+        f"      GITHUB_WEBHOOK_SECRET: {yaml_string(webhook_secret)}\n"
         "    substituteFrom:\n"
         "      - kind: ConfigMap\n"
         "        name: cluster-vars\n"
