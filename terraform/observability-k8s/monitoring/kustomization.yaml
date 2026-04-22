@@ -1,0 +1,29 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../k8s/monitoring/monitoring-prometheus.tpl.yaml
+patches:
+  - target:
+      group: helm.toolkit.fluxcd.io
+      version: v2
+      kind: HelmRelease
+      name: monitoring
+      namespace: monitoring
+    patch: |-
+      - op: replace
+        path: /spec/values/prometheus/prometheusSpec/retention
+        value: 5d
+      - op: replace
+        path: /spec/values/prometheus/prometheusSpec/retentionSize
+        value: 3GB
+      - op: add
+        path: /spec/values/prometheus/prometheusSpec/storageSpec
+        value:
+          volumeClaimTemplate:
+            spec:
+              storageClassName: local-path
+              accessModes:
+                - ReadWriteOnce
+              resources:
+                requests:
+                  storage: 3Gi

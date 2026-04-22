@@ -3,6 +3,7 @@
 Provisioning
 - Dashboards are provisioned from ConfigMap `grafana-dashboards` (label `grafana_dashboard=1`) in `monitoring-grafana`.
 - Files live in repo: `terraform/k8s/grafana-dashboards/*.json`. Flux apps kustomization includes this folder; Grafana mounts it via `dashboardProviders`/`dashboardsConfigMaps`.
+- The dedicated observability cluster uses the GitOps tree under `terraform/observability-k8s/` and serves `monitoring.devsh.eu` and `oncall.devsh.eu`.
 
 View current dashboards
 - Grafana: `https://${ENV_PREFIX}monitoring.${BASE_DOMAIN}`.

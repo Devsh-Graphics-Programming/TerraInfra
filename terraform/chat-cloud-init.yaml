@@ -1,0 +1,223 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+
+packages:
+  - curl
+  - ca-certificates
+  - gnupg
+  - git
+  - awscli
+  - cryptsetup
+  - jq
+  - openssl
+
+write_files:
+  - path: /usr/local/bin/ensure-data-mount.sh
+    permissions: "0755"
+    owner: root:root
+    encoding: b64
+    content: ${base64encode(file("${path_root}/bootstrap/ensure-data-mount.sh"))}
+  - path: /etc/default/terra-data
+    permissions: "0600"
+    owner: root:root
+    content: |
+      LUKS_KEY_URL=${luks_key_url}
+      LUKS_KEY_ACCESS_KEY=${luks_key_access}
+      LUKS_KEY_SECRET_KEY=${luks_key_secret}
+      ALLOW_LUKS_FORMAT=true
+  - path: /etc/systemd/system/ensure-data-mount.service
+    permissions: "0644"
+    owner: root:root
+    content: |
+      [Unit]
+      Description=Ensure chat data volume is unlocked and mounted
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      EnvironmentFile=-/etc/default/terra-data
+      ExecStart=/usr/local/bin/ensure-data-mount.sh
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=multi-user.target
+  - path: /usr/local/bin/install-docker.sh
+    permissions: "0755"
+    owner: root:root
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+
+      if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+        systemctl enable --now docker
+        exit 0
+      fi
+
+      install -m 0755 -d /etc/apt/keyrings
+      if [ ! -s /etc/apt/keyrings/docker.asc ]; then
+        curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
+        chmod a+r /etc/apt/keyrings/docker.asc
+      fi
+
+      . /etc/os-release
+      arch=$(dpkg --print-architecture)
+      echo "deb [arch=$arch signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian $VERSION_CODENAME stable" > /etc/apt/sources.list.d/docker.list
+      apt-get update
+
+      if ! DEBIAN_FRONTEND=noninteractive apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; then
+        rm -f /etc/apt/sources.list.d/docker.list
+        apt-get update
+        DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io
+        if ! docker compose version >/dev/null 2>&1; then
+          DEBIAN_FRONTEND=noninteractive apt-get install -y docker-compose-plugin || DEBIAN_FRONTEND=noninteractive apt-get install -y docker-compose
+        fi
+      fi
+
+      systemctl enable --now docker
+  - path: /usr/local/bin/bootstrap-stoat.sh
+    permissions: "0755"
+    owner: root:root
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+
+      DATA_ROOT=/mnt/data/stoat
+      REPO_DIR=/mnt/data/stoat/self-hosted
+      STOAT_DOMAIN=${stoat_host}
+      COMMAND="$${1:-start}"
+
+      compose() {
+        if docker compose version >/dev/null 2>&1; then
+          docker compose "$@"
+        else
+          docker-compose "$@"
+        fi
+      }
+
+      ensure_swap() {
+        if [ ${swap_size_gb} -le 0 ]; then
+          return
+        fi
+        if swapon --show=NAME | grep -qx "${swap_file}"; then
+          return
+        fi
+        if [ ! -f "${swap_file}" ]; then
+          fallocate -l ${swap_size_gb}G "${swap_file}"
+          chmod 600 "${swap_file}"
+          mkswap "${swap_file}"
+        fi
+        if ! grep -q "^${swap_file} " /etc/fstab 2>/dev/null; then
+          echo "${swap_file} none swap sw 0 0" >> /etc/fstab
+        fi
+        sysctl vm.swappiness=${swap_swappiness}
+        if ! grep -q "^vm.swappiness=" /etc/sysctl.conf 2>/dev/null; then
+          echo "vm.swappiness=${swap_swappiness}" >> /etc/sysctl.conf
+        else
+          sed -i 's/^vm.swappiness=.*/vm.swappiness=${swap_swappiness}/' /etc/sysctl.conf
+        fi
+        swapon -a
+      }
+
+      sync_repo() {
+        install -d -m 0750 "$DATA_ROOT"
+        if [ ! -d "$REPO_DIR/.git" ]; then
+          rm -rf "$REPO_DIR"
+          git clone https://github.com/stoatchat/self-hosted "$REPO_DIR"
+        else
+          git -C "$REPO_DIR" pull --ff-only
+        fi
+      }
+
+      render_initial_config() {
+        cd "$REPO_DIR"
+        if [ -f secrets.env ] && [ -f Revolt.toml ] && [ -f livekit.yml ]; then
+          return
+        fi
+        chmod +x ./generate_config.sh
+        printf '\n\n' | ./generate_config.sh "$STOAT_DOMAIN"
+      }
+
+      start_stack() {
+        cd "$REPO_DIR"
+        compose pull
+        compose up -d --remove-orphans
+      }
+
+      status_stack() {
+        cd "$REPO_DIR"
+        compose ps
+      }
+
+      ensure_swap
+      sync_repo
+      render_initial_config
+
+      case "$COMMAND" in
+        start)
+          start_stack
+          ;;
+        update)
+          start_stack
+          ;;
+        status)
+          status_stack
+          ;;
+        *)
+          echo "Unsupported command: $COMMAND" >&2
+          exit 2
+          ;;
+      esac
+  - path: /etc/systemd/system/stoat.service
+    permissions: "0644"
+    owner: root:root
+    content: |
+      [Unit]
+      Description=StoatChat self-hosted stack
+      Requires=ensure-data-mount.service docker.service
+      After=ensure-data-mount.service docker.service network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/usr/local/bin/bootstrap-stoat.sh start
+      ExecReload=/usr/local/bin/bootstrap-stoat.sh update
+      TimeoutStartSec=30m
+
+      [Install]
+      WantedBy=multi-user.target
+  - path: /etc/systemd/system/stoat-update.service
+    permissions: "0644"
+    owner: root:root
+    content: |
+      [Unit]
+      Description=Refresh StoatChat self-hosted stack
+      Requires=stoat.service
+      After=stoat.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/bootstrap-stoat.sh update
+      TimeoutStartSec=30m
+  - path: /etc/systemd/system/stoat-update.timer
+    permissions: "0644"
+    owner: root:root
+    content: |
+      [Unit]
+      Description=Weekly StoatChat image refresh
+
+      [Timer]
+      OnCalendar=Sun 05:00
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+
+runcmd:
+  - systemctl daemon-reload
+  - systemctl enable --now ensure-data-mount.service
+  - /usr/local/bin/install-docker.sh
+  - systemctl enable --now stoat.service
+  - systemctl enable --now stoat-update.timer

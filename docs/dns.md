@@ -5,7 +5,10 @@ Manual for now (TODO: automate via DNS API):
 - Test A records -> test node IP (use current IP from Terraform outputs)
 
 Hosts:
-- Prod: `devsh.eu`, `www.devsh.eu`, `blog.devsh.eu`, `kimai2.devsh.eu`, `monitoring.devsh.eu`, `oncall.devsh.eu`, `flux-hook.devsh.eu`, `k8s.devsh.eu`, `jenkins.devsh.eu`
+- Prod app node: `devsh.eu`, `www.devsh.eu`, `blog.devsh.eu`, `kimai2.devsh.eu`, `store.devsh.eu`, `flux-hook.devsh.eu`, `k8s.devsh.eu`
+- Prod observability node: `monitoring.devsh.eu`, `oncall.devsh.eu`
+- Prod chat node: `stoatchat.devsh.eu`
+- Prod CI node: `jenkins.devsh.eu`
 - Test: prefixed equivalents (`test.www.devsh.eu`, etc.) - update to current test IP
 
 Certs:

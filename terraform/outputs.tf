@@ -32,3 +32,23 @@ output "jenkins_data_volume_id" {
   value       = scaleway_block_volume.jenkins_data.id
   description = "ID of the standalone Jenkins controller data volume"
 }
+
+output "observability_node_ip" {
+  value       = scaleway_instance_ip.observability.address
+  description = "Public IP of the dedicated observability node"
+}
+
+output "observability_data_volume_id" {
+  value       = scaleway_block_volume.observability_data.id
+  description = "ID of the dedicated observability data volume"
+}
+
+output "chat_node_ip" {
+  value       = scaleway_instance_ip.chat.address
+  description = "Public IP of the dedicated StoatChat node"
+}
+
+output "chat_data_volume_id" {
+  value       = scaleway_block_volume.chat_data.id
+  description = "ID of the dedicated StoatChat data volume"
+}

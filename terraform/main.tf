@@ -47,6 +47,7 @@ module "k3s_node" {
     github_persistent_terra_infra_ro_pat     = var.github_persistent_terra_infra_ro_pat
     github_bootstrap_terra_infra_webhook_pat = var.github_bootstrap_terra_infra_webhook_pat
     env_name                                 = local.env_slug
+    node_name                                = "devsh-k3s-${local.env_slug}-node-1"
     luks_key_access_key                      = var.luks_key_access_key
     luks_key_secret_key                      = var.luks_key_secret_key
     luks_key_url                             = var.luks_key_url

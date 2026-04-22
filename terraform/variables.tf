@@ -62,6 +62,30 @@ variable "jenkins_data_volume_size_gb" {
   default     = 50
 }
 
+variable "observability_instance_type" {
+  type        = string
+  description = "Scaleway commercial type for the dedicated observability k3s node."
+  default     = "DEV1-M"
+}
+
+variable "observability_data_volume_size_gb" {
+  type        = number
+  description = "Size of the dedicated observability data volume in GiB."
+  default     = 10
+}
+
+variable "chat_instance_type" {
+  type        = string
+  description = "Scaleway commercial type for the dedicated StoatChat node."
+  default     = "DEV1-M"
+}
+
+variable "chat_data_volume_size_gb" {
+  type        = number
+  description = "Size of the dedicated StoatChat data volume in GiB."
+  default     = 10
+}
+
 variable "luks_key_access_key" {
   type        = string
   description = "Access key (read-only) for fetching LUKS key from Object Storage"

@@ -1,0 +1,69 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../k8s/cluster-issuer.yaml
+  - ../../k8s/priority-classes.tpl.yaml
+  - local-path-config.yaml
+  - ../../k8s/monitoring-grafana.tpl.yaml
+  - ../../k8s/monitoring-oncall.tpl.yaml
+  - monitoring-kustomization.yaml
+  - monitoring-alerts-kustomization.yaml
+  - ../../k8s/grafana-dashboards
+configMapGenerator:
+  - name: oncall-discord-proxy
+    namespace: monitoring-oncall
+    files:
+      - ../../k8s/oncall-discord-proxy/app.py
+    options:
+      disableNameSuffixHash: false
+patches:
+  - target:
+      version: v1
+      kind: PersistentVolume
+      name: grafana-pv
+    patch: |-
+      - op: replace
+        path: /spec/capacity/storage
+        value: 1Gi
+  - target:
+      version: v1
+      kind: PersistentVolumeClaim
+      name: grafana-pvc
+      namespace: monitoring-grafana
+    patch: |-
+      - op: replace
+        path: /spec/resources/requests/storage
+        value: 1Gi
+  - target:
+      version: v1
+      kind: PersistentVolume
+      name: oncall-grafana-pv
+    patch: |-
+      - op: replace
+        path: /spec/capacity/storage
+        value: 1Gi
+  - target:
+      version: v1
+      kind: PersistentVolumeClaim
+      name: oncall-grafana-pvc
+      namespace: monitoring-oncall
+    patch: |-
+      - op: replace
+        path: /spec/resources/requests/storage
+        value: 1Gi
+  - target:
+      group: helm.toolkit.fluxcd.io
+      version: v2
+      kind: HelmRelease
+      name: oncall
+      namespace: monitoring-oncall
+    patch: |-
+      - op: replace
+        path: /spec/values/postgresql/primary/persistence/size
+        value: 2Gi
+      - op: add
+        path: /spec/values/redis/master
+        value:
+          persistence:
+            enabled: true
+            size: 1Gi
