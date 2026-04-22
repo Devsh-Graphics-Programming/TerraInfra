@@ -23,12 +23,12 @@ jobs:
         shell: bash
         working-directory: terraform
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: false
           fetch-depth: 1
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: 1.6.6
 
@@ -66,24 +66,24 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: false
           fetch-depth: 0
 
-      - uses: terraform-docs/gh-actions@v1.3.0
+      - uses: terraform-docs/gh-actions@v1.4.1
         with:
           working-dir: terraform
           output-file: TERRAFORM.md
           output-method: replace
 
-      - uses: terraform-docs/gh-actions@v1.3.0
+      - uses: terraform-docs/gh-actions@v1.4.1
         with:
           working-dir: terraform/snapshots
           output-file: TERRAFORM.md
           output-method: replace
 
-      - uses: terraform-docs/gh-actions@v1.3.0
+      - uses: terraform-docs/gh-actions@v1.4.1
         with:
           working-dir: terraform/snapshot-restore-drill
           output-file: TERRAFORM.md
@@ -119,7 +119,7 @@ jobs:
             philippemerle/kubediagrams \
             kube-diagrams - -o KUBEDIAGRAM.png -f png
 
-      - uses: terraform-docs/gh-actions@v1.3.0
+      - uses: terraform-docs/gh-actions@v1.4.1
         with:
           working-dir: terraform/iam
           output-file: TERRAFORM.md

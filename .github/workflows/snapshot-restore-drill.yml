@@ -67,12 +67,12 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: false
           fetch-depth: 1
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: 1.6.6
           terraform_wrapper: false
@@ -96,7 +96,7 @@ jobs:
 
       - name: Upload janitor result
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: restore-janitor-result
           path: restore-janitor-result.json
@@ -196,12 +196,12 @@ jobs:
         shell: bash
         working-directory: terraform/snapshot-restore-drill
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: false
           fetch-depth: 1
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: 1.6.6
           terraform_wrapper: false
@@ -487,7 +487,7 @@ jobs:
 
       - name: Upload restore drill result
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: restore-result-${{ matrix.target_key }}
           path: terraform/snapshot-restore-drill/restore-result-${{ matrix.target_key }}.json
@@ -523,7 +523,7 @@ jobs:
 
       - name: Download restore drill results
         if: env.SNAPSHOTS_DISCORD_WEBHOOK_URL != ''
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           pattern: restore-result-*
@@ -554,6 +554,7 @@ jobs:
           branch="${{ github.ref_name }}"
           actor="${{ github.actor }}"
           ts="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          janitor_summary="${JANITOR_SUMMARY:-No janitor details were reported.}"
 
           trigger_label="${trigger}"
           if [[ "${trigger}" == "schedule" && -n "${schedule}" ]]; then
@@ -580,8 +581,8 @@ jobs:
             def target_line:
               (if (.status == "success" and .phase == "complete" and .cleanup == "success") then "[ok]" else "[fail]" end)
               + " `" + .target + "` "
-              + (passed_checks | tostring) + "/" + (total_checks | tostring) + " checks"
-              + ", cleanup " + value_or_unknown(.cleanup)
+              + "health checks " + (passed_checks | tostring) + " passed of " + (total_checks | tostring)
+              + ", Terraform cleanup " + value_or_unknown(.cleanup)
               + (if (.status == "success" and .phase == "complete" and .cleanup == "success") then
                   ""
                 else
@@ -606,7 +607,7 @@ jobs:
             --arg target_lines "${target_lines}" \
             --arg timestamp "${ts}" \
             --arg janitor_result "${JANITOR_RESULT}" \
-            --arg janitor_summary "${JANITOR_SUMMARY}" \
+            --arg janitor_summary "${janitor_summary}" \
             --arg resolve_result "${RESOLVE_RESULT}" \
             --arg drill_result "${DRILL_RESULT}" \
             --argjson color "${color}" \
@@ -620,7 +621,7 @@ jobs:
                     {name: "Status", value: $status, inline: true},
                     {name: "Trigger", value: $trigger, inline: true},
                     {name: "Branch", value: $branch, inline: true},
-                    {name: "Janitor", value: ($janitor_result + " (" + (if ($janitor_summary | length) > 0 then $janitor_summary else "n/a" end) + ")"), inline: false},
+                    {name: "Janitor", value: ($janitor_result + "\n" + $janitor_summary), inline: false},
                     {name: "Resolve job", value: $resolve_result, inline: true},
                     {name: "Drill jobs", value: $drill_result, inline: true},
                     {name: "GitHub run", value: ("[Open run](" + $run_url + ")"), inline: true},
@@ -636,21 +637,28 @@ jobs:
             echo "## Snapshot restore drill"
             echo
             echo "- Status: ${status}"
-            echo "- Janitor: ${JANITOR_RESULT} (${JANITOR_SUMMARY:-n/a})"
+            echo "- Janitor job: ${JANITOR_RESULT}"
+            echo "- Janitor sweep: ${janitor_summary}"
             echo "- Resolve job: ${RESOLVE_RESULT}"
             echo "- Drill jobs: ${DRILL_RESULT}"
             echo
-            echo "| Target | Result | Checks | Cleanup | Phase | Message |"
+            echo "| Target | Restore result | Health checks | Terraform cleanup | Phase | Message |"
             echo "| --- | --- | ---: | --- | --- | --- |"
             jq -r '
               def cell($v): (($v // "-") | tostring | gsub("[|]"; "/") | gsub("\n"; " ") | if length > 120 then .[0:117] + "..." else . end);
               def total_checks: ((.checks // []) | length);
               def passed_checks: ((.checks // []) | map(select(.status == "passed")) | length);
+              def check_summary:
+                if total_checks == 0 then
+                  "no health checks reported"
+                else
+                  (passed_checks | tostring) + " passed of " + (total_checks | tostring)
+                end;
               if length == 0 then
-                "| n/a | failed | 0/0 | unknown | unknown | No restore result artifacts were available. |"
+                "| n/a | failed | no result artifact | unknown | unknown | No restore result artifacts were available. |"
               else
                 .[]
-                | "| `" + .target + "` | " + cell(.status) + " | " + (passed_checks | tostring) + "/" + (total_checks | tostring) + " | " + cell(.cleanup) + " | " + cell(.phase) + " | " + cell(.message) + " |"
+                | "| `" + .target + "` | " + cell(.status) + " | " + check_summary + " | " + cell(.cleanup) + " | " + cell(.phase) + " | " + cell(.message) + " |"
               end
             ' <<< "${results}"
           } >> "${GITHUB_STEP_SUMMARY}"

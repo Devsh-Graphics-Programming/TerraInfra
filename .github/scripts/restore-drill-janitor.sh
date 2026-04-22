@@ -379,7 +379,7 @@ if (( api_failures > 0 )); then
   status="failed"
 fi
 
-summary="state ${state_destroyed_targets}/${state_checked_targets}, api deleted ${deleted_total}, skipped ${skipped_total}"
+summary="checked ${state_checked_targets} target state files; cleaned ${state_destroyed_targets} states with leftovers; deleted ${deleted_total} stale tagged resources; skipped ${skipped_total} safety-gated candidates"
 
 jq -n \
   --arg status "${status}" \
@@ -416,10 +416,13 @@ jq -n \
 {
   echo "## Restore-drill janitor"
   echo
-  echo "- Status: ${status}"
-  echo "- State cleanup: ${state_destroyed_targets}/${state_checked_targets} target states had resources"
-  echo "- API cleanup: ${deleted_total} deleted, ${skipped_total} skipped by safety gates"
-  echo "- Minimum age: ${MIN_AGE_HOURS}h"
+  echo "| Area | Result |"
+  echo "| --- | --- |"
+  echo "| Overall status | ${status} |"
+  echo "| Terraform state sweep | Checked ${state_checked_targets} per-target restore-drill state files. Cleaned ${state_destroyed_targets} files that still had managed restore-drill resources. |"
+  echo "| Tagged Scaleway sweep | Deleted ${deleted_total} stale tagged resources. Left ${skipped_total} candidates untouched because they did not pass the delete safety gates. |"
+  echo "| Deleted breakdown | Servers ${servers_deleted}, volumes ${volumes_deleted}, IPs ${ips_deleted}, security groups ${security_groups_deleted}. |"
+  echo "| Safety window | Only restore-drill resources older than ${MIN_AGE_HOURS}h are eligible for API cleanup. |"
 } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
