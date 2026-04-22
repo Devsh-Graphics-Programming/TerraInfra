@@ -10,6 +10,7 @@ data:
     workflow-aggregator
     git
     credentials-binding
+    matrix-auth
     plain-credentials
     ssh-credentials
     timestamper
@@ -34,14 +35,31 @@ data:
           users:
             - id: "$${JENKINS_ADMIN_ID}"
               password: "$${JENKINS_ADMIN_PASSWORD}"
+            - id: "$${JENKINS_METRICS_ID}"
+              password: "$${JENKINS_METRICS_PASSWORD}"
       authorizationStrategy:
-        loggedInUsersCanDoAnything:
-          allowAnonymousRead: false
+        globalMatrix:
+          entries:
+            - user:
+                name: "$${JENKINS_ADMIN_ID}"
+                permissions:
+                  - Overall/Administer
+            - user:
+                name: "$${JENKINS_METRICS_ID}"
+                permissions:
+                  - Overall/Read
+                  - Metrics/View
 
     unclassified:
       location:
         url: "https://jenkins.devsh.eu/"
         adminAddress: "$${GF_SMTP_FROM_ADDRESS}"
+      prometheusConfiguration:
+        collectDiskUsage: false
+        collectingMetricsPeriodInSeconds: 120
+        defaultNamespace: "jenkins"
+        path: "prometheus"
+        useAuthenticatedEndpoint: true
       mailer:
         charset: "UTF-8"
         replyToAddress: "$${GF_SMTP_FROM_ADDRESS}"
@@ -93,18 +111,22 @@ data:
         throw new IllegalStateException("Expected local Jenkins security realm")
     }
 
-    def adminId = System.getenv("JENKINS_ADMIN_ID")
-    def adminPassword = System.getenv("JENKINS_ADMIN_PASSWORD")
-    if (!adminId?.trim() || !adminPassword) {
-        throw new IllegalStateException("Jenkins admin environment is missing")
+    def syncLocalUser = { String idEnv, String passwordEnv ->
+        def userId = System.getenv(idEnv)
+        def userPassword = System.getenv(passwordEnv)
+        if (!userId?.trim() || !userPassword) {
+            throw new IllegalStateException("Jenkins local user environment is missing: " + idEnv)
+        }
+
+        def user = User.getById(userId, false)
+        if (user == null) {
+            user = realm.createAccount(userId, userPassword)
+        } else {
+            user.addProperty(HudsonPrivateSecurityRealm.Details.fromPlainPassword(userPassword))
+        }
+        user.save()
     }
 
-    def user = User.getById(adminId, false)
-    if (user == null) {
-        user = realm.createAccount(adminId, adminPassword)
-    } else {
-        user.addProperty(HudsonPrivateSecurityRealm.Details.fromPlainPassword(adminPassword))
-    }
-
-    user.save()
+    syncLocalUser("JENKINS_ADMIN_ID", "JENKINS_ADMIN_PASSWORD")
+    syncLocalUser("JENKINS_METRICS_ID", "JENKINS_METRICS_PASSWORD")
     instance.save()

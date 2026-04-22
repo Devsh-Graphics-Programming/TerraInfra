@@ -6,7 +6,7 @@ Provisioning
 - The dedicated observability cluster uses the GitOps tree under `terraform/observability-k8s/` and serves `monitoring.devsh.eu` and `oncall.devsh.eu`.
 - `prod-observability-01` is the central Prometheus/Grafana/OnCall node.
 - Host metrics from the app node, chat node, and Jenkins node are scraped by the central Prometheus through `node_exporter`.
-- Jenkins application metrics are scraped centrally from `https://jenkins.devsh.eu/prometheus/`; the Prometheus pod resolves that host directly to the Jenkins ingress address, and the metrics ingress path is limited to the observability node source address.
+- Jenkins application metrics are scraped centrally from `https://jenkins.devsh.eu/prometheus/`; the Prometheus pod resolves that host directly to the Jenkins ingress address and authenticates with a dedicated SOPS-managed Jenkins metrics user.
 - Terraform security groups expose the metrics port only to the observability node public IP.
 
 View current dashboards

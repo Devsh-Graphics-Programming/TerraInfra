@@ -34,6 +34,10 @@ patches:
             hostnames:
               - jenkins.devsh.eu
       - op: add
+        path: /spec/values/prometheus/prometheusSpec/secrets
+        value:
+          - jenkins-prometheus-scrape
+      - op: add
         path: /spec/values/prometheus/prometheusSpec/additionalScrapeConfigs
         value:
           - job_name: devsh-node-exporters
@@ -58,6 +62,9 @@ patches:
             scrape_interval: 60s
             scheme: https
             metrics_path: /prometheus/
+            basic_auth:
+              username_file: /etc/prometheus/secrets/jenkins-prometheus-scrape/username
+              password_file: /etc/prometheus/secrets/jenkins-prometheus-scrape/password
             static_configs:
               - targets:
                   - jenkins.devsh.eu

@@ -270,8 +270,11 @@ case "${TARGET_KEY}" in
       docker.io/jenkins/jenkins:lts-jdk21
     wait_for_http "http://127.0.0.1:8080/login" 600
     pass_check "jenkins-login" "Jenkins login endpoint responded"
-    wait_for_http "http://127.0.0.1:8080/prometheus/" 300
-    pass_check "jenkins-metrics" "Jenkins Prometheus endpoint responded"
+    metrics_code="$(curl -sS -o /dev/null -w "%{http_code}" "http://127.0.0.1:8080/prometheus/" || true)"
+    if [ "${metrics_code}" != "401" ] && [ "${metrics_code}" != "403" ]; then
+      fail "Jenkins Prometheus endpoint did not require authentication"
+    fi
+    pass_check "jenkins-metrics-auth" "Jenkins Prometheus endpoint requires authentication"
     ;;
 
   observability)
