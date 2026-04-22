@@ -182,6 +182,22 @@ resource "scaleway_object_bucket_policy" "luks_keys" {
           local.luks_object_resource,
         ]
       },
+      {
+        Sid    = "SnapshotsAppLuksKeyRead"
+        Effect = "Allow"
+        Principal = {
+          SCW = "application_id:${scaleway_iam_application.snapshots.id}"
+        }
+        Action = [
+          "s3:ListBucket",
+          "s3:GetBucketLocation",
+          "s3:GetObject",
+        ]
+        Resource = [
+          var.luks_bucket_name,
+          local.luks_object_resource,
+        ]
+      },
     ]
   })
 

@@ -17,6 +17,7 @@ Managed targets:
 
 ### CI setup (once)
 Workflow expects a dedicated Object Storage bucket for Terraform state (separate from the LUKS bucket) and a Scaleway IAM key scoped to the minimum required permissions: Block Storage snapshot/volume access, temporary Instance access for restore-drill verifier machines, Object Storage access to the snapshot state bucket, and read-only access to the single LUKS key object used by the restore drill.
+The LUKS bucket policy grants the snapshot application read access only to that key object. It does not grant broad bucket access.
 
 Configure GitHub repository secrets (or Environment `prod` secrets):
 - `SNAPSHOTS_SCW_ACCESS_KEY`
