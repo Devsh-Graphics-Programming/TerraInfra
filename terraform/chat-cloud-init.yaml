@@ -139,6 +139,24 @@ write_files:
         printf '\n\n' | ./generate_config.sh "$STOAT_DOMAIN"
       }
 
+      ensure_invite_only() {
+        cd "$REPO_DIR"
+        if grep -q '^\[api.registration\]' Revolt.toml; then
+          tmp_file="$(mktemp)"
+          awk '
+            BEGIN { in_section=0; wrote=0 }
+            /^\[api\.registration\]/ { in_section=1; print; next }
+            /^\[/ && in_section { if (!wrote) { print "invite_only = true"; wrote=1 } in_section=0; print; next }
+            in_section && /^invite_only[[:space:]]*=/ { if (!wrote) { print "invite_only = true"; wrote=1 } next }
+            { print }
+            END { if (in_section && !wrote) print "invite_only = true" }
+          ' Revolt.toml > "$tmp_file"
+          mv "$tmp_file" Revolt.toml
+        else
+          printf '\n[api.registration]\ninvite_only = true\n' >> Revolt.toml
+        fi
+      }
+
       start_stack() {
         cd "$REPO_DIR"
         compose pull
@@ -153,6 +171,7 @@ write_files:
       ensure_swap
       sync_repo
       render_initial_config
+      ensure_invite_only
 
       case "$COMMAND" in
         start)
