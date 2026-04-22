@@ -168,8 +168,6 @@ write_files:
         authorizationStrategy:
           loggedInUsersCanDoAnything:
             allowAnonymousRead: false
-        remotingSecurity:
-          enabled: true
 
       unclassified:
         location:
@@ -205,6 +203,35 @@ write_files:
               }
             }
       JENKINS_CASC
+
+        mkdir -p "$DATA_ROOT/home/init.groovy.d"
+        cat > "$DATA_ROOT/home/init.groovy.d/10-sync-admin-user.groovy" <<'JENKINS_INIT_GROOVY'
+      import hudson.model.User
+      import hudson.security.HudsonPrivateSecurityRealm
+      import jenkins.model.Jenkins
+
+      def instance = Jenkins.get()
+      def realm = instance.getSecurityRealm()
+      if (!(realm instanceof HudsonPrivateSecurityRealm)) {
+          throw new IllegalStateException("Expected local Jenkins security realm")
+      }
+
+      def adminId = System.getenv("JENKINS_ADMIN_ID")
+      def adminPassword = System.getenv("JENKINS_ADMIN_PASSWORD")
+      if (!adminId?.trim() || !adminPassword) {
+          throw new IllegalStateException("Jenkins admin environment is missing")
+      }
+
+      def user = User.getById(adminId, false)
+      if (user == null) {
+          user = realm.createAccount(adminId, adminPassword)
+      } else {
+          user.addProperty(HudsonPrivateSecurityRealm.Details.fromPlainPassword(adminPassword))
+      }
+
+      user.save()
+      instance.save()
+      JENKINS_INIT_GROOVY
 
         cat > "$DATA_ROOT/caddy/Caddyfile" <<'CADDYFILE'
       {
@@ -260,7 +287,7 @@ write_files:
       COMPOSE
 
         chown -R 1000:1000 "$DATA_ROOT/home"
-        chmod 644 "$DATA_ROOT/casc/plugins.txt" "$DATA_ROOT/casc/jenkins.yaml" "$DATA_ROOT/caddy/Caddyfile" "$COMPOSE_FILE"
+        chmod 644 "$DATA_ROOT/casc/plugins.txt" "$DATA_ROOT/casc/jenkins.yaml" "$DATA_ROOT/home/init.groovy.d/10-sync-admin-user.groovy" "$DATA_ROOT/caddy/Caddyfile" "$COMPOSE_FILE"
         chmod 600 "$DATA_ROOT/secrets/admin.env"
       }
 
