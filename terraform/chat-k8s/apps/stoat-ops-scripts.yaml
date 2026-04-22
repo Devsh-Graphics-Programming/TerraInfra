@@ -132,7 +132,7 @@ data:
       auth_plain="$(printf '%s\0%s\0%s' "$smtp_user" "$smtp_user" "$smtp_password" | base64 | tr -d '\n')"
 
       coproc SMTP { exec timeout 60s openssl s_client -starttls smtp -connect "$smtp_host:$smtp_port" -servername "$smtp_host" -quiet 2>/dev/null; }
-      local smtp_pid="$COPROC_PID"
+      local smtp_pid="$SMTP_PID"
 
       {
         smtp_send_cmd "EHLO stoat-ops.devsh.eu" &&
