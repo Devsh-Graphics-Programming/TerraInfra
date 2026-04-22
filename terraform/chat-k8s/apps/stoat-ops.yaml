@@ -26,6 +26,8 @@ spec:
             - secretRef:
                 name: notification-smtp
           env:
+            - name: PATH
+              value: /opt/stoat-ops:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
             - name: MONGO_URL
               value: mongodb://database:27017/revolt
             - name: STOAT_APP_URL
@@ -36,12 +38,7 @@ spec:
               value: StoatChat invite
           volumeMounts:
             - name: stoat-ops-scripts
-              mountPath: /usr/local/bin/stoat-invite
-              subPath: stoat-invite
-              readOnly: true
-            - name: stoat-ops-scripts
-              mountPath: /opt/stoat-ops/invite-email.txt
-              subPath: invite-email.txt
+              mountPath: /opt/stoat-ops
               readOnly: true
           resources:
             requests:
