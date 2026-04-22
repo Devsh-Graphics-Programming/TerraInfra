@@ -5,6 +5,8 @@ metadata:
   namespace: chat
 data:
   Revolt.toml: |
+    production = true
+
     [hosts]
     app = "https://stoatchat.devsh.eu"
     api = "https://stoatchat.devsh.eu/api"
@@ -30,4 +32,3 @@ data:
     [features.limits.default]
     video_resolution = [1920, 1080]
     video_aspect_ratio = [0.3, 10]
-

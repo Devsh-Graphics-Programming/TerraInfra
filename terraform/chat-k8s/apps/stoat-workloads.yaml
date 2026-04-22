@@ -312,6 +312,11 @@ spec:
                 secretKeyRef:
                   name: notification-smtp
                   key: GF_SMTP_FROM_ADDRESS
+            - name: REVOLT__API__SMTP__REPLY_TO
+              valueFrom:
+                secretKeyRef:
+                  name: notification-smtp
+                  key: GF_SMTP_FROM_ADDRESS
           ports:
             - name: http
               containerPort: 14702
