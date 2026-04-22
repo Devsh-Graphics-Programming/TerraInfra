@@ -36,6 +36,10 @@ No modules.
 | <a name="input_luks_key_url"></a> [luks\_key\_url](#input\_luks\_key\_url) | Optional presigned URL to fetch the LUKS key | `string` | `""` | no |
 | <a name="input_project_id"></a> [project\_id](#input\_project\_id) | Scaleway Project ID | `string` | n/a | yes |
 | <a name="input_region"></a> [region](#input\_region) | Scaleway region | `string` | `"fr-par"` | no |
+| <a name="input_result_bucket_name"></a> [result\_bucket\_name](#input\_result\_bucket\_name) | Object Storage bucket where the temporary verifier uploads sanitized status JSON | `string` | `"terra-snapshots-state"` | no |
+| <a name="input_result_endpoint"></a> [result\_endpoint](#input\_result\_endpoint) | Object Storage endpoint used for sanitized restore drill status upload | `string` | `"https://s3.fr-par.scw.cloud"` | no |
+| <a name="input_result_object_key"></a> [result\_object\_key](#input\_result\_object\_key) | Object key where the temporary verifier uploads sanitized status JSON | `string` | `""` | no |
+| <a name="input_result_region"></a> [result\_region](#input\_result\_region) | Object Storage region used for sanitized restore drill status upload | `string` | `"fr-par"` | no |
 | <a name="input_run_id"></a> [run\_id](#input\_run\_id) | External run identifier used to name temporary resources | `string` | n/a | yes |
 | <a name="input_snapshot_id"></a> [snapshot\_id](#input\_snapshot\_id) | Block snapshot ID used to create the temporary restore volume | `string` | n/a | yes |
 | <a name="input_ssh_cidr"></a> [ssh\_cidr](#input\_ssh\_cidr) | CIDR allowed to connect to the temporary restore verifier over SSH | `string` | `"0.0.0.0/0"` | no |
