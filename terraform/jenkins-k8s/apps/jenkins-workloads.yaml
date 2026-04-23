@@ -189,6 +189,8 @@ spec:
             allowPrivilegeEscalation: false
             capabilities:
               add:
+                - SETGID
+                - SETUID
                 - SYS_CHROOT
               drop:
                 - ALL
