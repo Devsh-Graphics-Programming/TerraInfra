@@ -188,6 +188,8 @@ spec:
             runAsGroup: 0
             allowPrivilegeEscalation: false
             capabilities:
+              add:
+                - SYS_CHROOT
               drop:
                 - ALL
           resources:
