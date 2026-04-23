@@ -382,13 +382,6 @@ def run_warm_smoke(client, request_data):
         )
         client.wait_task(node, str(clone_upid), 180)
 
-        config_upid = client.request(
-            "POST",
-            f"/nodes/{node}/qemu/{clone_vmid}/config",
-            data={"tags": "managed-by-runnerctl;smoke;lifecycle-ephemeral"},
-        )
-        client.wait_task(node, str(config_upid), 180)
-
         start_upid = client.request("POST", f"/nodes/{node}/qemu/{clone_vmid}/status/start")
         client.wait_task(node, str(start_upid), 120)
         running_state = client.request("GET", f"/nodes/{node}/qemu/{clone_vmid}/status/current")
@@ -420,7 +413,6 @@ def run_warm_smoke(client, request_data):
             "node": node,
             "source_vmid": source_vmid,
             "clone_vmid": clone_vmid,
-            "clone_tags": ["managed-by-runnerctl", "smoke", "lifecycle-ephemeral"],
         }
     finally:
         client.safe_destroy(node, clone_vmid)
