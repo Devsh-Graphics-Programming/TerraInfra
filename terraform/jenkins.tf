@@ -31,6 +31,11 @@ resource "scaleway_instance_security_group" "jenkins" {
   }
 
   inbound_rule {
+    action = "accept"
+    port   = "30222"
+  }
+
+  inbound_rule {
     action   = "accept"
     port     = "9100"
     ip_range = "${scaleway_instance_ip.observability.address}/32"

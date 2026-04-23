@@ -28,7 +28,7 @@ spec:
       labels:
         app.kubernetes.io/name: jenkins
       annotations:
-        devsh.eu/config-revision: "2026-04-23-runner-platform-v6"
+        devsh.eu/config-revision: "2026-04-23-runner-platform-v7"
     spec:
       enableServiceLinks: false
       securityContext:
@@ -141,6 +141,69 @@ spec:
             limits:
               cpu: "2"
               memory: 2Gi
+        - name: proxmox-tunnel-server
+          image: quay.io/panubo/sshd:1.9.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: SSH_USERS
+              value: tunnel:10001:10001
+            - name: TCP_FORWARDING
+              value: "true"
+            - name: GATEWAY_PORTS
+              value: "false"
+            - name: DISABLE_SFTP
+              value: "true"
+            - name: MOTD
+              value: Proxmox reverse tunnel endpoint
+          ports:
+            - name: proxmox-tunnel
+              containerPort: 2222
+              hostPort: 30222
+              protocol: TCP
+          readinessProbe:
+            tcpSocket:
+              port: proxmox-tunnel
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: proxmox-tunnel
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          volumeMounts:
+            - name: proxmox-tunnel-config
+              mountPath: /etc/ssh/sshd_config
+              subPath: sshd_config
+              readOnly: true
+            - name: proxmox-tunnel-ssh
+              mountPath: /etc/ssh/keys/ssh_host_ed25519_key
+              subPath: ssh_host_ed25519_key
+              readOnly: true
+            - name: proxmox-tunnel-ssh
+              mountPath: /etc/ssh/keys/ssh_host_ed25519_key.pub
+              subPath: ssh_host_ed25519_key.pub
+              readOnly: true
+            - name: proxmox-tunnel-ssh
+              mountPath: /etc/authorized_keys/tunnel
+              subPath: authorized_keys
+              readOnly: true
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
       volumes:
         - name: home
           hostPath:
@@ -152,3 +215,9 @@ spec:
         - name: runner-platform
           configMap:
             name: proxmox-runner-platform
+        - name: proxmox-tunnel-config
+          configMap:
+            name: proxmox-tunnel-server
+        - name: proxmox-tunnel-ssh
+          secret:
+            secretName: proxmox-tunnel-ssh

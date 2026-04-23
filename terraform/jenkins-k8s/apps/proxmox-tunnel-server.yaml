@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: proxmox-tunnel-server
+  namespace: jenkins
+data:
+  sshd_config: |
+    Port 2222
+    Protocol 2
+    ListenAddress 0.0.0.0
+    HostKey /etc/ssh/keys/ssh_host_ed25519_key
+    AuthorizedKeysFile /etc/authorized_keys/%u
+    PidFile /tmp/sshd.pid
+    PasswordAuthentication no
+    KbdInteractiveAuthentication no
+    ChallengeResponseAuthentication no
+    PubkeyAuthentication yes
+    PermitRootLogin no
+    AllowUsers tunnel
+    AllowTcpForwarding remote
+    GatewayPorts no
+    PermitTunnel no
+    AllowAgentForwarding no
+    AllowStreamLocalForwarding no
+    X11Forwarding no
+    PrintMotd no
+    UsePAM no
+    ClientAliveInterval 30
+    ClientAliveCountMax 3
+    LogLevel VERBOSE

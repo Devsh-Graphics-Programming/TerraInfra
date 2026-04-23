@@ -5,5 +5,6 @@ resources:
   - node-exporter.yaml
   - jenkins-config.yaml
   - proxmox-runner-platform.yaml
+  - proxmox-tunnel-server.yaml
   - jenkins-workloads.yaml
   - jenkins-ingress.yaml

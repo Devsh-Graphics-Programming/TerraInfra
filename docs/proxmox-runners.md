@@ -128,6 +128,8 @@ Recommended split:
 - Proxmox API token for allocator automation
 - WinRM for guest execution and health checks
 - root SSH only for operator/debug tasks
+- reverse SSH tunnel only when the Proxmox host is private-only and there is no
+  direct Jenkins route into that network yet
 
 Secrets should be delivered through SOPS-managed Kubernetes Secrets or Jenkins
 credentials. They must not be committed into job definitions, docs examples, or
@@ -187,6 +189,9 @@ The live Jenkins controller also receives:
 - a SOPS-managed Kubernetes Secret with the Proxmox API URL and API token
 - a committed inventory ConfigMap mounted on the controller for future allocator
   and image tooling work
+- a Flux-managed reverse tunnel SSH endpoint in the Jenkins pod so private-only
+  Proxmox hosts can expose `127.0.0.1:<port>` API access without opening the
+  Proxmox API publicly
 
 ## Example Platform Layout
 
@@ -257,6 +262,15 @@ Current Jenkins jobs:
 - `ci/runners/packer-plan`
 - `ci/runners/proxmox-api-smoke`
 - `ci/runners/proxmox-warm-smoke`
+
+Current single-node access model:
+
+- `node3` opens a reverse SSH tunnel into the Jenkins pod
+- the Jenkins pod exposes a restricted SSH endpoint on port `30222`
+- the tunnel binds the Proxmox API to `127.0.0.1:18006` inside the Jenkins pod
+- Jenkins jobs consume the local loopback API URL from credentials
+- future Proxmox hosts scale by adding another restricted key and another local
+  reverse tunnel port while keeping the Jenkins job contract unchanged
 
 The plan jobs stay in dry-run mode until the real allocator and Packer execution
 paths are connected.

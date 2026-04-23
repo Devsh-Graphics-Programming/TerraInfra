@@ -12,6 +12,11 @@ data:
       lease_ttl_minutes: 120
       release_on_failure: true
       destroy_after_job: true
+      api_transport:
+        type: reverse-ssh
+        ssh_server_host: jenkins.devsh.eu
+        ssh_server_port: 30222
+        local_api_url: https://127.0.0.1:18006/api2/json
     templates:
       - id: windows-base-stable
         channel: windows-base/stable
@@ -28,6 +33,7 @@ data:
           iso_storage: local
           bridge: vmbr0
           vlan_tag: 69
+          reverse_tunnel_port: 18006
       - id: windows-gpu-nvidia-stable
         channel: windows-gpu-nvidia/stable
         builder: proxmox-clone
@@ -44,6 +50,7 @@ data:
           bridge: vmbr0
           vlan_tag: 69
           gpu_pci_host: 0000:01:00.0
+          reverse_tunnel_port: 18006
     runner_classes:
       - id: win-gpu-nvidia
         labels:
@@ -60,6 +67,7 @@ data:
           target_node: node3
           pool: ci-runners
           storage: local-lvm
+          reverse_tunnel_port: 18006
           vmid_range:
             start: 2000
             end: 2099
