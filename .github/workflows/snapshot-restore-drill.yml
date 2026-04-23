@@ -116,6 +116,11 @@ jobs:
       run:
         shell: bash
     steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: false
+          fetch-depth: 1
+
       - name: Resolve restore matrix
         id: matrix
         run: bash .github/scripts/resolve-restore-matrix.sh
