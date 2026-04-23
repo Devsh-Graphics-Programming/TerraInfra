@@ -165,7 +165,7 @@ data:
                             error 'Unsupported runner backend: ' + params.BACKEND
                           }
                           def channel = params.TEMPLATE_CHANNEL?.trim()
-                          if (!(channel ==~ /[a-z0-9][a-z0-9/._-]*/)) {
+                          if (!(channel ==~ '^[a-z0-9][a-z0-9/._-]*$')) {
                             error 'TEMPLATE_CHANNEL must be a normalized channel name.'
                           }
                           def ttlText = params.LEASE_TTL_MINUTES?.trim()
