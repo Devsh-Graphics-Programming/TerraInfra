@@ -262,7 +262,7 @@ class ProxmoxApiClient:
         upid = self.request(
             "DELETE",
             f"/nodes/{node}/qemu/{vmid}",
-            data={"destroy-unreferenced-disks": 1, "purge": 1},
+            query={"destroy-unreferenced-disks": 1, "purge": 1},
         )
         if upid:
             self.wait_task(node, str(upid), 180)
