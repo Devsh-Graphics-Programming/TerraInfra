@@ -8,8 +8,8 @@ data:
     Port 2222
     Protocol 2
     ListenAddress 0.0.0.0
-    HostKey /etc/ssh/keys/ssh_host_ed25519_key
-    AuthorizedKeysFile /etc/authorized_keys/%u
+    HostKey /var/run/proxmox-tunnel-runtime/keys/ssh_host_ed25519_key
+    AuthorizedKeysFile /var/run/proxmox-tunnel-runtime/auth/%u
     PidFile /tmp/sshd.pid
     PasswordAuthentication no
     KbdInteractiveAuthentication no
@@ -24,7 +24,6 @@ data:
     AllowStreamLocalForwarding no
     X11Forwarding no
     PrintMotd no
-    UsePAM no
     ClientAliveInterval 30
     ClientAliveCountMax 3
     LogLevel VERBOSE

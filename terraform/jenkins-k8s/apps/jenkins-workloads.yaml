@@ -149,9 +149,13 @@ spec:
             - -ec
           args:
             - |
-              id -u tunnel >/dev/null 2>&1 || adduser -D -u 10001 tunnel
-              install -d -m 0755 /run/sshd
-              exec /usr/sbin/sshd -D -e -f /etc/ssh/sshd_config
+              id -u tunnel >/dev/null 2>&1 || adduser -D -H -u 10001 tunnel
+              install -d -m 0755 /run/sshd /var/run/proxmox-tunnel-runtime/keys /var/run/proxmox-tunnel-runtime/auth
+              cp /var/run/proxmox-tunnel-secrets/ssh_host_ed25519_key /var/run/proxmox-tunnel-runtime/keys/ssh_host_ed25519_key
+              cp /var/run/proxmox-tunnel-secrets/ssh_host_ed25519_key.pub /var/run/proxmox-tunnel-runtime/keys/ssh_host_ed25519_key.pub
+              cp /var/run/proxmox-tunnel-secrets/authorized_keys /var/run/proxmox-tunnel-runtime/auth/tunnel
+              chmod 0600 /var/run/proxmox-tunnel-runtime/keys/ssh_host_ed25519_key /var/run/proxmox-tunnel-runtime/auth/tunnel
+              exec /usr/sbin/sshd -D -e -f /var/run/proxmox-tunnel-config/sshd_config
           ports:
             - name: proxmox-tunnel
               containerPort: 2222
@@ -172,21 +176,13 @@ spec:
             failureThreshold: 6
           volumeMounts:
             - name: proxmox-tunnel-config
-              mountPath: /etc/ssh/sshd_config
-              subPath: sshd_config
+              mountPath: /var/run/proxmox-tunnel-config
               readOnly: true
             - name: proxmox-tunnel-ssh
-              mountPath: /etc/ssh/keys/ssh_host_ed25519_key
-              subPath: ssh_host_ed25519_key
+              mountPath: /var/run/proxmox-tunnel-secrets
               readOnly: true
-            - name: proxmox-tunnel-ssh
-              mountPath: /etc/ssh/keys/ssh_host_ed25519_key.pub
-              subPath: ssh_host_ed25519_key.pub
-              readOnly: true
-            - name: proxmox-tunnel-ssh
-              mountPath: /etc/authorized_keys/tunnel
-              subPath: authorized_keys
-              readOnly: true
+            - name: proxmox-tunnel-runtime
+              mountPath: /var/run/proxmox-tunnel-runtime
           securityContext:
             runAsUser: 0
             runAsGroup: 0
@@ -219,3 +215,5 @@ spec:
           secret:
             secretName: proxmox-tunnel-ssh
             defaultMode: 0400
+        - name: proxmox-tunnel-runtime
+          emptyDir: {}
