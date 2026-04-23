@@ -313,7 +313,14 @@ data:
         protocol_version = "HTTP/1.1"
 
         def log_message(self, fmt, *args):
-            print("%s %s" % (self.command, urllib.parse.urlsplit(self.path).path), flush=True)
+            path = urllib.parse.urlsplit(self.path).path
+            if path == "/healthz":
+                return
+            if path.startswith("/attachments"):
+                path = "/attachments"
+            else:
+                path = "/api"
+            print("%s %s" % (self.command, path), flush=True)
 
         def do_GET(self):
             self.route()
