@@ -144,9 +144,15 @@ spec:
         - name: proxmox-tunnel-server
           image: quay.io/panubo/sshd:1.9.0
           imagePullPolicy: IfNotPresent
-          env:
-            - name: SSH_USERS
-              value: tunnel:10001:10001
+          command:
+            - sh
+            - -ec
+          args:
+            - |
+              id -u tunnel >/dev/null 2>&1 || adduser -D -u 10001 tunnel
+              install -d -m 0755 /run/sshd /etc/authorized_keys /etc/ssh/keys
+              chmod 0600 /etc/ssh/keys/ssh_host_ed25519_key /etc/authorized_keys/tunnel
+              exec /usr/sbin/sshd -D -e -f /etc/ssh/sshd_config
           ports:
             - name: proxmox-tunnel
               containerPort: 2222
