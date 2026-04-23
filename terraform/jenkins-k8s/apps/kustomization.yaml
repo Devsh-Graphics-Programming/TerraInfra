@@ -4,5 +4,6 @@ resources:
   - ../../k8s/cluster-issuer.yaml
   - node-exporter.yaml
   - jenkins-config.yaml
+  - proxmox-runner-platform.yaml
   - jenkins-workloads.yaml
   - jenkins-ingress.yaml

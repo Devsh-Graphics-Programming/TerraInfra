@@ -28,7 +28,7 @@ spec:
       labels:
         app.kubernetes.io/name: jenkins
       annotations:
-        devsh.eu/config-revision: "2026-04-23-runner-platform-v3"
+        devsh.eu/config-revision: "2026-04-23-runner-platform-v4"
     spec:
       enableServiceLinks: false
       securityContext:
@@ -58,6 +58,8 @@ spec:
                 name: jenkins-admin
             - secretRef:
                 name: notification-smtp
+            - secretRef:
+                name: proxmox-runner-api
           env:
             - name: JAVA_OPTS
               value: -Djenkins.install.runSetupWizard=false
@@ -117,6 +119,9 @@ spec:
             - name: config
               mountPath: /var/jenkins_config
               readOnly: true
+            - name: runner-platform
+              mountPath: /var/jenkins_runner
+              readOnly: true
             - name: config
               mountPath: /var/jenkins_home/init.groovy.d/10-sync-admin-user.groovy
               subPath: sync-admin-user.groovy
@@ -144,3 +149,6 @@ spec:
         - name: config
           configMap:
             name: jenkins-config
+        - name: runner-platform
+          configMap:
+            name: proxmox-runner-platform

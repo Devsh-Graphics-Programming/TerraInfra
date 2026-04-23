@@ -182,6 +182,12 @@ intentionally fake and describes:
 - warm pool policy
 - janitor scope
 
+The live Jenkins controller also receives:
+
+- a SOPS-managed Kubernetes Secret with the Proxmox API URL and API token
+- a committed inventory ConfigMap mounted on the controller for future allocator
+  and image tooling work
+
 ## Example Platform Layout
 
 ```yaml
@@ -249,9 +255,19 @@ Current Jenkins jobs:
 
 - `ci/runners/proxmox-plan`
 - `ci/runners/packer-plan`
+- `ci/runners/proxmox-api-smoke`
+- `ci/runners/proxmox-warm-smoke`
 
-Both stay in dry-run mode until real Proxmox API credentials and inventory are
-connected.
+The plan jobs stay in dry-run mode until the real allocator and Packer execution
+paths are connected.
+
+The smoke jobs already use the live Proxmox API token and verify:
+
+- read-only API reachability and pool/storage visibility
+- scratch template creation
+- linked clone creation
+- start/stop lifecycle
+- destroy and cleanup behavior
 
 Future jobs, including DITT or EX40 jobs, should depend on this platform only
 through labels and runner classes. They must not hardcode Proxmox nodes, VM

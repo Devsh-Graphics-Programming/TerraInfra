@@ -51,6 +51,26 @@ data:
                   - Overall/Read
                   - Metrics/View
 
+    credentials:
+      system:
+        domainCredentials:
+          - credentials:
+              - string:
+                  scope: GLOBAL
+                  id: "proxmox-runner-api-url"
+                  secret: "$${PROXMOX_RUNNER_API_URL}"
+                  description: "Proxmox API base URL for the runner platform."
+              - string:
+                  scope: GLOBAL
+                  id: "proxmox-runner-api-token-id"
+                  secret: "$${PROXMOX_RUNNER_API_TOKEN_ID}"
+                  description: "Proxmox API token id for the runner platform."
+              - string:
+                  scope: GLOBAL
+                  id: "proxmox-runner-api-token-secret"
+                  secret: "$${PROXMOX_RUNNER_API_TOKEN_SECRET}"
+                  description: "Proxmox API token secret for the runner platform."
+
     unclassified:
       location:
         url: "https://jenkins.devsh.eu/"
@@ -257,6 +277,260 @@ data:
                           echo('{ "image_family": "' + env.PACKER_PLAN_IMAGE_FAMILY + '", "builder": "' + env.PACKER_PLAN_BUILDER + '", "channel": "' + env.PACKER_PLAN_CHANNEL + '", "phases": ["resolve-source", "build-image", "provision", "sysprep", "convert-template", "smoke-check", "promote-channel"], "promote": ' + params.PROMOTE + ', "dry_run": ' + params.DRY_RUN + ' }')
                           if (!params.DRY_RUN) {
                             error 'Real Packer execution is not connected yet.'
+                          }
+                        }
+                      }
+                    }
+                  }
+                }''')
+              }
+            }
+          }
+
+          pipelineJob('ci/runners/proxmox-api-smoke') {
+            description('Runs a read-only Proxmox API smoke check through Jenkins-managed credentials.')
+            parameters {
+              stringParam('NODE', 'node3', 'Target Proxmox node to validate.')
+              stringParam('TEMPLATE_POOL', 'ci-images', 'Template pool expected to exist.')
+              stringParam('RUNTIME_POOL', 'ci-runners', 'Runtime pool expected to exist.')
+              stringParam('STORAGE', 'local-lvm', 'Primary runtime storage expected on the node.')
+            }
+            definition {
+              cps {
+                sandbox()
+                script('''pipeline {
+                  agent none
+                  options {
+                    timestamps()
+                    buildDiscarder(logRotator(numToKeepStr: '20'))
+                  }
+                  stages {
+                    stage('Validate request') {
+                      steps {
+                        script {
+                          for (entry in ['NODE': params.NODE, 'TEMPLATE_POOL': params.TEMPLATE_POOL, 'RUNTIME_POOL': params.RUNTIME_POOL, 'STORAGE': params.STORAGE]) {
+                            if (!(entry.value?.trim() ==~ /[A-Za-z0-9][A-Za-z0-9._-]*/)) {
+                              error('Invalid value for ' + entry.key + ': ' + entry.value)
+                            }
+                          }
+                        }
+                      }
+                    }
+                    stage('Check Proxmox API') {
+                      steps {
+                        withCredentials([
+                          string(credentialsId: 'proxmox-runner-api-url', variable: 'PROXMOX_API_URL'),
+                          string(credentialsId: 'proxmox-runner-api-token-id', variable: 'PROXMOX_API_TOKEN_ID'),
+                          string(credentialsId: 'proxmox-runner-api-token-secret', variable: 'PROXMOX_API_TOKEN_SECRET')
+                        ]) {
+                          script {
+                            def slurper = new groovy.json.JsonSlurperClassic()
+                            def buildUrl = { String path, Map query = [:] ->
+                              def base = PROXMOX_API_URL.endsWith('/') ? PROXMOX_API_URL[0..-2] : PROXMOX_API_URL
+                              if (query.isEmpty()) {
+                                return base + path
+                              }
+                              def encoded = query.collect { key, value ->
+                                java.net.URLEncoder.encode(key, 'UTF-8') + '=' + java.net.URLEncoder.encode(value.toString(), 'UTF-8')
+                              }.join('&')
+                              return base + path + '?' + encoded
+                            }
+                            def authHeader = 'PVEAPIToken=' + PROXMOX_API_TOKEN_ID + '=' + PROXMOX_API_TOKEN_SECRET
+                            def apiGet = { String path, Map query = [:] ->
+                              def response = httpRequest(
+                                consoleLogResponseBody: false,
+                                customHeaders: [[maskValue: true, name: 'Authorization', value: authHeader]],
+                                httpMode: 'GET',
+                                ignoreSslErrors: true,
+                                url: buildUrl(path, query),
+                                validResponseCodes: '200'
+                              )
+                              return slurper.parseText(response.content).data
+                            }
+
+                            def version = apiGet('/version')
+                            def nodeNames = (apiGet('/cluster/resources', [type: 'node']) ?: []).collect { it.node }
+                            if (!nodeNames.contains(params.NODE)) {
+                              error('Configured node is missing from Proxmox API view: ' + params.NODE)
+                            }
+                            def pools = (apiGet('/pools') ?: []).collect { it.poolid }
+                            for (poolId in [params.TEMPLATE_POOL, params.RUNTIME_POOL]) {
+                              if (!pools.contains(poolId)) {
+                                error('Required Proxmox pool is missing: ' + poolId)
+                              }
+                            }
+                            def storages = (apiGet('/nodes/' + params.NODE + '/storage') ?: []).collect { it.storage }
+                            if (!storages.contains(params.STORAGE)) {
+                              error('Required Proxmox storage is missing on node ' + params.NODE + ': ' + params.STORAGE)
+                            }
+                            def vms = (apiGet('/nodes/' + params.NODE + '/qemu') ?: []).collect { it.vmid }
+                            echo('Proxmox API smoke passed for node ' + params.NODE + '.')
+                            echo('{ "version": "' + version.version + '", "node": "' + params.NODE + '", "template_pool": "' + params.TEMPLATE_POOL + '", "runtime_pool": "' + params.RUNTIME_POOL + '", "storage": "' + params.STORAGE + '", "visible_vm_count": ' + vms.size() + ' }')
+                          }
+                        }
+                      }
+                    }
+                  }
+                }''')
+              }
+            }
+          }
+
+          pipelineJob('ci/runners/proxmox-warm-smoke') {
+            description('Creates a scratch template and linked clone through the Proxmox API, boots it, stops it, and destroys both resources.')
+            parameters {
+              stringParam('NODE', 'node3', 'Target Proxmox node to validate.')
+              stringParam('TEMPLATE_POOL', 'ci-images', 'Pool used for the temporary scratch template.')
+              stringParam('RUNTIME_POOL', 'ci-runners', 'Pool used for the temporary linked clone.')
+              stringParam('STORAGE', 'local-lvm', 'Storage used for temporary scratch disks.')
+              stringParam('BRIDGE', 'vmbr0', 'Bridge used for the temporary scratch NIC.')
+              stringParam('VLAN_TAG', '69', 'VLAN tag used for the temporary scratch NIC.')
+              stringParam('SOURCE_VMID', '9910', 'Scratch source VMID used for the temporary template.')
+              stringParam('CLONE_VMID', '2910', 'Scratch clone VMID used for the temporary warm clone.')
+            }
+            definition {
+              cps {
+                sandbox()
+                script('''pipeline {
+                  agent none
+                  options {
+                    timestamps()
+                    buildDiscarder(logRotator(numToKeepStr: '20'))
+                  }
+                  stages {
+                    stage('Validate request') {
+                      steps {
+                        script {
+                          for (entry in ['NODE': params.NODE, 'TEMPLATE_POOL': params.TEMPLATE_POOL, 'RUNTIME_POOL': params.RUNTIME_POOL, 'STORAGE': params.STORAGE, 'BRIDGE': params.BRIDGE]) {
+                            if (!(entry.value?.trim() ==~ /[A-Za-z0-9][A-Za-z0-9._-]*/)) {
+                              error('Invalid value for ' + entry.key + ': ' + entry.value)
+                            }
+                          }
+                          for (entry in ['VLAN_TAG': params.VLAN_TAG, 'SOURCE_VMID': params.SOURCE_VMID, 'CLONE_VMID': params.CLONE_VMID]) {
+                            if (!(entry.value?.trim() ==~ /[0-9]+/)) {
+                              error('Invalid numeric value for ' + entry.key + ': ' + entry.value)
+                            }
+                          }
+                          if (params.SOURCE_VMID == params.CLONE_VMID) {
+                            error('SOURCE_VMID and CLONE_VMID must differ.')
+                          }
+                        }
+                      }
+                    }
+                    stage('Run warm smoke') {
+                      steps {
+                        withCredentials([
+                          string(credentialsId: 'proxmox-runner-api-url', variable: 'PROXMOX_API_URL'),
+                          string(credentialsId: 'proxmox-runner-api-token-id', variable: 'PROXMOX_API_TOKEN_ID'),
+                          string(credentialsId: 'proxmox-runner-api-token-secret', variable: 'PROXMOX_API_TOKEN_SECRET')
+                        ]) {
+                          script {
+                            def slurper = new groovy.json.JsonSlurperClassic()
+                            def buildUrl = { String path, Map query = [:] ->
+                              def base = PROXMOX_API_URL.endsWith('/') ? PROXMOX_API_URL[0..-2] : PROXMOX_API_URL
+                              if (query.isEmpty()) {
+                                return base + path
+                              }
+                              def encoded = query.collect { key, value ->
+                                java.net.URLEncoder.encode(key, 'UTF-8') + '=' + java.net.URLEncoder.encode(value.toString(), 'UTF-8')
+                              }.join('&')
+                              return base + path + '?' + encoded
+                            }
+                            def authHeader = 'PVEAPIToken=' + PROXMOX_API_TOKEN_ID + '=' + PROXMOX_API_TOKEN_SECRET
+                            def apiCall = { String method, String path, Map query = [:], String validCodes = '200:299' ->
+                              def response = httpRequest(
+                                consoleLogResponseBody: false,
+                                customHeaders: [[maskValue: true, name: 'Authorization', value: authHeader]],
+                                httpMode: method,
+                                ignoreSslErrors: true,
+                                url: buildUrl(path, query),
+                                validResponseCodes: validCodes
+                              )
+                              if (!response.content?.trim()) {
+                                return null
+                              }
+                              return slurper.parseText(response.content).data
+                            }
+                            def waitTask = { String upid, int timeoutSeconds ->
+                              def encodedUpid = java.net.URLEncoder.encode(upid, 'UTF-8')
+                              timeout(time: timeoutSeconds, unit: 'SECONDS') {
+                                waitUntil {
+                                  def task = apiCall('GET', '/nodes/' + params.NODE + '/tasks/' + encodedUpid + '/status')
+                                  if (task.status == 'stopped') {
+                                    if (task.exitstatus != 'OK') {
+                                      error('Proxmox task failed: ' + upid + ' => ' + task.exitstatus)
+                                    }
+                                    return true
+                                  }
+                                  return false
+                                }
+                              }
+                            }
+                            def safeDestroy = { String vmid ->
+                              try {
+                                def upid = apiCall('DELETE', '/nodes/' + params.NODE + '/qemu/' + vmid, ['destroy-unreferenced-disks': 1, purge: 1])
+                                if (upid) {
+                                  waitTask(upid.toString(), 180)
+                                }
+                              } catch (ignored) {
+                                echo('Cleanup skipped for VMID ' + vmid + '.')
+                              }
+                            }
+
+                            safeDestroy(params.CLONE_VMID)
+                            safeDestroy(params.SOURCE_VMID)
+
+                            try {
+                              def createUpid = apiCall('POST', '/nodes/' + params.NODE + '/qemu', [
+                                vmid: params.SOURCE_VMID,
+                                name: 'runnerctl-api-smoke-src',
+                                ostype: 'l26',
+                                memory: 1024,
+                                cores: 1,
+                                sockets: 1,
+                                machine: 'q35',
+                                bios: 'seabios',
+                                scsihw: 'virtio-scsi-single',
+                                scsi0: params.STORAGE + ':1',
+                                net0: 'virtio,bridge=' + params.BRIDGE + ',tag=' + params.VLAN_TAG + ',firewall=1',
+                                pool: params.TEMPLATE_POOL,
+                                tags: 'runnerctl;smoke;template-source'
+                              ])
+                              waitTask(createUpid.toString(), 180)
+
+                              def templateUpid = apiCall('POST', '/nodes/' + params.NODE + '/qemu/' + params.SOURCE_VMID + '/template')
+                              waitTask(templateUpid.toString(), 180)
+
+                              def cloneUpid = apiCall('POST', '/nodes/' + params.NODE + '/qemu/' + params.SOURCE_VMID + '/clone', [
+                                newid: params.CLONE_VMID,
+                                name: 'runnerctl-api-smoke-warm',
+                                target: params.NODE,
+                                pool: params.RUNTIME_POOL,
+                                full: 0,
+                                description: 'Temporary warm-path API smoke clone',
+                                tags: 'runnerctl;smoke;warm-pool'
+                              ])
+                              waitTask(cloneUpid.toString(), 180)
+
+                              def startUpid = apiCall('POST', '/nodes/' + params.NODE + '/qemu/' + params.CLONE_VMID + '/status/start')
+                              waitTask(startUpid.toString(), 120)
+                              def runningState = apiCall('GET', '/nodes/' + params.NODE + '/qemu/' + params.CLONE_VMID + '/status/current').status
+                              if (runningState != 'running') {
+                                error('Scratch clone did not reach running state.')
+                              }
+
+                              def stopUpid = apiCall('POST', '/nodes/' + params.NODE + '/qemu/' + params.CLONE_VMID + '/status/stop', [timeout: 120])
+                              waitTask(stopUpid.toString(), 180)
+                              def stoppedState = apiCall('GET', '/nodes/' + params.NODE + '/qemu/' + params.CLONE_VMID + '/status/current').status
+                              if (stoppedState != 'stopped') {
+                                error('Scratch clone did not reach stopped state after stop request.')
+                              }
+
+                              echo('{ "node": "' + params.NODE + '", "source_vmid": ' + params.SOURCE_VMID + ', "clone_vmid": ' + params.CLONE_VMID + ', "result": "success" }')
+                            } finally {
+                              safeDestroy(params.CLONE_VMID)
+                              safeDestroy(params.SOURCE_VMID)
+                            }
                           }
                         }
                       }

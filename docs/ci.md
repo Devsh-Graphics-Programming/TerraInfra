@@ -49,6 +49,8 @@ Current jobs:
 - `system/smoke`: verifies the controller can load configuration and run a lightweight pipeline.
 - `ci/runners/proxmox-plan`: validates the generic runner class request contract and renders the hot-path/cold-path runtime plan in dry-run mode.
 - `ci/runners/packer-plan`: validates the template build and promotion contract in dry-run mode.
+- `ci/runners/proxmox-api-smoke`: runs a read-only Proxmox API smoke check through Jenkins-managed credentials.
+- `ci/runners/proxmox-warm-smoke`: runs a scratch template -> linked clone -> start -> stop -> destroy lifecycle against the Proxmox backend.
 - `ci/ditt/store-smoke`: validates `store.devsh.eu` public/private report endpoint behavior without Proxmox credentials.
 - `ci/ditt/ex40-report-plan`: validates EX40 report publish parameters and stays in dry-run mode until the runtime backend is connected.
 
