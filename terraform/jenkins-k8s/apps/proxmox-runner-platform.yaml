@@ -4,96 +4,122 @@ metadata:
   name: proxmox-runner-platform
   namespace: jenkins
 data:
-  inventory.yaml: |
-    version: 2
-    defaults:
-      backend: proxmox
-      clone_mode: linked
-      lease_ttl_minutes: 120
-      release_on_failure: true
-      destroy_after_job: true
-      api_transport:
-        type: reverse-ssh
-        ssh_server_host: jenkins.devsh.eu
-        ssh_server_port: 30222
-        local_api_url: https://127.0.0.1:18006/api2/json
-    templates:
-      - id: windows-base-stable
-        channel: windows-base/stable
-        builder: proxmox-iso
-        guest_os: windows11
-        communicator:
-          type: winrm
-        backend:
-          type: proxmox
-          node: node3
-          pool: ci-images
-          storage: local-lvm
-          template_vmid: 9001
-          iso_storage: local
-          bridge: vmbr0
-          vlan_tag: 69
-          reverse_tunnel_port: 18006
-      - id: windows-gpu-nvidia-stable
-        channel: windows-gpu-nvidia/stable
-        builder: proxmox-clone
-        parent: windows-base-stable
-        guest_os: windows11
-        communicator:
-          type: winrm
-        backend:
-          type: proxmox
-          node: node3
-          pool: ci-images
-          storage: local-lvm
-          template_vmid: 9002
-          bridge: vmbr0
-          vlan_tag: 69
-          gpu_pci_host: 0000:01:00.0
-          reverse_tunnel_port: 18006
-    runner_classes:
-      - id: win-gpu-nvidia
-        labels:
-          - windows
-          - gpu
-          - nvidia
-          - vulkan
-          - gpu-class-rtx-2070
-        template: windows-gpu-nvidia-stable
-        connection:
-          type: winrm
-        backend:
-          type: proxmox
-          target_node: node3
-          pool: ci-runners
-          storage: local-lvm
-          reverse_tunnel_port: 18006
-          vmid_range:
-            start: 2000
-            end: 2099
-        warm_pool:
-          min_ready: 1
-          max_ready: 1
-        policy:
-          lease_ttl_minutes: 120
-          boot_timeout_minutes: 10
-          health_timeout_minutes: 15
-          gpu_exclusive: true
-          release_on_failure: true
-          destroy_after_job: true
-        health_checks:
-          - guest-agent
-          - winrm
-          - nvidia-smi
-          - vulkaninfo
-          - workspace-ready
-    janitor:
-      backend: proxmox
-      pool: ci-runners
-      vmid_range:
-        start: 2000
-        end: 2099
-      require_tags:
-        - managed-by-runnerctl
-        - lifecycle-ephemeral
-      stale_lease_after_minutes: 240
+  inventory.json: |
+    {
+      "version": 2,
+      "defaults": {
+        "backend": "proxmox",
+        "clone_mode": "linked",
+        "lease_ttl_minutes": 120,
+        "release_on_failure": true,
+        "destroy_after_job": true,
+        "api_transport": {
+          "type": "reverse-ssh",
+          "ssh_server_host": "jenkins.devsh.eu",
+          "ssh_server_port": 30222,
+          "local_api_url": "https://127.0.0.1:18006/api2/json"
+        }
+      },
+      "templates": [
+        {
+          "id": "windows-base-stable",
+          "channel": "windows-base/stable",
+          "builder": "proxmox-iso",
+          "guest_os": "windows11",
+          "communicator": {
+            "type": "winrm"
+          },
+          "backend": {
+            "type": "proxmox",
+            "node": "node3",
+            "pool": "ci-images",
+            "storage": "local-lvm",
+            "template_vmid": 9001,
+            "iso_storage": "local",
+            "bridge": "vmbr0",
+            "vlan_tag": 69,
+            "reverse_tunnel_port": 18006
+          }
+        },
+        {
+          "id": "windows-gpu-nvidia-stable",
+          "channel": "windows-gpu-nvidia/stable",
+          "builder": "proxmox-clone",
+          "parent": "windows-base-stable",
+          "guest_os": "windows11",
+          "communicator": {
+            "type": "winrm"
+          },
+          "backend": {
+            "type": "proxmox",
+            "node": "node3",
+            "pool": "ci-images",
+            "storage": "local-lvm",
+            "template_vmid": 9002,
+            "bridge": "vmbr0",
+            "vlan_tag": 69,
+            "gpu_pci_host": "0000:01:00.0",
+            "reverse_tunnel_port": 18006
+          }
+        }
+      ],
+      "runner_classes": [
+        {
+          "id": "win-gpu-nvidia",
+          "labels": [
+            "windows",
+            "gpu",
+            "nvidia",
+            "vulkan",
+            "gpu-class-rtx-2070"
+          ],
+          "template": "windows-gpu-nvidia-stable",
+          "connection": {
+            "type": "winrm"
+          },
+          "backend": {
+            "type": "proxmox",
+            "target_node": "node3",
+            "pool": "ci-runners",
+            "storage": "local-lvm",
+            "reverse_tunnel_port": 18006,
+            "vmid_range": {
+              "start": 2000,
+              "end": 2099
+            }
+          },
+          "warm_pool": {
+            "min_ready": 1,
+            "max_ready": 1
+          },
+          "policy": {
+            "lease_ttl_minutes": 120,
+            "boot_timeout_minutes": 10,
+            "health_timeout_minutes": 15,
+            "gpu_exclusive": true,
+            "release_on_failure": true,
+            "destroy_after_job": true
+          },
+          "health_checks": [
+            "guest-agent",
+            "winrm",
+            "nvidia-smi",
+            "vulkaninfo",
+            "workspace-ready"
+          ]
+        }
+      ],
+      "janitor": {
+        "backend": "proxmox",
+        "pool": "ci-runners",
+        "vmid_range": {
+          "start": 2000,
+          "end": 2099
+        },
+        "require_tags": [
+          "managed-by-runnerctl",
+          "lifecycle-ephemeral"
+        ],
+        "stale_lease_after_minutes": 240
+      }
+    }

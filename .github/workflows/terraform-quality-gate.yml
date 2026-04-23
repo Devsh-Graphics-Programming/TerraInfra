@@ -44,6 +44,7 @@ jobs:
       - name: Shell script syntax
         run: |
           bash -n \
+            ../scripts/proxmox-runners/install-proxmox-runner-tunnel.sh \
             ../.github/scripts/resolve-snapshot-matrix.sh \
             ../.github/scripts/resolve-restore-matrix.sh \
             ../.github/scripts/validate-snapshot-target-selection.sh \
@@ -55,6 +56,9 @@ jobs:
 
       - name: Validate runner inventory example
         run: python ../.github/scripts/validate-proxmox-runner-platform.py ../docs/proxmox-runner-inventory.example.yaml
+
+      - name: Runnerctl unit tests
+        run: python -m unittest discover -s jenkins-k8s/runtime/runnerctl -p "test_*.py"
 
       - uses: hashicorp/setup-packer@v3
 

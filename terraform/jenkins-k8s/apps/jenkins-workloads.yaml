@@ -28,7 +28,7 @@ spec:
       labels:
         app.kubernetes.io/name: jenkins
       annotations:
-        devsh.eu/config-revision: "2026-04-23-runner-platform-v7"
+        devsh.eu/config-revision: "2026-04-23-runner-platform-v8"
     spec:
       enableServiceLinks: false
       securityContext:
@@ -58,8 +58,6 @@ spec:
                 name: jenkins-admin
             - secretRef:
                 name: notification-smtp
-            - secretRef:
-                name: proxmox-runner-api
           env:
             - name: JAVA_OPTS
               value: -Djenkins.install.runSetupWizard=false
@@ -141,6 +139,64 @@ spec:
             limits:
               cpu: "2"
               memory: 2Gi
+        - name: proxmox-runnerctl
+          image: docker.io/python:3.12-alpine3.22
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: proxmox-runner-api
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: RUNNERCTL_INVENTORY_PATH
+              value: /var/jenkins_runner/inventory.json
+            - name: RUNNERCTL_LISTEN_HOST
+              value: 0.0.0.0
+            - name: RUNNERCTL_LISTEN_PORT
+              value: "18080"
+          command:
+            - python3
+            - /opt/runnerctl/runnerctl_api.py
+          ports:
+            - name: runnerctl
+              containerPort: 18080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: runnerctl
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: runnerctl
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          volumeMounts:
+            - name: runner-platform
+              mountPath: /var/jenkins_runner
+              readOnly: true
+            - name: proxmox-runnerctl
+              mountPath: /opt/runnerctl
+              readOnly: true
+          securityContext:
+            runAsUser: 65532
+            runAsGroup: 65532
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
         - name: proxmox-tunnel-server
           image: quay.io/panubo/sshd:1.9.0
           imagePullPolicy: IfNotPresent
@@ -225,3 +281,6 @@ spec:
             defaultMode: 0400
         - name: proxmox-tunnel-runtime
           emptyDir: {}
+        - name: proxmox-runnerctl
+          configMap:
+            name: proxmox-runnerctl

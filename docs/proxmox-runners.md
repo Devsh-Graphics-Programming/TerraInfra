@@ -189,6 +189,8 @@ The live Jenkins controller also receives:
 - a SOPS-managed Kubernetes Secret with the Proxmox API URL and API token
 - a committed inventory ConfigMap mounted on the controller for future allocator
   and image tooling work
+- a `runnerctl` sidecar in the Jenkins pod that consumes the Proxmox secret and
+  exposes a local HTTP API on `127.0.0.1:18080` for controller jobs
 - a Flux-managed reverse tunnel SSH endpoint in the Jenkins pod so private-only
   Proxmox hosts can expose `127.0.0.1:<port>` API access without opening the
   Proxmox API publicly
@@ -268,7 +270,9 @@ Current single-node access model:
 - `node3` opens a reverse SSH tunnel into the Jenkins pod
 - the Jenkins pod exposes a restricted SSH endpoint on port `30222`
 - the tunnel binds the Proxmox API to `127.0.0.1:18006` inside the Jenkins pod
-- Jenkins jobs consume the local loopback API URL from credentials
+- the `runnerctl` sidecar consumes the local loopback API URL from Kubernetes
+  Secret env vars
+- Jenkins jobs call only the local `runnerctl` HTTP API on `127.0.0.1:18080`
 - future Proxmox hosts scale by adding another restricted key and another local
   reverse tunnel port while keeping the Jenkins job contract unchanged
 
@@ -286,6 +290,18 @@ The smoke jobs already use the live Proxmox API token and verify:
 Future jobs, including DITT or EX40 jobs, should depend on this platform only
 through labels and runner classes. They must not hardcode Proxmox nodes, VM
 IDs, storage names, or mutable template names.
+
+## Host-side tunnel assets
+
+The durable host-side tunnel install assets live in the repo:
+
+- `scripts/proxmox-runners/install-proxmox-runner-tunnel.sh`
+- `scripts/proxmox-runners/proxmox-runner-tunnel.env.example`
+
+These assets are intended for Proxmox hosts that stay outside k3s/Flux but must
+still follow the same repo-driven operational contract. The installer expects
+the SSH key and `known_hosts` file to be provisioned locally and writes a
+systemd unit plus an env file without committing secrets.
 
 ## First Real Implementation Order
 
