@@ -15,14 +15,14 @@ run_snapshot_resolver() {
   local output="$1"
   shift
   : > "${output}"
-  env GITHUB_OUTPUT="${output}" "$@" "${script_dir}/resolve-snapshot-matrix.sh" >/dev/null
+  env GITHUB_OUTPUT="${output}" "$@" bash "${script_dir}/resolve-snapshot-matrix.sh" >/dev/null
 }
 
 run_restore_resolver() {
   local output="$1"
   shift
   : > "${output}"
-  env GITHUB_OUTPUT="${output}" "$@" "${script_dir}/resolve-restore-matrix.sh" >/dev/null
+  env GITHUB_OUTPUT="${output}" "$@" bash "${script_dir}/resolve-restore-matrix.sh" >/dev/null
 }
 
 snapshot_all="${work_dir}/snapshot-all.out"
@@ -47,12 +47,12 @@ run_restore_resolver "${restore_jenkins}" SNAPSHOTS_TARGET_NAMES=jenkins
 restore_jenkins_matrix="$(read_output matrix "${restore_jenkins}")"
 jq -e '.include | length == 1 and .[0].target_key == "jenkins" and .[0].instance_type == "DEV1-S"' <<< "${restore_jenkins_matrix}" >/dev/null
 
-if env SNAPSHOTS_TARGET_NAMES=unknown "${script_dir}/resolve-snapshot-matrix.sh" >/dev/null 2>&1; then
+if env SNAPSHOTS_TARGET_NAMES=unknown bash "${script_dir}/resolve-snapshot-matrix.sh" >/dev/null 2>&1; then
   echo "Snapshot resolver accepted an unknown target" >&2
   exit 1
 fi
 
-if env SNAPSHOTS_TARGET_NAMES=unknown "${script_dir}/resolve-restore-matrix.sh" >/dev/null 2>&1; then
+if env SNAPSHOTS_TARGET_NAMES=unknown bash "${script_dir}/resolve-restore-matrix.sh" >/dev/null 2>&1; then
   echo "Restore resolver accepted an unknown target" >&2
   exit 1
 fi
