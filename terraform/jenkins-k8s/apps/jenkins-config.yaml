@@ -505,8 +505,7 @@ data:
                                 target: params.NODE,
                                 pool: params.RUNTIME_POOL,
                                 full: 0,
-                                description: 'Temporary warm-path API smoke clone',
-                                tags: 'runnerctl;smoke;warm-pool'
+                                description: 'Temporary warm-path API smoke clone'
                               ])
                               waitTask(cloneUpid.toString(), 180)
 
