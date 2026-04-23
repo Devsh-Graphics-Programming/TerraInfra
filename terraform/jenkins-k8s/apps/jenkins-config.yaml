@@ -324,7 +324,6 @@ data:
                           string(credentialsId: 'proxmox-runner-api-token-secret', variable: 'PROXMOX_API_TOKEN_SECRET')
                         ]) {
                           script {
-                            def slurper = new groovy.json.JsonSlurperClassic()
                             def buildUrl = { String path, Map query = [:] ->
                               def base = PROXMOX_API_URL.endsWith('/') ? PROXMOX_API_URL[0..-2] : PROXMOX_API_URL
                               if (query.isEmpty()) {
@@ -345,7 +344,7 @@ data:
                                 url: buildUrl(path, query),
                                 validResponseCodes: '200'
                               )
-                              return slurper.parseText(response.content).data
+                              return readJSON(text: response.content, returnPojo: true).data
                             }
 
                             def version = apiGet('/version')
@@ -425,7 +424,6 @@ data:
                           string(credentialsId: 'proxmox-runner-api-token-secret', variable: 'PROXMOX_API_TOKEN_SECRET')
                         ]) {
                           script {
-                            def slurper = new groovy.json.JsonSlurperClassic()
                             def buildUrl = { String path, Map query = [:] ->
                               def base = PROXMOX_API_URL.endsWith('/') ? PROXMOX_API_URL[0..-2] : PROXMOX_API_URL
                               if (query.isEmpty()) {
@@ -449,7 +447,7 @@ data:
                               if (!response.content?.trim()) {
                                 return null
                               }
-                              return slurper.parseText(response.content).data
+                              return readJSON(text: response.content, returnPojo: true).data
                             }
                             def waitTask = { String upid, int timeoutSeconds ->
                               def encodedUpid = java.net.URLEncoder.encode(upid, 'UTF-8')
