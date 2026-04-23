@@ -150,8 +150,7 @@ spec:
           args:
             - |
               id -u tunnel >/dev/null 2>&1 || adduser -D -u 10001 tunnel
-              install -d -m 0755 /run/sshd /etc/authorized_keys /etc/ssh/keys
-              chmod 0600 /etc/ssh/keys/ssh_host_ed25519_key /etc/authorized_keys/tunnel
+              install -d -m 0755 /run/sshd
               exec /usr/sbin/sshd -D -e -f /etc/ssh/sshd_config
           ports:
             - name: proxmox-tunnel
@@ -219,3 +218,4 @@ spec:
         - name: proxmox-tunnel-ssh
           secret:
             secretName: proxmox-tunnel-ssh
+            defaultMode: 0400
