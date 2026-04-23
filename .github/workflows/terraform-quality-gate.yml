@@ -34,6 +34,15 @@ jobs:
           SECRET_SCAN_HEAD: ${{ github.sha }}
         run: python ../.github/scripts/secret-guard.py --base "${SECRET_SCAN_BASE}" --head "${SECRET_SCAN_HEAD}"
 
+      - name: Shell script syntax
+        run: |
+          bash -n \
+            ../.github/scripts/resolve-snapshot-matrix.sh \
+            ../.github/scripts/resolve-restore-matrix.sh \
+            ../.github/scripts/validate-snapshot-target-selection.sh \
+            ../.github/scripts/restore-drill-janitor.sh \
+            snapshot-restore-drill/scripts/restore-drill.sh
+
       - name: Validate snapshot target selection
         run: bash ../.github/scripts/validate-snapshot-target-selection.sh
 

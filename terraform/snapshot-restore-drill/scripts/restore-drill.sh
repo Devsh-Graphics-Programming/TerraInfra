@@ -260,6 +260,14 @@ case "${TARGET_KEY}" in
     pass_check "jenkins-plugins" "restored Jenkins plugins directory exists"
     require_path "/mnt/data/jenkins/home/jobs/system/jobs/smoke/config.xml"
     pass_check "jenkins-smoke-job" "restored smoke job configuration exists"
+    require_path "/mnt/data/jenkins/home/jobs/ci/config.xml"
+    pass_check "jenkins-ci-folder" "restored CI folder configuration exists"
+    require_path "/mnt/data/jenkins/home/jobs/ci/jobs/ditt/config.xml"
+    pass_check "jenkins-ditt-folder" "restored DITT folder configuration exists"
+    require_path "/mnt/data/jenkins/home/jobs/ci/jobs/ditt/jobs/store-smoke/config.xml"
+    pass_check "jenkins-store-smoke-job" "restored store smoke job configuration exists"
+    require_path "/mnt/data/jenkins/home/jobs/ci/jobs/ditt/jobs/ex40-report-plan/config.xml"
+    pass_check "jenkins-ex40-plan-job" "restored EX40 report plan job configuration exists"
     run_container drill-jenkins \
       -p 127.0.0.1:8080:8080 \
       -e JAVA_OPTS=-Djenkins.install.runSetupWizard=false \
