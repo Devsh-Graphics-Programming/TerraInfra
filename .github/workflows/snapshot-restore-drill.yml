@@ -29,6 +29,14 @@ on:
         description: "Legacy snapshot state key or per-target state prefix"
         required: true
         default: "terraform/snapshots/terraform.tfstate"
+      snapshot_source:
+        description: "Snapshot source to restore: auto or manual"
+        required: false
+        default: "auto"
+      manual_snapshot_name:
+        description: "Manual snapshot key to restore when snapshot_source=manual"
+        required: false
+        default: ""
 
 concurrency:
   group: snapshot-restore-drill-${{ github.ref_name }}
@@ -148,6 +156,8 @@ jobs:
       SNAPSHOTS_TFSTATE_ENDPOINT: ${{ github.event.inputs.tfstate_endpoint || 'https://s3.fr-par.scw.cloud' }}
       SNAPSHOTS_TFSTATE_REGION: ${{ github.event.inputs.tfstate_region || 'fr-par' }}
       SNAPSHOTS_TFSTATE_KEY: ${{ github.event.inputs.tfstate_key || 'terraform/snapshots/terraform.tfstate' }}
+      RESTORE_SNAPSHOT_SOURCE: ${{ github.event.inputs.snapshot_source || 'auto' }}
+      RESTORE_MANUAL_SNAPSHOT_NAME: ${{ github.event.inputs.manual_snapshot_name || '' }}
       TF_VAR_project_id: ${{ github.event.inputs.project_id || '4ca4f592-005a-45dc-a016-91bd11dd5348' }}
       TF_VAR_target_key: ${{ matrix.target_key }}
       TF_VAR_instance_type: ${{ matrix.instance_type }}
@@ -214,9 +224,30 @@ jobs:
             -backend-config="skip_region_validation=true" \
             -backend-config="force_path_style=true"
 
-          snapshot_id="$(terraform output -json latest_snapshot_ids 2>/dev/null | jq -r --arg target "${{ matrix.target_key }}" '.[$target] // empty')"
+          snapshot_source="${RESTORE_SNAPSHOT_SOURCE:-auto}"
+          if [[ "${snapshot_source}" != "auto" && "${snapshot_source}" != "manual" ]]; then
+            echo "snapshot_source must be auto or manual" >&2
+            exit 1
+          fi
+
+          if [[ "${snapshot_source}" == "manual" ]]; then
+            manual_name="${RESTORE_MANUAL_SNAPSHOT_NAME:-}"
+            if [[ -z "${manual_name}" ]]; then
+              echo "manual_snapshot_name is required when snapshot_source=manual" >&2
+              exit 1
+            fi
+            if [[ "${manual_name}" == *"/"* || "${manual_name}" == *".."* ]]; then
+              echo "manual_snapshot_name must be a snapshot key without path separators" >&2
+              exit 1
+            fi
+            manual_key="${{ matrix.target_key }}/${manual_name}"
+            snapshot_id="$(terraform output -json manual_snapshot_ids 2>/dev/null | jq -r --arg key "${manual_key}" '.[$key] // empty')"
+          else
+            snapshot_id="$(terraform output -json latest_snapshot_ids 2>/dev/null | jq -r --arg target "${{ matrix.target_key }}" '.[$target] // empty')"
+          fi
+
           if [[ -z "${snapshot_id}" ]]; then
-            echo "No latest snapshot found for target ${{ matrix.target_key }}" >&2
+            echo "No ${snapshot_source} snapshot found for target ${{ matrix.target_key }}" >&2
             exit 1
           fi
 

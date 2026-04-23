@@ -108,6 +108,8 @@ It runs daily after the managed snapshot job and can be started manually. Inputs
 - `target_names` (default `all`; comma-separated allowed, e.g. `chat,jenkins`)
 - `project_id`
 - Terraform state bucket/key settings
+- `snapshot_source` (default `auto`; set to `manual` to restore a specific manual snapshot)
+- `manual_snapshot_name` (required only when `snapshot_source=manual`)
 
 Before creating any verifier, the workflow runs a janitor that first destroys any leftover resources still tracked in the dedicated restore-drill Terraform state and then deletes only stale Scaleway resources that match all restore-drill safety gates: the project, the `devsh` and `restore-drill` tags, an allowed target tag/name, a `restore-drill-*` resource name where applicable, a non-current run tag, and the minimum age window. It does not delete production nodes, production volumes, snapshots, buckets, DNS, or any untagged resource.
 
@@ -115,7 +117,7 @@ For each selected target the workflow runs an independent matrix job. Targets ca
 The matrix selection logic lives in `.github/scripts/resolve-snapshot-matrix.sh` and `.github/scripts/resolve-restore-matrix.sh`; the quality gate validates the `jenkins` subset and unknown-target rejection before Terraform runs.
 
 For each target the workflow:
-1. Reads the latest snapshot ID from the snapshots Terraform state.
+1. Reads the selected snapshot ID from the snapshots Terraform state.
 2. Creates a temporary Block volume from that snapshot.
 3. Starts a temporary verifier instance.
 4. Allows SSH only from the current GitHub runner public IP for the duration of the job.
@@ -124,6 +126,8 @@ For each target the workflow:
 7. Destroys the temporary instance and temporary volume.
 8. Verifies that the per-target restore-drill Terraform state is empty after destroy.
 9. Publishes a compact sanitized Discord result with janitor status, per-target health check counts, and cleanup status when `SNAPSHOTS_DISCORD_WEBHOOK_URL` is configured.
+
+By default, restore drill uses the latest managed auto snapshot. Manual restore drill runs can set `snapshot_source=manual` and `manual_snapshot_name=<manual key>` to verify a fresh manual snapshot without waiting for the next daily auto snapshot.
 
 Target checks:
 - `node1-main`: restored `/mnt/data` opens, MariaDB data starts locally, Kimai var data is present. The live Kimai node is not restarted and no production pod is touched.
