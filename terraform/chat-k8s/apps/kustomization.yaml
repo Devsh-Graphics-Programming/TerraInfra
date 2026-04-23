@@ -6,5 +6,6 @@ resources:
   - stoat-config.yaml
   - stoat-ops-scripts.yaml
   - stoat-ops.yaml
+  - stoat-media-gateway.yaml
   - stoat-workloads.yaml
   - stoat-ingress.yaml

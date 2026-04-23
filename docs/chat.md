@@ -28,5 +28,7 @@ The command creates a single-use registration invite in MongoDB and sends the in
 Operational notes:
 
 - `stoatchat.devsh.eu` is served by the chat k3s ingress.
+- Message attachments under `/autumn/attachments` are served through the Flux-managed media gateway. Anonymous bearer URLs are blocked. A logged-in browser receives a short-lived `HttpOnly` media cookie from normal `/api` traffic, and the gateway verifies the backing message/channel access in MongoDB before proxying to Autumn.
+- Other Autumn media classes such as avatars and icons remain public because they are profile or server presentation assets.
 - Do not rely on live-only config edits as durable configuration. Land durable behavior in this repository and let Flux reconcile it.
 - Do not commit invite codes, tokens, generated secrets, or database dumps.
