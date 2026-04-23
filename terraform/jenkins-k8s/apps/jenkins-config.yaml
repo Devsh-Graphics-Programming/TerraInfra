@@ -141,7 +141,7 @@ data:
                           if (!(prefix.startsWith('ditt/public/') || prefix.startsWith('ditt/private/'))) {
                             error 'REPORT_PREFIX must stay under ditt/public/ or ditt/private/.'
                           }
-                          echo "Validated store prefix ${prefix}."
+                          echo('Validated store prefix ' + prefix + '.')
                         }
                       }
                     }
@@ -149,7 +149,7 @@ data:
                       steps {
                         script {
                           def response = httpRequest httpMode: 'HEAD', url: 'https://store.devsh.eu/ditt/public/', validResponseCodes: '200:399'
-                          echo "Public store responded with HTTP ${response.status}."
+                          echo('Public store responded with HTTP ' + response.status + '.')
                         }
                       }
                     }
@@ -160,7 +160,7 @@ data:
                       steps {
                         script {
                           def response = httpRequest httpMode: 'GET', url: 'https://store.devsh.eu/ditt/private/', validResponseCodes: '401'
-                          echo "Private store requires authentication. HTTP ${response.status}."
+                          echo('Private store requires authentication. HTTP ' + response.status + '.')
                         }
                       }
                     }
@@ -205,7 +205,7 @@ data:
                           if (!(prefix.startsWith('ditt/public/') || prefix.startsWith('ditt/private/'))) {
                             error 'STORE_PREFIX must stay under ditt/public/ or ditt/private/.'
                           }
-                          echo "Report plan validated for ${params.SCENE_SET} scenes and ${prefix}."
+                          echo('Report plan validated for ' + params.SCENE_SET + ' scenes and ' + prefix + '.')
                           if (!artifactUrl) {
                             echo 'No EX40 artifact URL was supplied. This run validates configuration only.'
                           }
