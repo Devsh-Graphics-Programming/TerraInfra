@@ -89,6 +89,11 @@ data:
             description('Static report publish and validation jobs.')
           }
 
+          folder('ci/runners') {
+            displayName('Runners')
+            description('Generic runtime runner planning jobs managed by configuration as code.')
+          }
+
           pipelineJob('system/smoke') {
             description('Verifies the controller can load configuration and run a lightweight pipeline.')
             definition {
@@ -104,6 +109,77 @@ data:
                     stage('Smoke') {
                       steps {
                         echo 'Jenkins configuration loaded.'
+                      }
+                    }
+                  }
+                }''')
+              }
+            }
+          }
+
+          pipelineJob('ci/runners/proxmox-plan') {
+            description('Validates the generic Proxmox runner request contract in dry-run mode.')
+            parameters {
+              stringParam('REQUIRED_LABELS', 'windows,gpu,nvidia,vulkan', 'Comma-separated runner capability labels.')
+              choiceParam('BACKEND', ['proxmox'], 'Runner backend to plan against.')
+              stringParam('LEASE_TTL_MINUTES', '120', 'Requested lease TTL in minutes.')
+              booleanParam('DRY_RUN', true, 'Keep execution disabled until Proxmox credentials and inventory are connected.')
+            }
+            definition {
+              cps {
+                sandbox()
+                script('''pipeline {
+                  agent none
+                  options {
+                    timestamps()
+                    buildDiscarder(logRotator(numToKeepStr: '20'))
+                  }
+                  stages {
+                    stage('Validate runner request') {
+                      steps {
+                        script {
+                          def rawLabels = params.REQUIRED_LABELS?.trim()
+                          if (!rawLabels) {
+                            error 'REQUIRED_LABELS is required.'
+                          }
+                          def labels = rawLabels.split(',').collect { it.trim() }.findAll { it }
+                          if (labels.isEmpty()) {
+                            error 'At least one runner label is required.'
+                          }
+                          labels.each { label ->
+                            if (!(label ==~ /[a-z0-9][a-z0-9_.-]*/)) {
+                              error 'Invalid runner label: ' + label
+                            }
+                          }
+                          if (labels.unique(false).size() != labels.size()) {
+                            error 'Runner labels must be unique.'
+                          }
+                          if (params.BACKEND != 'proxmox') {
+                            error 'Unsupported runner backend: ' + params.BACKEND
+                          }
+                          def ttlText = params.LEASE_TTL_MINUTES?.trim()
+                          if (!(ttlText ==~ /[0-9]+/)) {
+                            error 'LEASE_TTL_MINUTES must be an integer.'
+                          }
+                          def ttl = ttlText.toInteger()
+                          if (ttl < 5 || ttl > 720) {
+                            error 'LEASE_TTL_MINUTES must be between 5 and 720.'
+                          }
+                          env.RUNNER_PLAN_LABELS = labels.join(',')
+                          env.RUNNER_PLAN_TTL = ttl.toString()
+                          echo('Runner request validated for labels ' + env.RUNNER_PLAN_LABELS + '.')
+                        }
+                      }
+                    }
+                    stage('Render dry-run plan') {
+                      steps {
+                        script {
+                          def labelsJson = env.RUNNER_PLAN_LABELS.split(',').collect { '"' + it + '"' }.join(', ')
+                          echo('{ "backend": "' + params.BACKEND + '", "labels": [' + labelsJson + '], "lease_ttl_minutes": ' + env.RUNNER_PLAN_TTL + ', "phases": ["lease", "prepare", "health", "execute", "release"], "dry_run": ' + params.DRY_RUN + ' }')
+                          if (!params.DRY_RUN) {
+                            error 'Real Proxmox execution is not connected yet.'
+                          }
+                        }
                       }
                     }
                   }

@@ -1,0 +1,21 @@
+version: 1
+runners:
+  - id: win-gpu-nvidia-01
+    labels:
+      - windows
+      - gpu
+      - nvidia
+      - vulkan
+    backend:
+      type: proxmox
+      node: example-node
+      vmid: 100
+    connection:
+      type: winrm
+    gpu:
+      vendor: nvidia
+      model: rtx-2070
+    policy:
+      lease_ttl_minutes: 120
+      reset_before_use: true
+      release_on_failure: true

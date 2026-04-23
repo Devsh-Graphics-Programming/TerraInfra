@@ -132,7 +132,7 @@ By default, restore drill uses the latest managed auto snapshot. Manual restore 
 Target checks:
 - `node1-main`: restored `/mnt/data` opens, MariaDB data starts locally, Kimai var data is present. The live Kimai node is not restarted and no production pod is touched.
 - `chat`: restored MongoDB, MinIO and RabbitMQ data start locally and respond to health checks.
-- `jenkins`: restored Jenkins home includes controller config, master key, plugins, the managed smoke job, and the configured `ci/ditt` jobs; the restored controller starts locally, `/login` responds, and `/prometheus/` is present but requires authentication.
+- `jenkins`: restored Jenkins home includes controller config, master key, plugins, the managed smoke job, the generic runner plan job, and the configured `ci/ditt` jobs; the restored controller starts locally, `/login` responds, and `/prometheus/` is present but requires authentication.
 - `observability`: restored Grafana and OnCall Grafana data start locally and `/api/health` responds; local-path data root is present.
 
 The restore drill intentionally does not reuse production DNS, ingress, cert-manager challenges, Flux alerting, or public service endpoints. This avoids duplicate alerts and avoids any interaction with live Kimai, StoatChat, Jenkins, or monitoring workloads.

@@ -15,6 +15,7 @@ We use GitHub Actions to validate Terraform and to keep a couple of generated ar
 Run in `terraform/`:
 - secret hygiene guard for changed lines plus SOPS-encrypted Kubernetes Secret files
 - snapshot/restore target selection checks for `all`, `jenkins`, and unknown-target rejection
+- generic Proxmox runner inventory example validation
 - `terraform fmt -check -recursive`
 - `terraform init -backend=false -input=false`
 - `terraform validate -no-color`
@@ -45,7 +46,10 @@ Jenkins configuration is managed through JCasC/Job DSL in `terraform/jenkins-k8s
 
 Current jobs:
 - `system/smoke`: verifies the controller can load configuration and run a lightweight pipeline.
+- `ci/runners/proxmox-plan`: validates the generic runner request contract in dry-run mode without Proxmox credentials.
 - `ci/ditt/store-smoke`: validates `store.devsh.eu` public/private report endpoint behavior without Proxmox credentials.
 - `ci/ditt/ex40-report-plan`: validates EX40 report publish parameters and stays in dry-run mode until the runtime backend is connected.
 
 Future publish credentials should be added as SOPS-encrypted Kubernetes Secret values first, then wired into Jenkins through JCasC by credential ID. Do not add plaintext credentials to job definitions or workflow inputs.
+
+Runner inventory and allocator design are documented in `docs/proxmox-runners.md`. DITT and EX40 jobs should consume that generic runner layer by labels, not by Proxmox node names or VM IDs.
