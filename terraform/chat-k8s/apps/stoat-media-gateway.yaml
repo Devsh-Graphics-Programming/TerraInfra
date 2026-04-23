@@ -456,6 +456,8 @@ spec:
       app.kubernetes.io/name: stoat-media-gateway
   template:
     metadata:
+      annotations:
+        devsh.eu/config-revision: stoat-media-gateway-20260423-01
       labels:
         app.kubernetes.io/name: stoat-media-gateway
     spec:
