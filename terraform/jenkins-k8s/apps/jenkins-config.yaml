@@ -326,7 +326,7 @@ data:
                           script {
                             def buildUrl = { String path, Map query = [:] ->
                               def base = PROXMOX_API_URL.endsWith('/') ? PROXMOX_API_URL[0..-2] : PROXMOX_API_URL
-                              if (query.isEmpty()) {
+                              if (!query || query.isEmpty()) {
                                 return base + path
                               }
                               def encoded = query.collect { key, value ->
@@ -426,7 +426,7 @@ data:
                           script {
                             def buildUrl = { String path, Map query = [:] ->
                               def base = PROXMOX_API_URL.endsWith('/') ? PROXMOX_API_URL[0..-2] : PROXMOX_API_URL
-                              if (query.isEmpty()) {
+                              if (!query || query.isEmpty()) {
                                 return base + path
                               }
                               def encoded = query.collect { key, value ->
