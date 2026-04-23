@@ -118,45 +118,7 @@ jobs:
     steps:
       - name: Resolve restore matrix
         id: matrix
-        run: |
-          set -euo pipefail
-
-          all_targets='["chat","jenkins","node1-main","observability"]'
-          requested_targets="$(echo "${SNAPSHOTS_TARGET_NAMES}" | tr -d '[:space:]')"
-          wanted="$(jq -cn --arg names "${requested_targets}" --argjson all "${all_targets}" '
-            if ($names == "" or $names == "all") then
-              $all
-            else
-              ($names | split(",") | map(select(length > 0))) as $wanted |
-              if any($wanted[]; ($all | index(.) | not)) then
-                error("Unknown restore target in " + $names)
-              else
-                $wanted
-              end
-            end
-          ')"
-
-          matrix="$(jq -cn --argjson wanted "${wanted}" '
-            def instance_type($key):
-              if $key == "chat" then "DEV1-M"
-              elif $key == "jenkins" then "DEV1-S"
-              elif $key == "observability" then "DEV1-S"
-              else "DEV1-S"
-              end;
-            {
-              include: [
-                $wanted[] as $key |
-                {
-                  target_key: $key,
-                  instance_type: instance_type($key)
-                }
-              ]
-            }
-          ')"
-
-          echo "Restore targets:"
-          echo "${matrix}" | jq -r '.include[].target_key'
-          echo "matrix=${matrix}" >> "${GITHUB_OUTPUT}"
+        run: bash .github/scripts/resolve-restore-matrix.sh
 
   drill:
     needs: resolve

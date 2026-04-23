@@ -67,88 +67,7 @@ jobs:
     steps:
       - name: Resolve snapshot matrix
         id: matrix
-        run: |
-          set -euo pipefail
-
-          default_snapshot_targets="$(jq -cn '{
-            "node1-main": {
-              volume_name: "devsh-k3s-prod-data-node1",
-              name_prefix: "devsh-k3s-prod-data",
-              tags: ["node1", "kimai"]
-            },
-            chat: {
-              volume_name: "prod-chat-01-data",
-              name_prefix: "prod-chat-01-data",
-              tags: ["chat", "stoatchat"]
-            },
-            jenkins: {
-              volume_name: "jenkins-prod-data",
-              name_prefix: "jenkins-prod-data",
-              tags: ["jenkins", "ci-controller"]
-            },
-            observability: {
-              volume_name: "prod-observability-01-data",
-              name_prefix: "prod-observability-01-data",
-              tags: ["observability", "monitoring"]
-            }
-          }')"
-
-          requested_targets="$(echo "${SNAPSHOTS_TARGET_NAMES}" | tr -d '[:space:]')"
-          if [[ -z "${requested_targets}" || "${requested_targets}" == "all" ]]; then
-            snapshot_targets="${default_snapshot_targets}"
-          else
-            snapshot_targets="$(jq -cn --arg names "${requested_targets}" --arg defaults_json "${default_snapshot_targets}" '
-              ($defaults_json | fromjson) as $defaults |
-              ($names | split(",") | map(select(length > 0))) as $wanted |
-              if ($wanted | length) == 0 then
-                error("No snapshot targets selected")
-              elif any($wanted[]; $defaults[.] == null) then
-                error("Unknown snapshot target in " + $names)
-              else
-                $defaults | with_entries(select(.key as $k | $wanted | index($k)))
-              end
-            ')"
-          fi
-
-          snapshot_kind="auto"
-          retention="24h (rotating, max 1 kept)"
-          requested_manual_snapshot_name=""
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            snapshot_kind="manual"
-            ttl_hours="${SNAPSHOTS_MANUAL_TTL_HOURS}"
-            if ! [[ "${ttl_hours}" =~ ^[0-9]+$ ]] || (( ttl_hours <= 0 )); then
-              echo "Invalid manual_ttl_hours='${ttl_hours}' (expected positive integer)" >&2
-              exit 1
-            fi
-            retention="${ttl_hours}h (Terraform-managed)"
-            requested_manual_snapshot_name="${SNAPSHOTS_MANUAL_SNAPSHOT_NAME}"
-            if [[ -z "${requested_manual_snapshot_name}" ]]; then
-              requested_manual_snapshot_name="$(date -u +%Y%m%dT%H%M%SZ)-run${GITHUB_RUN_ID}"
-            fi
-          fi
-
-          matrix="$(jq -cn --argjson targets "${snapshot_targets}" '{
-            include: [
-              $targets
-              | to_entries[]
-              | {
-                  target_key: .key,
-                  volume_name: .value.volume_name,
-                  name_prefix: .value.name_prefix,
-                  tags: (.value.tags // [])
-                }
-            ]
-          }')"
-          target_keys="$(echo "${snapshot_targets}" | jq -c 'keys')"
-
-          echo "Snapshot targets:"
-          echo "${target_keys}" | jq -r '.[]'
-
-          echo "matrix=${matrix}" >> "${GITHUB_OUTPUT}"
-          echo "target_keys=${target_keys}" >> "${GITHUB_OUTPUT}"
-          echo "snapshot_kind=${snapshot_kind}" >> "${GITHUB_OUTPUT}"
-          echo "requested_manual_snapshot_name=${requested_manual_snapshot_name}" >> "${GITHUB_OUTPUT}"
-          echo "retention=${retention}" >> "${GITHUB_OUTPUT}"
+        run: bash .github/scripts/resolve-snapshot-matrix.sh
 
   snapshots:
     needs: resolve
@@ -524,10 +443,22 @@ jobs:
           fi
 
           snapshot_lines="$(jq -r '
+            def value_or_unknown($v): if ($v == null or $v == "") then "unknown" else $v end;
+            def truncate($max): if length > $max then .[0:$max] + "..." else . end;
+            def target_line:
+              (if (.status == "success" and .phase == "complete") then "[ok]" else "[fail]" end)
+              + " `" + .target + "` "
+              + "snapshot `" + value_or_unknown(.snapshot_name) + "`"
+              + ", phase " + value_or_unknown(.phase)
+              + (if (.status == "success" and .phase == "complete") then
+                  ""
+                else
+                  ", " + ((.message // "snapshot job failed") | truncate(120))
+                end);
             if length == 0 then
-              "n/a"
+              "No snapshot result artifacts were available."
             else
-              map("`" + .target + "` `" + (.snapshot_name // "n/a") + "` (" + (.status // "unknown") + ")") | join("\n")
+              map(target_line) | join("\n")
             end
           ' <<< "${results}")"
 
@@ -557,8 +488,8 @@ jobs:
                     {name: "Type", value: $kind, inline: true},
                     {name: "Trigger", value: $trigger, inline: true},
                     {name: "Branch", value: $branch, inline: true},
-                    {name: "Targets", value: (if ($targets | length) > 0 then ("`" + $targets + "`") else "n/a" end), inline: false},
-                    {name: "Snapshots", value: (if ($snapshots | length) > 0 then $snapshots else "n/a" end), inline: false},
+                    {name: "Selected targets", value: (if ($targets | length) > 0 then ("`" + $targets + "`") else "n/a" end), inline: false},
+                    {name: "Results", value: (if ($snapshots | length) > 0 then $snapshots else "n/a" end), inline: false},
                     {name: "Retention", value: $retention, inline: true},
                     {name: "Resolve job", value: $resolve_result, inline: true},
                     {name: "Snapshot jobs", value: $snapshots_result, inline: true},
@@ -576,8 +507,19 @@ jobs:
             echo "- Status: ${status}"
             echo "- Resolve job: ${RESOLVE_RESULT}"
             echo "- Snapshot jobs: ${SNAPSHOTS_RESULT}"
+            echo "- Retention: ${RETENTION}"
             echo
-            jq -r '.[] | "- " + .target + ": " + .status + " / " + (.snapshot_name // "n/a")' <<< "${results}"
+            echo "| Target | Result | Snapshot | Retention | Phase | Message |"
+            echo "| --- | --- | --- | --- | --- | --- |"
+            jq -r '
+              def cell($v): (($v // "-") | tostring | gsub("[|]"; "/") | gsub("\n"; " ") | if length > 120 then .[0:117] + "..." else . end);
+              if length == 0 then
+                "| n/a | failed | n/a | n/a | unknown | No snapshot result artifacts were available. |"
+              else
+                .[]
+                | "| `" + .target + "` | " + cell(.status) + " | `" + cell(.snapshot_name) + "` | " + cell(.retention) + " | " + cell(.phase) + " | " + cell(.message) + " |"
+              end
+            ' <<< "${results}"
           } >> "${GITHUB_STEP_SUMMARY}"
 
           curl -fsS -H 'Content-Type: application/json' -d "${payload}" "${SNAPSHOTS_DISCORD_WEBHOOK_URL}" || echo "Discord webhook notification failed" >&2

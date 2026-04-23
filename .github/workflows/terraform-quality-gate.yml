@@ -26,7 +26,16 @@ jobs:
       - uses: actions/checkout@v6
         with:
           submodules: false
-          fetch-depth: 1
+          fetch-depth: 0
+
+      - name: Secret hygiene
+        env:
+          SECRET_SCAN_BASE: ${{ github.event.pull_request.base.sha || github.event.before || 'HEAD' }}
+          SECRET_SCAN_HEAD: ${{ github.sha }}
+        run: python ../.github/scripts/secret-guard.py --base "${SECRET_SCAN_BASE}" --head "${SECRET_SCAN_HEAD}"
+
+      - name: Validate snapshot target selection
+        run: bash ../.github/scripts/validate-snapshot-target-selection.sh
 
       - uses: hashicorp/setup-terraform@v4
         with:
@@ -118,6 +127,8 @@ jobs:
             -w /work \
             philippemerle/kubediagrams \
             kube-diagrams - -o KUBEDIAGRAM.png -f png
+
+          perl -0pi -e 's/<!-- [0-9a-f]{32}(&#45;&gt;[0-9a-f]{32})? -->\n//g; s~<title>[0-9a-f]{32}(&#45;&gt;[0-9a-f]{32})?</title>\n~~g' KUBEDIAGRAM.svg
 
       - uses: terraform-docs/gh-actions@v1.4.1
         with:

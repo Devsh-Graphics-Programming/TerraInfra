@@ -28,6 +28,7 @@ Current hardening state per service/namespace:
 - Secrets:
   - Store as SOPS-encrypted YAML under `k8s/vars/secrets/`.
   - Reference via `envFromSecret` or `secretKeyRef`; no plaintext in manifests.
+  - CI checks changed lines for high-confidence plaintext secret assignments and verifies that committed Kubernetes Secret `data` / `stringData` values under `vars/secrets/` remain SOPS-encrypted.
 - GitOps:
   - Commit to `env/test`, fast-forward merge to `env/prod` (see `docs/how-to-commit.md`).
 

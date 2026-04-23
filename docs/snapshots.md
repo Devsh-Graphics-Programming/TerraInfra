@@ -112,6 +112,7 @@ It runs daily after the managed snapshot job and can be started manually. Inputs
 Before creating any verifier, the workflow runs a janitor that first destroys any leftover resources still tracked in the dedicated restore-drill Terraform state and then deletes only stale Scaleway resources that match all restore-drill safety gates: the project, the `devsh` and `restore-drill` tags, an allowed target tag/name, a `restore-drill-*` resource name where applicable, a non-current run tag, and the minimum age window. It does not delete production nodes, production volumes, snapshots, buckets, DNS, or any untagged resource.
 
 For each selected target the workflow runs an independent matrix job. Targets can run in parallel because each verifier reads its own snapshot state, uses its own restore-drill backend key, and creates its own temporary resources.
+The matrix selection logic lives in `.github/scripts/resolve-snapshot-matrix.sh` and `.github/scripts/resolve-restore-matrix.sh`; the quality gate validates the `jenkins` subset and unknown-target rejection before Terraform runs.
 
 For each target the workflow:
 1. Reads the latest snapshot ID from the snapshots Terraform state.

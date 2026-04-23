@@ -21,6 +21,7 @@ data:
     cloudbees-folder
     mailer
     prometheus
+    http_request
   jenkins.yaml: |
     jenkins:
       systemMessage: "DevSH Jenkins controller managed by TerraInfra."
@@ -78,6 +79,16 @@ data:
             description('Controller health checks managed by configuration as code.')
           }
 
+          folder('ci') {
+            displayName('CI')
+            description('Prepared CI jobs managed by configuration as code.')
+          }
+
+          folder('ci/ditt') {
+            displayName('DITT')
+            description('Static report publish and validation jobs.')
+          }
+
           pipelineJob('system/smoke') {
             description('Verifies the controller can load configuration and run a lightweight pipeline.')
             definition {
@@ -93,6 +104,115 @@ data:
                     stage('Smoke') {
                       steps {
                         echo 'Jenkins configuration loaded.'
+                      }
+                    }
+                  }
+                }''')
+              }
+            }
+          }
+
+          pipelineJob('ci/ditt/store-smoke') {
+            description('Checks the static report store endpoints without requiring Proxmox credentials.')
+            parameters {
+              stringParam('REPORT_PREFIX', 'ditt/public/', 'Store object prefix to validate.')
+              booleanParam('CHECK_PRIVATE_GATE', true, 'Validate that the private report path requires authentication.')
+            }
+            definition {
+              cps {
+                sandbox()
+                script('''pipeline {
+                  agent none
+                  options {
+                    timestamps()
+                    buildDiscarder(logRotator(numToKeepStr: '20'))
+                  }
+                  stages {
+                    stage('Validate parameters') {
+                      steps {
+                        script {
+                          def prefix = params.REPORT_PREFIX?.trim()
+                          if (!prefix) {
+                            error 'REPORT_PREFIX is required.'
+                          }
+                          if (prefix.startsWith('/') || prefix.contains('..') || prefix.contains('//')) {
+                            error 'REPORT_PREFIX must be a relative object prefix without traversal.'
+                          }
+                          if (!(prefix.startsWith('ditt/public/') || prefix.startsWith('ditt/private/'))) {
+                            error 'REPORT_PREFIX must stay under ditt/public/ or ditt/private/.'
+                          }
+                          echo "Validated store prefix ${prefix}."
+                        }
+                      }
+                    }
+                    stage('Check public store') {
+                      steps {
+                        script {
+                          def response = httpRequest httpMode: 'HEAD', url: 'https://store.devsh.eu/ditt/public/', validResponseCodes: '200:399'
+                          echo "Public store responded with HTTP ${response.status}."
+                        }
+                      }
+                    }
+                    stage('Check private store gate') {
+                      when {
+                        expression { return params.CHECK_PRIVATE_GATE }
+                      }
+                      steps {
+                        script {
+                          def response = httpRequest httpMode: 'GET', url: 'https://store.devsh.eu/ditt/private/', validResponseCodes: '401'
+                          echo "Private store requires authentication. HTTP ${response.status}."
+                        }
+                      }
+                    }
+                  }
+                }''')
+              }
+            }
+          }
+
+          pipelineJob('ci/ditt/ex40-report-plan') {
+            description('Validates EX40 report publish parameters before GPU execution is enabled.')
+            parameters {
+              stringParam('EX40_ARTIFACT_URL', '', 'HTTPS URL of an EX40 package produced by upstream CI.')
+              choiceParam('SCENE_SET', ['public', 'private', 'both'], 'Scene set to run when execution is enabled.')
+              stringParam('STORE_PREFIX', 'ditt/public/', 'Destination prefix under store.devsh.eu.')
+              booleanParam('PUBLISH_DRY_RUN', true, 'Keep publishing disabled until the runtime backend is connected.')
+            }
+            definition {
+              cps {
+                sandbox()
+                script('''pipeline {
+                  agent none
+                  options {
+                    timestamps()
+                    buildDiscarder(logRotator(numToKeepStr: '20'))
+                  }
+                  stages {
+                    stage('Validate plan') {
+                      steps {
+                        script {
+                          def artifactUrl = params.EX40_ARTIFACT_URL?.trim()
+                          if (artifactUrl && !artifactUrl.startsWith('https://')) {
+                            error 'EX40_ARTIFACT_URL must be an HTTPS URL.'
+                          }
+                          def prefix = params.STORE_PREFIX?.trim()
+                          if (!prefix) {
+                            error 'STORE_PREFIX is required.'
+                          }
+                          if (prefix.startsWith('/') || prefix.contains('..') || prefix.contains('//')) {
+                            error 'STORE_PREFIX must be a relative object prefix without traversal.'
+                          }
+                          if (!(prefix.startsWith('ditt/public/') || prefix.startsWith('ditt/private/'))) {
+                            error 'STORE_PREFIX must stay under ditt/public/ or ditt/private/.'
+                          }
+                          echo "Report plan validated for ${params.SCENE_SET} scenes and ${prefix}."
+                          if (!artifactUrl) {
+                            echo 'No EX40 artifact URL was supplied. This run validates configuration only.'
+                          }
+                          if (params.PUBLISH_DRY_RUN) {
+                            echo 'Publishing is in dry-run mode.'
+                          }
+                        }
                       }
                     }
                   }
