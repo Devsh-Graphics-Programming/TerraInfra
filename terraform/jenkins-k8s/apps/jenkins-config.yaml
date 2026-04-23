@@ -118,11 +118,14 @@ data:
           }
 
           pipelineJob('ci/runners/proxmox-plan') {
-            description('Validates the generic Proxmox runner request contract in dry-run mode.')
+            description('Validates the generic Proxmox runner class request contract and renders the runtime lifecycle plan in dry-run mode.')
             parameters {
-              stringParam('REQUIRED_LABELS', 'windows,gpu,nvidia,vulkan', 'Comma-separated runner capability labels.')
+              stringParam('RUNNER_CLASS', 'win-gpu-nvidia', 'Runner class requested by the consumer job.')
+              stringParam('REQUIRED_LABELS', 'windows,gpu,nvidia,vulkan,gpu-class-rtx-2070', 'Comma-separated runner capability labels.')
               choiceParam('BACKEND', ['proxmox'], 'Runner backend to plan against.')
+              stringParam('TEMPLATE_CHANNEL', 'windows-gpu-nvidia/stable', 'Promoted template channel the allocator should resolve.')
               stringParam('LEASE_TTL_MINUTES', '120', 'Requested lease TTL in minutes.')
+              choiceParam('WARM_POOL_MODE', ['preferred', 'required', 'disabled'], 'Whether the allocator should require a warm clone or allow cold clone fallback.')
               booleanParam('DRY_RUN', true, 'Keep execution disabled until Proxmox credentials and inventory are connected.')
             }
             definition {
@@ -138,6 +141,10 @@ data:
                     stage('Validate runner request') {
                       steps {
                         script {
+                          def runnerClass = params.RUNNER_CLASS?.trim()
+                          if (!(runnerClass ==~ /[a-z0-9][a-z0-9-]*/)) {
+                            error 'RUNNER_CLASS must match [a-z0-9][a-z0-9-]*.'
+                          }
                           def rawLabels = params.REQUIRED_LABELS?.trim()
                           if (!rawLabels) {
                             error 'REQUIRED_LABELS is required.'
@@ -157,6 +164,10 @@ data:
                           if (params.BACKEND != 'proxmox') {
                             error 'Unsupported runner backend: ' + params.BACKEND
                           }
+                          def channel = params.TEMPLATE_CHANNEL?.trim()
+                          if (!(channel ==~ /[a-z0-9][a-z0-9/._-]*/)) {
+                            error 'TEMPLATE_CHANNEL must be a normalized channel name.'
+                          }
                           def ttlText = params.LEASE_TTL_MINUTES?.trim()
                           if (!(ttlText ==~ /[0-9]+/)) {
                             error 'LEASE_TTL_MINUTES must be an integer.'
@@ -165,19 +176,87 @@ data:
                           if (ttl < 5 || ttl > 720) {
                             error 'LEASE_TTL_MINUTES must be between 5 and 720.'
                           }
+                          if (!(params.WARM_POOL_MODE in ['preferred', 'required', 'disabled'])) {
+                            error 'Unsupported WARM_POOL_MODE: ' + params.WARM_POOL_MODE
+                          }
+                          env.RUNNER_PLAN_CLASS = runnerClass
                           env.RUNNER_PLAN_LABELS = labels.join(',')
+                          env.RUNNER_PLAN_TEMPLATE_CHANNEL = channel
                           env.RUNNER_PLAN_TTL = ttl.toString()
-                          echo('Runner request validated for labels ' + env.RUNNER_PLAN_LABELS + '.')
+                          echo('Runner request validated for class ' + env.RUNNER_PLAN_CLASS + ' and labels ' + env.RUNNER_PLAN_LABELS + '.')
                         }
                       }
                     }
-                    stage('Render dry-run plan') {
+                    stage('Render runtime plan') {
                       steps {
                         script {
                           def labelsJson = env.RUNNER_PLAN_LABELS.split(',').collect { '"' + it + '"' }.join(', ')
-                          echo('{ "backend": "' + params.BACKEND + '", "labels": [' + labelsJson + '], "lease_ttl_minutes": ' + env.RUNNER_PLAN_TTL + ', "phases": ["lease", "prepare", "health", "execute", "release"], "dry_run": ' + params.DRY_RUN + ' }')
+                          echo('{ "backend": "' + params.BACKEND + '", "runner_class": "' + env.RUNNER_PLAN_CLASS + '", "labels": [' + labelsJson + '], "template_channel": "' + env.RUNNER_PLAN_TEMPLATE_CHANNEL + '", "lease_ttl_minutes": ' + env.RUNNER_PLAN_TTL + ', "warm_pool_mode": "' + params.WARM_POOL_MODE + '", "hot_path": ["lease", "acquire-warm-clone", "boot", "health", "execute", "destroy"], "cold_path": ["lease", "resolve-template", "clone-template", "boot", "health", "execute", "destroy"], "dry_run": ' + params.DRY_RUN + ' }')
                           if (!params.DRY_RUN) {
                             error 'Real Proxmox execution is not connected yet.'
+                          }
+                        }
+                      }
+                    }
+                  }
+                }''')
+              }
+            }
+          }
+
+          pipelineJob('ci/runners/packer-plan') {
+            description('Validates the Packer image build and promotion contract in dry-run mode.')
+            parameters {
+              choiceParam('IMAGE_FAMILY', ['windows-base', 'windows-gpu-nvidia'], 'Template family to build or promote.')
+              choiceParam('BUILDER', ['proxmox-iso', 'proxmox-clone'], 'Packer builder expected for this image family.')
+              stringParam('CHANNEL', 'stable', 'Promotion channel to update after a successful build.')
+              booleanParam('PROMOTE', false, 'Render the promotion step in the build plan.')
+              booleanParam('DRY_RUN', true, 'Keep execution disabled until real Proxmox API credentials are connected.')
+            }
+            definition {
+              cps {
+                sandbox()
+                script('''pipeline {
+                  agent none
+                  options {
+                    timestamps()
+                    buildDiscarder(logRotator(numToKeepStr: '20'))
+                  }
+                  stages {
+                    stage('Validate image request') {
+                      steps {
+                        script {
+                          def imageFamily = params.IMAGE_FAMILY?.trim()
+                          if (!(imageFamily in ['windows-base', 'windows-gpu-nvidia'])) {
+                            error 'Unsupported IMAGE_FAMILY: ' + imageFamily
+                          }
+                          def builder = params.BUILDER?.trim()
+                          if (!(builder in ['proxmox-iso', 'proxmox-clone'])) {
+                            error 'Unsupported BUILDER: ' + builder
+                          }
+                          if (imageFamily == 'windows-base' && builder != 'proxmox-iso') {
+                            error 'windows-base must use the proxmox-iso builder.'
+                          }
+                          if (imageFamily == 'windows-gpu-nvidia' && builder != 'proxmox-clone') {
+                            error 'windows-gpu-nvidia must use the proxmox-clone builder.'
+                          }
+                          def channel = params.CHANNEL?.trim()
+                          if (!(channel ==~ /[a-z0-9][a-z0-9._-]*/)) {
+                            error 'CHANNEL must match [a-z0-9][a-z0-9._-]*.'
+                          }
+                          env.PACKER_PLAN_IMAGE_FAMILY = imageFamily
+                          env.PACKER_PLAN_BUILDER = builder
+                          env.PACKER_PLAN_CHANNEL = channel
+                          echo('Image request validated for ' + env.PACKER_PLAN_IMAGE_FAMILY + ' on channel ' + env.PACKER_PLAN_CHANNEL + '.')
+                        }
+                      }
+                    }
+                    stage('Render build plan') {
+                      steps {
+                        script {
+                          echo('{ "image_family": "' + env.PACKER_PLAN_IMAGE_FAMILY + '", "builder": "' + env.PACKER_PLAN_BUILDER + '", "channel": "' + env.PACKER_PLAN_CHANNEL + '", "phases": ["resolve-source", "build-image", "provision", "sysprep", "convert-template", "smoke-check", "promote-channel"], "promote": ' + params.PROMOTE + ', "dry_run": ' + params.DRY_RUN + ' }')
+                          if (!params.DRY_RUN) {
+                            error 'Real Packer execution is not connected yet.'
                           }
                         }
                       }

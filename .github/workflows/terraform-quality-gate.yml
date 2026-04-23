@@ -28,6 +28,13 @@ jobs:
           submodules: false
           fetch-depth: 0
 
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.x"
+
+      - name: Install Python YAML dependency
+        run: python -m pip install --disable-pip-version-check pyyaml
+
       - name: Secret hygiene
         env:
           SECRET_SCAN_BASE: ${{ github.event.pull_request.base.sha || github.event.before || 'HEAD' }}
@@ -47,36 +54,18 @@ jobs:
         run: bash ../.github/scripts/validate-snapshot-target-selection.sh
 
       - name: Validate runner inventory example
-        run: |
-          ruby - <<'RUBY'
-          require "yaml"
+        run: python ../.github/scripts/validate-proxmox-runner-platform.py ../docs/proxmox-runner-inventory.example.yaml
 
-          data = YAML.load_file("../docs/proxmox-runner-inventory.example.yaml")
-          raise "version must be 1" unless data["version"] == 1
-          runners = data["runners"]
-          raise "runners must be a non-empty array" unless runners.is_a?(Array) && !runners.empty?
+      - uses: hashicorp/setup-packer@v3
 
-          runners.each do |runner|
-            id = runner["id"]
-            raise "runner id is invalid" unless id.is_a?(String) && id.match?(/\A[a-z0-9][a-z0-9-]*\z/)
+      - name: Packer fmt
+        run: packer fmt -check ../packer/proxmox
 
-            labels = runner["labels"]
-            raise "runner labels must be a non-empty array" unless labels.is_a?(Array) && !labels.empty?
-            raise "runner labels must be unique" unless labels.uniq == labels
-            labels.each do |label|
-              raise "runner label is invalid: #{label}" unless label.is_a?(String) && label.match?(/\A[a-z0-9][a-z0-9_.-]*\z/)
-            end
+      - name: Packer init
+        run: packer init ../packer/proxmox
 
-            backend = runner["backend"] || {}
-            raise "backend type must be proxmox" unless backend["type"] == "proxmox"
-            raise "backend node must be an example value" unless backend["node"].is_a?(String) && backend["node"].start_with?("example-")
-            raise "backend vmid must be a positive integer" unless backend["vmid"].is_a?(Integer) && backend["vmid"] > 0
-
-            policy = runner["policy"] || {}
-            ttl = policy["lease_ttl_minutes"]
-            raise "lease_ttl_minutes must be 5..720" unless ttl.is_a?(Integer) && ttl >= 5 && ttl <= 720
-          end
-          RUBY
+      - name: Packer validate
+        run: packer validate ../packer/proxmox
 
       - uses: hashicorp/setup-terraform@v4
         with:
