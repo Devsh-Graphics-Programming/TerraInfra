@@ -152,12 +152,12 @@ spec:
               id -u tunnel >/dev/null 2>&1 || adduser -D -H -u 10001 tunnel
               echo "tunnel:$(dd if=/dev/urandom bs=18 count=1 2>/dev/null | base64)" | chpasswd
               install -d -m 0755 /run/sshd /var/run/proxmox-tunnel-runtime/keys
-              install -d -m 0700 -o 10001 -g 10001 /var/run/proxmox-tunnel-runtime/auth
+              install -d -m 0755 /var/run/proxmox-tunnel-runtime/auth
               cp /var/run/proxmox-tunnel-secrets/ssh_host_ed25519_key /var/run/proxmox-tunnel-runtime/keys/ssh_host_ed25519_key
               cp /var/run/proxmox-tunnel-secrets/ssh_host_ed25519_key.pub /var/run/proxmox-tunnel-runtime/keys/ssh_host_ed25519_key.pub
               cp /var/run/proxmox-tunnel-secrets/authorized_keys /var/run/proxmox-tunnel-runtime/auth/tunnel
-              chown 10001:10001 /var/run/proxmox-tunnel-runtime/auth/tunnel
-              chmod 0600 /var/run/proxmox-tunnel-runtime/keys/ssh_host_ed25519_key /var/run/proxmox-tunnel-runtime/auth/tunnel
+              chmod 0600 /var/run/proxmox-tunnel-runtime/keys/ssh_host_ed25519_key
+              chmod 0644 /var/run/proxmox-tunnel-runtime/auth/tunnel
               exec /usr/sbin/sshd -D -e -f /var/run/proxmox-tunnel-config/sshd_config
           ports:
             - name: proxmox-tunnel
