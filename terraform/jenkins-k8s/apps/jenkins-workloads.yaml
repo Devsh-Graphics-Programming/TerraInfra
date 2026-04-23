@@ -150,6 +150,7 @@ spec:
           args:
             - |
               id -u tunnel >/dev/null 2>&1 || adduser -D -H -u 10001 tunnel
+              echo "tunnel:$(dd if=/dev/urandom bs=18 count=1 2>/dev/null | base64)" | chpasswd
               install -d -m 0755 /run/sshd /var/run/proxmox-tunnel-runtime/keys /var/run/proxmox-tunnel-runtime/auth
               cp /var/run/proxmox-tunnel-secrets/ssh_host_ed25519_key /var/run/proxmox-tunnel-runtime/keys/ssh_host_ed25519_key
               cp /var/run/proxmox-tunnel-secrets/ssh_host_ed25519_key.pub /var/run/proxmox-tunnel-runtime/keys/ssh_host_ed25519_key.pub
