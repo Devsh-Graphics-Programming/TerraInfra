@@ -170,6 +170,90 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
+  name: revolt-uploads
+  namespace: minio
+spec:
+  type: ExternalName
+  externalName: minio.chat.svc.cluster.local
+  ports:
+    - name: s3
+      port: 9000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: attachments
+  namespace: minio
+spec:
+  type: ExternalName
+  externalName: minio.chat.svc.cluster.local
+  ports:
+    - name: s3
+      port: 9000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: avatars
+  namespace: minio
+spec:
+  type: ExternalName
+  externalName: minio.chat.svc.cluster.local
+  ports:
+    - name: s3
+      port: 9000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backgrounds
+  namespace: minio
+spec:
+  type: ExternalName
+  externalName: minio.chat.svc.cluster.local
+  ports:
+    - name: s3
+      port: 9000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: icons
+  namespace: minio
+spec:
+  type: ExternalName
+  externalName: minio.chat.svc.cluster.local
+  ports:
+    - name: s3
+      port: 9000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: banners
+  namespace: minio
+spec:
+  type: ExternalName
+  externalName: minio.chat.svc.cluster.local
+  ports:
+    - name: s3
+      port: 9000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: emojis
+  namespace: minio
+spec:
+  type: ExternalName
+  externalName: minio.chat.svc.cluster.local
+  ports:
+    - name: s3
+      port: 9000
+---
+apiVersion: v1
+kind: Service
+metadata:
   name: minio
   namespace: chat
 spec:
