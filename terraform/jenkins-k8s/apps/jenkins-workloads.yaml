@@ -147,14 +147,6 @@ spec:
           env:
             - name: SSH_USERS
               value: tunnel:10001:10001
-            - name: TCP_FORWARDING
-              value: "true"
-            - name: GATEWAY_PORTS
-              value: "false"
-            - name: DISABLE_SFTP
-              value: "true"
-            - name: MOTD
-              value: Proxmox reverse tunnel endpoint
           ports:
             - name: proxmox-tunnel
               containerPort: 2222
