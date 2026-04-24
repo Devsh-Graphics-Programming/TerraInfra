@@ -183,6 +183,7 @@ class FakeProxmoxClient:
     def __init__(self):
         self.clone_requests = []
         self.config_requests = []
+        self.destroy_requests = []
 
     def qemu_vmids(self, node):
         return {9002}
@@ -198,6 +199,15 @@ class FakeProxmoxClient:
 
     def wait_task(self, node, upid, timeout_seconds):
         return {"status": "stopped", "exitstatus": "OK"}
+
+    def safe_destroy(self, node, vmid):
+        self.destroy_requests.append((node, vmid))
+        return True
+
+
+class FailingLeaseStore(runnerctl_api.LeaseStore):
+    def put(self, lease_id, record):
+        raise OSError("lease store unavailable")
 
 
 class FakeProxmoxRegistry:
@@ -229,6 +239,23 @@ class CreateLeaseTests(unittest.TestCase):
             self.assertEqual(client.clone_requests[0][1]["newid"], 2000)
             self.assertEqual(client.clone_requests[0][1]["pool"], "ci-runners")
             self.assertEqual(client.config_requests[0][1]["tags"], "runnerctl;lifecycle-ephemeral")
+
+    def test_create_lease_cleans_up_clone_when_lease_store_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            lease_store = FailingLeaseStore(Path(directory) / "leases.json")
+            client = FakeProxmoxClient()
+            registry = FakeProxmoxRegistry(client)
+            with self.assertRaises(OSError):
+                runnerctl_api.create_lease(
+                    registry,
+                    lease_store,
+                    SAMPLE_INVENTORY,
+                    {
+                        "runner_class": "win-gpu-nvidia",
+                        "required_labels": ["windows", "gpu", "nvidia"],
+                    },
+                )
+            self.assertEqual(client.destroy_requests, [("pve-rtx-01", 2000)])
 
 
 if __name__ == "__main__":

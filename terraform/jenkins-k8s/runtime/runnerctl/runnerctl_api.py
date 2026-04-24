@@ -736,7 +736,7 @@ def create_lease(client_registry, lease_store, inventory, request_data):
             except Exception:
                 if clone_created:
                     try:
-                        safe_destroy(client, node, vmid)
+                        client.safe_destroy(node, vmid)
                     except Exception:
                         pass
                 raise
