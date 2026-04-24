@@ -390,6 +390,9 @@ def build_candidate(host, template, runner_class):
         "bridge": require_pattern(network.get("bridge", ""), SAFE_NAME_PATTERN, "network.bridge"),
         "vlan_tag": require_int(network.get("vlan_tag", ""), "network.vlan_tag", minimum=1, maximum=4094),
     }
+    host_alias_ip = optional_ipv4_address(network.get("jenkins_host_alias_ip"), "network.jenkins_host_alias_ip")
+    if host_alias_ip:
+        candidate["jenkins_host_alias_ip"] = host_alias_ip
     if placement.get("gpu_device"):
         candidate["gpu_device"] = placement["gpu_device"]
     return candidate
@@ -405,6 +408,7 @@ def public_candidate(candidate):
         "vmid_range": candidate["vmid_range"],
         "bridge": candidate["bridge"],
         "vlan_tag": candidate["vlan_tag"],
+        "jenkins_host_alias_ip": candidate.get("jenkins_host_alias_ip"),
     }
 
 
@@ -1144,6 +1148,7 @@ def acquire_ready_pool_member(client_registry, lease_store, inventory, resolved,
                     "expires_at": expires_at,
                     "policy": build_policy_record(resolved),
                     "health_checks": resolved["health_checks"],
+                    "jenkins_host_alias_ip": candidate.get("jenkins_host_alias_ip"),
                 },
             )
             return public_lease_result(updated, "hot-pool")
@@ -1222,6 +1227,7 @@ def create_lease(client_registry, lease_store, inventory, request_data):
                     "connection": resolved["connection"],
                     "policy": build_policy_record(resolved),
                     "health_checks": resolved["health_checks"],
+                    "jenkins_host_alias_ip": candidate.get("jenkins_host_alias_ip"),
                 }
                 lease_store.put(lease_id, record)
             except Exception:
@@ -1607,7 +1613,10 @@ def lease_jenkins_agent(client_registry, lease_store, inventory, request_data, j
             )
         secret = jenkins_client.agent_secret(node_name)
         network = host.get("network") or {}
-        host_alias_ip = optional_ipv4_address(network.get("jenkins_host_alias_ip"), "network.jenkins_host_alias_ip")
+        host_alias_ip = optional_ipv4_address(
+            record.get("jenkins_host_alias_ip") or network.get("jenkins_host_alias_ip"),
+            "network.jenkins_host_alias_ip",
+        )
         start_jenkins_remoting_agent(client, node, vmid, jenkins_client, node_name, secret, work_dir, host_alias_ip=host_alias_ip)
         jenkins_client.wait_agent_online(node_name, agent_timeout_seconds)
 
@@ -1711,6 +1720,7 @@ def build_ready_pool_member(client_registry, lease_store, inventory, resolved, c
         "connection": resolved["connection"],
         "policy": build_policy_record(resolved),
         "health_checks": resolved["health_checks"],
+        "jenkins_host_alias_ip": candidate.get("jenkins_host_alias_ip"),
     }
     lease_store.put(pool_id, record)
 

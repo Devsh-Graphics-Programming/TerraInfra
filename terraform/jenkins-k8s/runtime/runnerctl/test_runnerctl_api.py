@@ -310,6 +310,8 @@ class CreateLeaseTests(unittest.TestCase):
             self.assertEqual(client.clone_requests[0][1]["pool"], "ci-runners")
             self.assertEqual(client.config_requests[0][1]["net0"], "e1000,bridge=vmbr0,tag=69,firewall=1")
             self.assertEqual(client.config_requests[1][1]["tags"], "runnerctl;lifecycle-ephemeral;leased")
+            record = lease_store.get(result["lease_id"])
+            self.assertEqual(record["jenkins_host_alias_ip"], "10.254.254.254")
 
     def test_create_lease_acquires_ready_hot_pool_member(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -360,6 +362,7 @@ class CreateLeaseTests(unittest.TestCase):
             record = lease_store.get(pool_id)
             self.assertEqual(record["state"], "leased")
             self.assertFalse(record["pool_member"])
+            self.assertEqual(record["jenkins_host_alias_ip"], "10.254.254.254")
 
     def test_lease_jenkins_agent_returns_unique_node_label(self):
         with tempfile.TemporaryDirectory() as directory:
