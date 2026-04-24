@@ -1032,6 +1032,7 @@ def build_policy_record(resolved):
         "boot_timeout_minutes": int(resolved["policy"].get("boot_timeout_minutes", 10)),
         "health_timeout_minutes": int(resolved["policy"].get("health_timeout_minutes", 15)),
         "destroy_after_job": bool(resolved["policy"].get("destroy_after_job", True)),
+        "gpu_exclusive": bool(resolved["policy"].get("gpu_exclusive", False)),
     }
 
 
@@ -1224,6 +1225,20 @@ def create_lease(client_registry, lease_store, inventory, request_data):
             template_vmid = candidate["template_vmid"]
             if template_vmid not in active_vmids:
                 skipped.append({"host_id": candidate["host_id"], "reason": "template-missing"})
+                continue
+
+            active_records = active_records_for_candidate(leases, resolved["runner_class"], candidate)
+            warm_pool = resolved.get("warm_pool") or {}
+            max_active = int(warm_pool.get("max_ready", 1 if resolved["policy"].get("gpu_exclusive") else 999999))
+            if len(active_records) >= max_active:
+                skipped.append(
+                    {
+                        "host_id": candidate["host_id"],
+                        "reason": "capacity-exhausted",
+                        "active": len(active_records),
+                        "max_active": max_active,
+                    }
+                )
                 continue
 
             used_vmids = set(active_vmids)
@@ -1765,7 +1780,7 @@ def public_agent_lease_result(record, prepare_result):
         "health": prepare_result.get("health", {}),
         "health_cached": bool(prepare_result.get("health_cached", False)),
     }
-    timings = merge_timings(record.get("timings"), prepare_result.get("timings"))
+    timings = merge_timings(prepare_result.get("timings"), record.get("timings"))
     if timings:
         result["timings"] = timings
     return result
@@ -2141,6 +2156,7 @@ def build_ready_pool_member(client_registry, lease_store, inventory, resolved, c
                 "start_vm_ms": start_vm_ms,
                 "guest_agent_wait_ms": guest_agent_wait_ms,
                 "health_check_ms": health_check_ms,
+                "pool_jenkins_agent_connect_ms": jenkins_agent_ms,
                 "jenkins_agent_connect_ms": jenkins_agent_ms,
                 "pool_member_ready_ms": elapsed_ms(pool_started_ms),
             },

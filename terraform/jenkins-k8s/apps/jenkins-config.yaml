@@ -738,6 +738,137 @@ data:
             }
           }
 
+          pipelineJob('ci/runners/smoke/proxmox-consumer-preflight') {
+            description('Runs the final consumer-facing preflight: hot-pool readiness, label-based lease, Windows runtime probe, GPU/Vulkan sanity, artifacts, release, and readiness budget.')
+            parameters {
+              stringParam('RUNNER_CLASS', 'win-gpu-nvidia', 'Runner class to keep warm before the lease.')
+              stringParam('REQUIRED_LABELS', 'windows,gpu,nvidia,vulkan,runtime-only,gpu-class-rtx-2070', 'Comma-separated runner capability labels.')
+              stringParam('LEASE_TTL_MINUTES', '30', 'Lease TTL for the preflight runner.')
+              stringParam('MIN_READY', '1', 'Minimum ready hot-pool members required before leasing.')
+              stringParam('MAX_READY_SECONDS', '10', 'Maximum allowed wall time from lease request start to workspace entry.')
+            }
+            definition {
+              cps {
+                sandbox()
+                script('''properties([
+                  disableConcurrentBuilds(),
+                  buildDiscarder(logRotator(daysToKeepStr: '31', numToKeepStr: '100', artifactDaysToKeepStr: '31', artifactNumToKeepStr: '100'))
+                ])
+
+                def labels = []
+                def runnerClass = ''
+                def leaseTtlMinutes = 0
+                def minReady = 0
+                def maxReadySeconds = 0
+                def observedReadyMs = null
+
+                timestamps {
+                  stage('Validate request') {
+                    runnerClass = params.RUNNER_CLASS?.trim()
+                    if (!(runnerClass ==~ /[a-z0-9][a-z0-9-]*/)) {
+                      error 'RUNNER_CLASS must match [a-z0-9][a-z0-9-]*.'
+                    }
+                    def rawLabels = params.REQUIRED_LABELS?.trim()
+                    if (!rawLabels) {
+                      error 'REQUIRED_LABELS is required.'
+                    }
+                    labels = rawLabels.split(',').collect { it.trim() }.findAll { it }
+                    if (labels.isEmpty()) {
+                      error 'At least one runner label is required.'
+                    }
+                    labels.each { label ->
+                      if (!(label ==~ /[a-z0-9][a-z0-9_.-]*/)) {
+                        error 'Invalid runner label: ' + label
+                      }
+                    }
+                    if (labels.unique(false).size() != labels.size()) {
+                      error 'Runner labels must be unique.'
+                    }
+                    if (!(params.LEASE_TTL_MINUTES?.trim() ==~ /[0-9]+/)) {
+                      error 'LEASE_TTL_MINUTES must be an integer.'
+                    }
+                    leaseTtlMinutes = params.LEASE_TTL_MINUTES.trim().toInteger()
+                    if (leaseTtlMinutes < 5 || leaseTtlMinutes > 720) {
+                      error 'LEASE_TTL_MINUTES must be between 5 and 720.'
+                    }
+                    if (!(params.MIN_READY?.trim() ==~ /[0-9]+/)) {
+                      error 'MIN_READY must be an integer.'
+                    }
+                    minReady = params.MIN_READY.trim().toInteger()
+                    if (minReady < 1) {
+                      error 'MIN_READY must be at least 1.'
+                    }
+                    if (!(params.MAX_READY_SECONDS?.trim() ==~ /[0-9]+/)) {
+                      error 'MAX_READY_SECONDS must be an integer.'
+                    }
+                    maxReadySeconds = params.MAX_READY_SECONDS.trim().toInteger()
+                    if (maxReadySeconds < 1 || maxReadySeconds > 300) {
+                      error 'MAX_READY_SECONDS must be between 1 and 300.'
+                    }
+                    echo('Consumer preflight request: class=' + runnerClass + ', labels=' + labels.join(',') + ', lease_ttl_minutes=' + leaseTtlMinutes + ', max_ready_seconds=' + maxReadySeconds + '.')
+                  }
+
+                  stage('Pool ready') {
+                    runnerJanitor()
+                    runnerPoolRefill(runnerClass: runnerClass, labels: labels)
+                    runnerWaitForPoolReady(runnerClass: runnerClass, minReady: minReady, timeoutSeconds: 300, pollSeconds: 5)
+                  }
+
+                  withRunner(labels: labels, leaseTtlMinutes: leaseTtlMinutes) { runner ->
+                    observedReadyMs = runner.ready_wall_ms
+                    stage('Runtime probe') {
+                      powershell '''
+                        $ErrorActionPreference = "Stop"
+                        $java = Get-Command java.exe -ErrorAction SilentlyContinue
+                        if (-not $java) { throw "java.exe was not found." }
+                        $summary = [pscustomobject]@{
+                          hostname = $env:COMPUTERNAME
+                          user = $env:USERNAME
+                          os = (Get-CimInstance Win32_OperatingSystem).Caption
+                          workspace = (Get-Location).Path
+                          java = $java.Source
+                          vulkan = Test-Path "$env:WINDIR\\System32\\vulkan-1.dll"
+                          vcRuntime = Test-Path "$env:WINDIR\\System32\\vcruntime140.dll"
+                        }
+                        $summary | ConvertTo-Json -Depth 4 | Set-Content -Path runner-preflight.json -Encoding UTF8
+                        if (-not $summary.vulkan) { throw "Vulkan runtime is missing." }
+                        if (-not $summary.vcRuntime) { throw "VC runtime is missing." }
+                        Write-Host "Runtime probe passed."
+                      '''
+                    }
+                    stage('GPU sanity') {
+                      powershell '''
+                        $ErrorActionPreference = "Stop"
+                        $nvidiaSmi = Get-Command nvidia-smi.exe -ErrorAction SilentlyContinue
+                        if (-not $nvidiaSmi) {
+                          $nvidiaSmi = Get-ChildItem -Path (Join-Path $env:ProgramFiles "NVIDIA Corporation/NVSMI") -Filter nvidia-smi.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+                        }
+                        if (-not $nvidiaSmi) { throw "nvidia-smi.exe was not found." }
+                        $nvidiaSmiPath = if ($nvidiaSmi.Source) { $nvidiaSmi.Source } else { $nvidiaSmi.FullName }
+                        & $nvidiaSmiPath | Tee-Object -FilePath gpu.txt
+                        if ($LASTEXITCODE -ne 0) { throw "nvidia-smi failed with exit code $LASTEXITCODE." }
+                      '''
+                    }
+                    stage('Artifacts') {
+                      archiveArtifacts artifacts: 'runner-preflight.json,gpu.txt', fingerprint: true
+                    }
+                  }
+
+                  stage('Readiness budget') {
+                    if (observedReadyMs == null) {
+                      error 'Preflight did not record runner ready wall time.'
+                    }
+                    def maxReadyMs = maxReadySeconds * 1000
+                    echo('Runner ready wall time: ' + observedReadyMs + ' ms; budget: ' + maxReadyMs + ' ms.')
+                    if (observedReadyMs > maxReadyMs) {
+                      error('Runner ready wall time exceeded budget.')
+                    }
+                  }
+                }''')
+              }
+            }
+          }
+
           pipelineJob('ci/runners/smoke/proxmox-runtime-lifecycle') {
             description('Exercises the real runtime lifecycle: resolve by labels, lease, boot, guest-agent and GPU health, and release for an inventory-selected runner template.')
             parameters {
@@ -925,6 +1056,7 @@ data:
               cps {
                 sandbox()
                 script('''properties([
+                  disableConcurrentBuilds(),
                   buildDiscarder(logRotator(daysToKeepStr: '31', numToKeepStr: '100', artifactDaysToKeepStr: '31', artifactNumToKeepStr: '100'))
                 ])
 

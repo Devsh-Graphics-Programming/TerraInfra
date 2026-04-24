@@ -379,6 +379,52 @@ class CreateLeaseTests(unittest.TestCase):
             self.assertFalse(record["pool_member"])
             self.assertEqual(record["jenkins_host_alias_ip"], "10.254.254.254")
 
+    def test_create_lease_rejects_second_exclusive_gpu_runner(self):
+        with tempfile.TemporaryDirectory() as directory:
+            lease_store = runnerctl_api.LeaseStore(Path(directory) / "leases.json")
+            lease_store.put(
+                "2" * 32,
+                {
+                    "lease_id": "2" * 32,
+                    "runner_class": "win-gpu-nvidia",
+                    "labels": ["gpu", "gpu-class-rtx-2070", "nvidia", "runtime-only", "vulkan", "windows"],
+                    "host_id": "example-rtx-node",
+                    "node": "pve-rtx-01",
+                    "vmid": 2000,
+                    "template_vmid": 9002,
+                    "clone_name": "runnerctl-win-gpu-nvidia-22222222",
+                    "created_at": 1,
+                    "expires_at": 9999999999,
+                    "state": "agent-online",
+                    "pool_member": False,
+                    "allocation_mode": "hot-pool",
+                    "connection": {"type": "winrm"},
+                    "policy": {
+                        "boot_timeout_minutes": 10,
+                        "health_timeout_minutes": 15,
+                        "destroy_after_job": True,
+                        "gpu_exclusive": True,
+                    },
+                    "health_checks": ["guest-agent"],
+                },
+            )
+            client = FakeProxmoxClient()
+            client.vmids = {9002, 2000}
+            registry = FakeProxmoxRegistry(client)
+            with self.assertRaises(runnerctl_api.RunnerCtlError) as raised:
+                runnerctl_api.create_lease(
+                    registry,
+                    lease_store,
+                    SAMPLE_INVENTORY,
+                    {
+                        "runner_class": "win-gpu-nvidia",
+                        "required_labels": ["windows", "gpu", "nvidia"],
+                    },
+                )
+            self.assertEqual(raised.exception.code, "no-placement")
+            self.assertEqual(raised.exception.details["skipped"][0]["reason"], "capacity-exhausted")
+            self.assertEqual(client.clone_requests, [])
+
     def test_lease_jenkins_agent_returns_unique_node_label(self):
         with tempfile.TemporaryDirectory() as directory:
             lease_store = runnerctl_api.LeaseStore(Path(directory) / "leases.json")

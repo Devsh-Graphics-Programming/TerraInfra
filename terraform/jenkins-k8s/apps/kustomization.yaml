@@ -6,6 +6,7 @@ resources:
   - jenkins-config.yaml
   - proxmox-runner-platform.yaml
   - proxmox-tunnel-server.yaml
+  - jenkins-maintenance.yaml
   - jenkins-workloads.yaml
   - jenkins-ingress.yaml
 configMapGenerator:

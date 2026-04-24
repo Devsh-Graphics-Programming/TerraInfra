@@ -23,5 +23,9 @@ def call(Map args = [:]) {
   if (timingText) {
     echo('Runner lease timings: ' + timingText + '.')
   }
+  def poolTimingText = runnerDescribeTimings(result.timings ?: [:], [mode: 'pool'])
+  if (poolTimingText) {
+    echo('Runner hot-pool provenance timings: ' + poolTimingText + '.')
+  }
   return result
 }
