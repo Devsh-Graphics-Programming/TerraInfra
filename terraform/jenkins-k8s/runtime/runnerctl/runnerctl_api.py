@@ -1399,7 +1399,17 @@ $launcherContent = @"
   '-webSocket',
   '-workDir', `$agentRoot
 )
-& '$javaLiteral' @arguments 1>> `$stdout 2>> `$stderr
+try {{
+  & '$javaLiteral' @arguments 1>> `$stdout 2>> `$stderr
+  `$exitCode = `$LASTEXITCODE
+  if (`$null -ne `$exitCode -and `$exitCode -ne 0) {{
+    exit `$exitCode
+  }}
+}} catch {{
+  `$message = `$_ | Out-String
+  Add-Content -Path `$stderr -Value `$message -Encoding UTF8
+  exit 1
+}}
 "@
 Set-Content -Path $launcher -Value $launcherContent -Encoding UTF8
 $taskName = {powershell_string("runnerctl-" + node_name)}
@@ -1412,10 +1422,15 @@ Start-Sleep -Seconds 3
 $task = Get-ScheduledTask -TaskName $taskName
 $taskInfo = Get-ScheduledTaskInfo -TaskName $taskName
 if ($task.State -ne 'Running') {{
-  if (Test-Path $stderr) {{
-    Get-Content -Path $stderr -Tail 30 | Write-Host
+  if (Test-Path $stdout) {{
+    Write-Output 'runnerctl: agent.stdout.tail:'
+    Get-Content -Path $stdout -Tail 30 | Write-Output
   }}
-  throw ('Jenkins remoting task is not running. state={0}, last_result={1}.' -f $task.State, $taskInfo.LastTaskResult)
+  if (Test-Path $stderr) {{
+    Write-Output 'runnerctl: agent.stderr.tail:'
+    Get-Content -Path $stderr -Tail 30 | Write-Output
+  }}
+  throw ('Jenkins remoting task is not running. state={{0}}, last_result={{1}}.' -f $task.State, $taskInfo.LastTaskResult)
 }}
 """
     return client.guest_exec(node, vmid, powershell_encoded_command(script), timeout_seconds)
