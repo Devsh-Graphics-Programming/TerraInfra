@@ -28,7 +28,7 @@ spec:
       labels:
         app.kubernetes.io/name: jenkins
       annotations:
-        devsh.eu/config-revision: "2026-04-24-ephemeral-jenkins-runners-v21"
+        devsh.eu/config-revision: "2026-04-24-ephemeral-jenkins-runners-v22"
     spec:
       enableServiceLinks: false
       securityContext:
@@ -169,7 +169,7 @@ spec:
             - name: RUNNERCTL_HOT_POOL_INITIAL_DELAY_SECONDS
               value: "10"
             - name: RUNNERCTL_HOT_POOL_HEALTH_CACHE_TTL_SECONDS
-              value: "300"
+              value: "7200"
             - name: RUNNERCTL_HOT_POOL_PRECONNECT_AGENTS
               value: "true"
             - name: RUNNERCTL_PRECONNECTED_AGENT_WAIT_SECONDS
