@@ -894,12 +894,12 @@ data:
                         powershell(
                           '$ErrorActionPreference = "Stop"\\n' +
                           '$nvidiaSmi = Get-Command nvidia-smi.exe -ErrorAction SilentlyContinue\\n' +
-                          'if (-not $nvidiaSmi) { $nvidiaSmi = Get-ChildItem -Path "$env:ProgramFiles\\NVIDIA Corporation\\NVSMI" -Filter nvidia-smi.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 }\\n' +
+                          'if (-not $nvidiaSmi) { $nvidiaSmi = Get-ChildItem -Path (Join-Path $env:ProgramFiles "NVIDIA Corporation/NVSMI") -Filter nvidia-smi.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 }\\n' +
                           'if (-not $nvidiaSmi) { throw "nvidia-smi.exe was not found." }\\n' +
                           '$nvidiaSmiPath = if ($nvidiaSmi.Source) { $nvidiaSmi.Source } else { $nvidiaSmi.FullName }\\n' +
                           '& $nvidiaSmiPath | Tee-Object -FilePath gpu.txt\\n' +
                           'if ($LASTEXITCODE -ne 0) { throw "nvidia-smi failed with exit code $LASTEXITCODE." }\\n' +
-                          'if (-not (Test-Path "$env:WINDIR\\System32\\vulkan-1.dll")) { throw "Vulkan runtime is missing." }\\n' +
+                          'if (-not (Test-Path (Join-Path $env:WINDIR "System32/vulkan-1.dll"))) { throw "Vulkan runtime is missing." }\\n' +
                           'Write-Host "Vulkan runtime is present."\\n'
                         )
                       }
