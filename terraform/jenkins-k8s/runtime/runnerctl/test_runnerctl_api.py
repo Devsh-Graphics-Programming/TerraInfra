@@ -389,6 +389,7 @@ class CreateLeaseTests(unittest.TestCase):
             self.assertIn("10.254.254.254", script)
             self.assertIn("jenkins.example.invalid", script)
             self.assertIn("Register-ScheduledTask", script)
+            self.assertIn("Clear-DnsClientCache", script)
             record = lease_store.get(result["lease_id"])
             self.assertEqual(record["state"], "agent-online")
             self.assertEqual(record["jenkins_agent"]["label"], result["label"])

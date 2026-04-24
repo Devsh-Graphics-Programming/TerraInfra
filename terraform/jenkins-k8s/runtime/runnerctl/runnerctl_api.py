@@ -1327,12 +1327,21 @@ if ($hostAliasIp -and $jenkinsHost) {{
   $escapedHost = [Regex]::Escape($jenkinsHost)
   $escapedIp = [Regex]::Escape($hostAliasIp)
   $entryPattern = '^\\s*' + $escapedIp + '\\s+' + $escapedHost + '(\\s|$)'
-  $hasEntry = $false
+  $hostPattern = '^\\s*\\d{{1,3}}(\\.\\d{{1,3}}){{3}}\\s+' + $escapedHost + '(\\s|$)'
+  $existingHosts = @()
   if (Test-Path $hostsPath) {{
-    $hasEntry = [bool](Get-Content -Path $hostsPath | Where-Object {{ $_ -match $entryPattern }} | Select-Object -First 1)
+    $existingHosts = @(Get-Content -Path $hostsPath -ErrorAction Stop)
   }}
-  if (-not $hasEntry) {{
-    Add-Content -Path $hostsPath -Value ("`r`n{0} {1} # runnerctl-jenkins" -f $hostAliasIp, $jenkinsHost) -Encoding ASCII
+  $filteredHosts = @($existingHosts | Where-Object {{ ($_ -notmatch $hostPattern) -and ($_ -notmatch '# runnerctl-jenkins') }})
+  [System.IO.File]::WriteAllLines($hostsPath, [string[]]$filteredHosts, [Text.Encoding]::ASCII)
+  Add-Content -Path $hostsPath -Value ("{0} {1} # runnerctl-jenkins" -f $hostAliasIp, $jenkinsHost) -Encoding ASCII
+  Clear-DnsClientCache -ErrorAction SilentlyContinue
+  & ipconfig /flushdns | Out-Null
+  $resolvedAlias = @([System.Net.Dns]::GetHostAddresses($jenkinsHost) |
+    Where-Object {{ $_.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork }} |
+    Select-Object -ExpandProperty IPAddressToString)
+  if ($resolvedAlias -notcontains $hostAliasIp) {{
+    throw ('Jenkins host alias was not applied. host={0}, expected={1}, resolved={2}' -f $jenkinsHost, $hostAliasIp, ($resolvedAlias -join ','))
   }}
 }}
 Invoke-WebRequest -Uri ($baseUrl.TrimEnd('/') + '/jnlpJars/agent.jar') -OutFile $jar -UseBasicParsing
