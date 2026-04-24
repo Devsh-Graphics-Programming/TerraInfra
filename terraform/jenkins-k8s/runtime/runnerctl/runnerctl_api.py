@@ -1324,6 +1324,10 @@ $jenkinsHost = {powershell_string(public_host)}
 $hostAliasIp = {powershell_string(host_alias_ip or "")}
 if ($hostAliasIp -and $jenkinsHost) {{
   $hostsPath = Join-Path $env:WINDIR 'System32/drivers/etc/hosts'
+  $sysnativeHostsPath = Join-Path $env:WINDIR 'Sysnative/drivers/etc/hosts'
+  if (Test-Path (Split-Path $sysnativeHostsPath -Parent)) {{
+    $hostsPath = $sysnativeHostsPath
+  }}
   $escapedHost = [Regex]::Escape($jenkinsHost)
   $escapedIp = [Regex]::Escape($hostAliasIp)
   $entryPattern = '^\\s*' + $escapedIp + '\\s+' + $escapedHost + '(\\s|$)'
