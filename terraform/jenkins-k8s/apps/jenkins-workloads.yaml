@@ -43,9 +43,13 @@ spec:
             - |
               mkdir -p /var/jenkins_home/init.groovy.d /var/jenkins_home/plugins
               chown -R 1000:1000 /var/jenkins_home
+              mkdir -p /var/lib/runnerctl
+              chown -R 65532:65532 /var/lib/runnerctl
           volumeMounts:
             - name: home
               mountPath: /var/jenkins_home
+            - name: runnerctl-state
+              mountPath: /var/lib/runnerctl
           securityContext:
             runAsUser: 0
             runAsGroup: 0
@@ -150,6 +154,8 @@ spec:
               value: "1"
             - name: RUNNERCTL_INVENTORY_PATH
               value: /var/jenkins_runner/inventory.json
+            - name: RUNNERCTL_LEASE_STORE_PATH
+              value: /var/lib/runnerctl/leases.json
             - name: RUNNERCTL_LISTEN_HOST
               value: 0.0.0.0
             - name: RUNNERCTL_LISTEN_PORT
@@ -182,6 +188,8 @@ spec:
             - name: proxmox-runnerctl
               mountPath: /opt/runnerctl
               readOnly: true
+            - name: runnerctl-state
+              mountPath: /var/lib/runnerctl
           securityContext:
             runAsUser: 65532
             runAsGroup: 65532
@@ -280,6 +288,8 @@ spec:
             secretName: proxmox-tunnel-ssh
             defaultMode: 0400
         - name: proxmox-tunnel-runtime
+          emptyDir: {}
+        - name: runnerctl-state
           emptyDir: {}
         - name: proxmox-runnerctl
           configMap:
