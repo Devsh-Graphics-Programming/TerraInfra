@@ -879,28 +879,28 @@ data:
                     node(runner.label) {
                       stage('Hello') {
                         powershell(
-                          '$ErrorActionPreference = "Stop"\n' +
-                          '$summary = [pscustomobject]@{\n' +
-                          '  hostname = $env:COMPUTERNAME\n' +
-                          '  user = $env:USERNAME\n' +
-                          '  os = (Get-CimInstance Win32_OperatingSystem).Caption\n' +
-                          '  workspace = (Get-Location).Path\n' +
-                          '}\n' +
-                          '$summary | ConvertTo-Json -Depth 4 | Set-Content -Path runner-summary.json -Encoding UTF8\n' +
-                          'Write-Host "Hello from ephemeral Windows GPU runner"\n'
+                          '$ErrorActionPreference = "Stop"\\n' +
+                          '$summary = [pscustomobject]@{\\n' +
+                          '  hostname = $env:COMPUTERNAME\\n' +
+                          '  user = $env:USERNAME\\n' +
+                          '  os = (Get-CimInstance Win32_OperatingSystem).Caption\\n' +
+                          '  workspace = (Get-Location).Path\\n' +
+                          '}\\n' +
+                          '$summary | ConvertTo-Json -Depth 4 | Set-Content -Path runner-summary.json -Encoding UTF8\\n' +
+                          'Write-Host "Hello from ephemeral Windows GPU runner"\\n'
                         )
                       }
                       stage('GPU sanity') {
                         powershell(
-                          '$ErrorActionPreference = "Stop"\n' +
-                          '$nvidiaSmi = Get-Command nvidia-smi.exe -ErrorAction SilentlyContinue\n' +
-                          'if (-not $nvidiaSmi) { $nvidiaSmi = Get-ChildItem -Path "$env:ProgramFiles\\NVIDIA Corporation\\NVSMI" -Filter nvidia-smi.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 }\n' +
-                          'if (-not $nvidiaSmi) { throw "nvidia-smi.exe was not found." }\n' +
-                          '$nvidiaSmiPath = if ($nvidiaSmi.Source) { $nvidiaSmi.Source } else { $nvidiaSmi.FullName }\n' +
-                          '& $nvidiaSmiPath | Tee-Object -FilePath gpu.txt\n' +
-                          'if ($LASTEXITCODE -ne 0) { throw "nvidia-smi failed with exit code $LASTEXITCODE." }\n' +
-                          'if (-not (Test-Path "$env:WINDIR\\System32\\vulkan-1.dll")) { throw "Vulkan runtime is missing." }\n' +
-                          'Write-Host "Vulkan runtime is present."\n'
+                          '$ErrorActionPreference = "Stop"\\n' +
+                          '$nvidiaSmi = Get-Command nvidia-smi.exe -ErrorAction SilentlyContinue\\n' +
+                          'if (-not $nvidiaSmi) { $nvidiaSmi = Get-ChildItem -Path "$env:ProgramFiles\\NVIDIA Corporation\\NVSMI" -Filter nvidia-smi.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 }\\n' +
+                          'if (-not $nvidiaSmi) { throw "nvidia-smi.exe was not found." }\\n' +
+                          '$nvidiaSmiPath = if ($nvidiaSmi.Source) { $nvidiaSmi.Source } else { $nvidiaSmi.FullName }\\n' +
+                          '& $nvidiaSmiPath | Tee-Object -FilePath gpu.txt\\n' +
+                          'if ($LASTEXITCODE -ne 0) { throw "nvidia-smi failed with exit code $LASTEXITCODE." }\\n' +
+                          'if (-not (Test-Path "$env:WINDIR\\System32\\vulkan-1.dll")) { throw "Vulkan runtime is missing." }\\n' +
+                          'Write-Host "Vulkan runtime is present."\\n'
                         )
                       }
                       stage('Artifacts') {
