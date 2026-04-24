@@ -22,6 +22,11 @@ LABEL_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_.-]*$")
 SAFE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 ENV_NAME_PATTERN = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 LEASE_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
+ACTIVE_RUNNER_STATES = {"creating", "ready", "leased", "booting", "healthy"}
+READY_POOL_STATES = {"ready"}
+HOT_POOL_TAGS_READY = "runnerctl;lifecycle-ephemeral;hot-pool;ready"
+HOT_POOL_TAGS_CREATING = "runnerctl;lifecycle-ephemeral;hot-pool;creating"
+LEASED_TAGS = "runnerctl;lifecycle-ephemeral;leased"
 
 
 class RunnerCtlError(Exception):
@@ -538,6 +543,10 @@ class ProxmoxApiClient:
         self.request("POST", f"/nodes/{node}/qemu/{vmid}/agent/ping")
         return True
 
+    def set_tags(self, node, vmid, tags):
+        self.request("POST", f"/nodes/{node}/qemu/{vmid}/config", data={"tags": tags})
+        return True
+
     def agent_network_get_interfaces(self, node, vmid):
         return self.request("GET", f"/nodes/{node}/qemu/{vmid}/agent/network-get-interfaces") or []
 
@@ -662,8 +671,118 @@ def build_clone_name(runner_class, lease_id):
     return f"runnerctl-{runner_class}-{lease_id[:8]}"
 
 
+def build_policy_record(resolved):
+    return {
+        "boot_timeout_minutes": int(resolved["policy"].get("boot_timeout_minutes", 10)),
+        "health_timeout_minutes": int(resolved["policy"].get("health_timeout_minutes", 15)),
+        "destroy_after_job": bool(resolved["policy"].get("destroy_after_job", True)),
+    }
+
+
+def record_matches_candidate(record, runner_class, candidate):
+    return (
+        record.get("runner_class") == runner_class
+        and record.get("host_id") == candidate["host_id"]
+        and int(record.get("template_vmid", -1)) == int(candidate["template_vmid"])
+    )
+
+
+def active_records_for_candidate(leases, runner_class, candidate):
+    records = []
+    for lease_id, record in leases.items():
+        if record_matches_candidate(record, runner_class, candidate) and record.get("state") in ACTIVE_RUNNER_STATES:
+            records.append((lease_id, record))
+    return records
+
+
+def public_lease_result(record, allocation_mode):
+    return {
+        "lease_id": record["lease_id"],
+        "runner_class": record["runner_class"],
+        "labels": record["labels"],
+        "host_id": record["host_id"],
+        "node": record["node"],
+        "vmid": record["vmid"],
+        "clone_name": record["clone_name"],
+        "expires_at": record["expires_at"],
+        "connection": record["connection"],
+        "allocation_mode": allocation_mode,
+        "ready": record.get("state") in {"ready", "leased", "healthy"} and allocation_mode == "hot-pool",
+    }
+
+
+def run_health_checks(client, node, vmid, requested_checks):
+    checks = {}
+    for check_name in requested_checks:
+        try:
+            checks[check_name] = run_named_health_check(client, node, vmid, check_name)
+        except RunnerCtlError as exc:
+            checks[check_name] = f"failed:{exc.code}"
+    if "guest-agent" not in checks:
+        checks["guest-agent"] = "passed"
+    return checks
+
+
+def health_checks_passed(checks):
+    return bool(checks) and all(value == "passed" for value in checks.values())
+
+
+def acquire_ready_pool_member(client_registry, lease_store, inventory, resolved, candidates):
+    leases = lease_store.all()
+    now = now_epoch()
+    for candidate in candidates:
+        ready_records = [
+            (lease_id, record)
+            for lease_id, record in active_records_for_candidate(leases, resolved["runner_class"], candidate)
+            if record.get("state") in READY_POOL_STATES and bool(record.get("pool_member", False))
+        ]
+        ready_records.sort(key=lambda item: int(item[1].get("ready_at", item[1].get("created_at", 0))))
+        for lease_id, record in ready_records:
+            host = host_by_id(inventory, candidate["host_id"])
+            node = candidate["node"]
+            vmid = require_int(record.get("vmid", ""), "vmid", minimum=100, maximum=999999999)
+            client = client_registry.client_for_host(inventory, host)
+            try:
+                if vmid not in client.qemu_vmids(node):
+                    lease_store.delete(lease_id)
+                    continue
+                if client.vm_status(node, vmid).get("status") != "running":
+                    lease_store.delete(lease_id)
+                    client.safe_destroy(node, vmid)
+                    continue
+                client.agent_ping(node, vmid)
+                client.set_tags(node, vmid, LEASED_TAGS)
+            except RunnerCtlError:
+                lease_store.delete(lease_id)
+                try:
+                    client.safe_destroy(node, vmid)
+                except RunnerCtlError:
+                    pass
+                continue
+
+            expires_at = now + (int(resolved["policy"]["lease_ttl_minutes"]) * 60)
+            updated = lease_store.update(
+                lease_id,
+                {
+                    "state": "leased",
+                    "pool_member": False,
+                    "allocation_mode": "hot-pool",
+                    "leased_at": now,
+                    "expires_at": expires_at,
+                    "policy": build_policy_record(resolved),
+                    "health_checks": resolved["health_checks"],
+                },
+            )
+            return public_lease_result(updated, "hot-pool")
+    return None
+
+
 def create_lease(client_registry, lease_store, inventory, request_data):
     resolved, candidates = resolve_lease_request(inventory, request_data)
+    ready_result = acquire_ready_pool_member(client_registry, lease_store, inventory, resolved, candidates)
+    if ready_result is not None:
+        return ready_result
+
     skipped = []
     leases = lease_store.all()
 
@@ -707,7 +826,7 @@ def create_lease(client_registry, lease_store, inventory, request_data):
                 client.request(
                     "POST",
                     f"/nodes/{node}/qemu/{vmid}/config",
-                    data={"tags": "runnerctl;lifecycle-ephemeral"},
+                    data={"tags": LEASED_TAGS},
                 )
 
                 created_at = now_epoch()
@@ -724,12 +843,10 @@ def create_lease(client_registry, lease_store, inventory, request_data):
                     "created_at": created_at,
                     "expires_at": expires_at,
                     "state": "leased",
+                    "pool_member": False,
+                    "allocation_mode": "cold-clone",
                     "connection": resolved["connection"],
-                    "policy": {
-                        "boot_timeout_minutes": int(resolved["policy"].get("boot_timeout_minutes", 10)),
-                        "health_timeout_minutes": int(resolved["policy"].get("health_timeout_minutes", 15)),
-                        "destroy_after_job": bool(resolved["policy"].get("destroy_after_job", True)),
-                    },
+                    "policy": build_policy_record(resolved),
                     "health_checks": resolved["health_checks"],
                 }
                 lease_store.put(lease_id, record)
@@ -741,17 +858,7 @@ def create_lease(client_registry, lease_store, inventory, request_data):
                         pass
                 raise
 
-            return {
-                "lease_id": lease_id,
-                "runner_class": resolved["runner_class"],
-                "labels": resolved["labels"],
-                "host_id": candidate["host_id"],
-                "node": node,
-                "vmid": vmid,
-                "clone_name": clone_name,
-                "expires_at": expires_at,
-                "connection": resolved["connection"],
-            }
+            return public_lease_result(record, "cold-clone")
         except RunnerCtlError as exc:
             skipped.append({"host_id": candidate["host_id"], "reason": exc.code, "details": exc.details})
 
@@ -847,14 +954,7 @@ def prepare_lease(client_registry, lease_store, inventory, request_data):
     lease_store.update(lease_id, {"state": "booting", "prepared_at": now_epoch()})
     client.start_vm(node, vmid)
     wait_for_guest_agent(client, node, vmid, boot_timeout_seconds)
-    checks = {}
-    for check_name in record.get("health_checks", []):
-        try:
-            checks[check_name] = run_named_health_check(client, node, vmid, check_name)
-        except RunnerCtlError as exc:
-            checks[check_name] = f"failed:{exc.code}"
-    if "guest-agent" not in checks:
-        checks["guest-agent"] = "passed"
+    checks = run_health_checks(client, node, vmid, record.get("health_checks", []))
     updated = lease_store.update(
         lease_id,
         {
@@ -869,6 +969,7 @@ def prepare_lease(client_registry, lease_store, inventory, request_data):
         "host_id": record["host_id"],
         "node": node,
         "vmid": vmid,
+        "allocation_mode": record.get("allocation_mode", "cold-clone"),
         "health": updated["last_health"],
     }
 
@@ -883,15 +984,10 @@ def health_lease(client_registry, lease_store, inventory, request_data):
     node = require_pattern(record.get("node", ""), SAFE_NAME_PATTERN, "node")
     vmid = require_int(record.get("vmid", ""), "vmid", minimum=100, maximum=999999999)
 
-    checks = {}
     requested_checks = record.get("health_checks", []) or ["guest-agent"]
-    for check_name in requested_checks:
-        try:
-            checks[check_name] = run_named_health_check(client, node, vmid, check_name)
-        except RunnerCtlError as exc:
-            checks[check_name] = f"failed:{exc.code}"
+    checks = run_health_checks(client, node, vmid, requested_checks)
 
-    overall = "passed" if checks and all(value == "passed" for value in checks.values()) else "failed"
+    overall = "passed" if health_checks_passed(checks) else "failed"
     lease_store.update(lease_id, {"last_health": checks, "last_health_at": now_epoch()})
     return {
         "lease_id": lease_id,
@@ -921,6 +1017,216 @@ def release_lease(client_registry, lease_store, inventory, request_data):
         "vmid": vmid,
         "destroyed_vm": destroyed,
     }
+
+
+def build_ready_pool_member(client_registry, lease_store, inventory, resolved, candidate):
+    host = host_by_id(inventory, candidate["host_id"])
+    node = candidate["node"]
+    client = client_registry.client_for_host(inventory, host)
+    active_vmids = client.qemu_vmids(node)
+    template_vmid = candidate["template_vmid"]
+    if template_vmid not in active_vmids:
+        raise RunnerCtlError(
+            HTTPStatus.CONFLICT,
+            "template-missing",
+            "Template VM is missing on the selected Proxmox host.",
+            {"host_id": candidate["host_id"], "node": node, "template_vmid": template_vmid},
+        )
+
+    leases = lease_store.all()
+    used_vmids = set(active_vmids)
+    for record in leases.values():
+        if record.get("host_id") == candidate["host_id"] and record.get("vmid") is not None:
+            used_vmids.add(int(record["vmid"]))
+
+    pool_id = uuid.uuid4().hex
+    vmid = choose_free_vmid(candidate["vmid_range"], used_vmids)
+    clone_name = build_clone_name(f"hot-{resolved['runner_class']}", pool_id)
+    created_at = now_epoch()
+    record = {
+        "lease_id": pool_id,
+        "runner_class": resolved["runner_class"],
+        "labels": resolved["labels"],
+        "host_id": candidate["host_id"],
+        "node": node,
+        "vmid": vmid,
+        "template_vmid": template_vmid,
+        "clone_name": clone_name,
+        "created_at": created_at,
+        "expires_at": created_at + (int(resolved["policy"].get("lease_ttl_minutes", 120)) * 60),
+        "state": "creating",
+        "pool_member": True,
+        "allocation_mode": "hot-pool",
+        "connection": resolved["connection"],
+        "policy": build_policy_record(resolved),
+        "health_checks": resolved["health_checks"],
+    }
+    lease_store.put(pool_id, record)
+
+    try:
+        clone_upid = client.request(
+            "POST",
+            f"/nodes/{node}/qemu/{template_vmid}/clone",
+            data={
+                "newid": vmid,
+                "name": clone_name,
+                "target": node,
+                "pool": candidate["pool"],
+                "full": 0,
+                "description": f"RunnerCtl hot pool member {pool_id} for {resolved['runner_class']}",
+            },
+        )
+        client.wait_task(node, str(clone_upid), 180)
+        client.set_tags(node, vmid, HOT_POOL_TAGS_CREATING)
+        client.start_vm(node, vmid)
+        wait_for_guest_agent(client, node, vmid, int(resolved["policy"].get("boot_timeout_minutes", 10)) * 60)
+        checks = run_health_checks(client, node, vmid, resolved["health_checks"])
+        if not health_checks_passed(checks):
+            raise RunnerCtlError(
+                HTTPStatus.BAD_GATEWAY,
+                "hot-pool-health-failed",
+                "Hot pool VM failed health checks.",
+                {"host_id": candidate["host_id"], "node": node, "vmid": vmid, "checks": checks},
+            )
+        ready_at = now_epoch()
+        client.set_tags(node, vmid, HOT_POOL_TAGS_READY)
+        updated = lease_store.update(
+            pool_id,
+            {
+                "state": "ready",
+                "ready_at": ready_at,
+                "last_health": checks,
+                "last_health_at": ready_at,
+            },
+        )
+        return {
+            "lease_id": pool_id,
+            "runner_class": updated["runner_class"],
+            "host_id": updated["host_id"],
+            "node": updated["node"],
+            "vmid": updated["vmid"],
+            "clone_name": updated["clone_name"],
+            "state": updated["state"],
+            "health": updated["last_health"],
+        }
+    except Exception:
+        try:
+            client.safe_destroy(node, vmid)
+        finally:
+            lease_store.delete(pool_id)
+        raise
+
+
+def resolve_pool_targets(inventory, request_data):
+    requested_class = request_data.get("runner_class")
+    if requested_class:
+        requested_class = require_pattern(requested_class, ID_PATTERN, "runner_class")
+    targets = []
+    for runner_class in inventory.get("runner_classes", []):
+        class_id = require_pattern(runner_class.get("id", ""), ID_PATTERN, "runner_class")
+        if requested_class and requested_class != class_id:
+            continue
+        labels = request_data.get("required_labels")
+        if labels is None:
+            labels = runner_class.get("labels", [])
+        labels = require_list(labels, "required_labels")
+        resolved, candidates = resolve_runner_context(inventory, class_id, labels)
+        targets.append((resolved, candidates))
+    if requested_class and not targets:
+        raise RunnerCtlError(
+            HTTPStatus.BAD_REQUEST,
+            "unknown-runner-class",
+            "Requested runner class is not configured.",
+            {"runner_class": requested_class},
+        )
+    return targets
+
+
+def refill_hot_pool(client_registry, lease_store, inventory, request_data):
+    targets = resolve_pool_targets(inventory, request_data)
+    results = []
+    for resolved, candidates in targets:
+        warm_pool = resolved.get("warm_pool") or {}
+        min_ready = int(warm_pool.get("min_ready", 0))
+        max_ready = int(warm_pool.get("max_ready", min_ready))
+        if min_ready <= 0 or max_ready <= 0:
+            results.append({"runner_class": resolved["runner_class"], "enabled": False})
+            continue
+
+        class_created = []
+        class_status = []
+        for candidate in candidates:
+            while True:
+                leases = lease_store.all()
+                host = host_by_id(inventory, candidate["host_id"])
+                client = client_registry.client_for_host(inventory, host)
+                active_vmids = client.qemu_vmids(candidate["node"])
+                for lease_id, record in active_records_for_candidate(leases, resolved["runner_class"], candidate):
+                    vmid = int(record.get("vmid", -1))
+                    if vmid not in active_vmids:
+                        lease_store.delete(lease_id)
+                leases = lease_store.all()
+                active = active_records_for_candidate(leases, resolved["runner_class"], candidate)
+                ready = [record for _, record in active if record.get("state") == "ready" and record.get("pool_member")]
+                active_count = len(active)
+                ready_count = len(ready)
+                class_status.append(
+                    {
+                        "host_id": candidate["host_id"],
+                        "node": candidate["node"],
+                        "ready": ready_count,
+                        "active": active_count,
+                        "min_ready": min_ready,
+                        "max_ready": max_ready,
+                    }
+                )
+                if ready_count >= min_ready or active_count >= max_ready:
+                    break
+                class_created.append(build_ready_pool_member(client_registry, lease_store, inventory, resolved, candidate))
+
+        results.append(
+            {
+                "runner_class": resolved["runner_class"],
+                "enabled": True,
+                "created": class_created,
+                "status": class_status,
+            }
+        )
+    return {"result": "success", "pools": results}
+
+
+def hot_pool_status(lease_store, inventory):
+    leases = lease_store.all()
+    pools = []
+    for runner_class in inventory.get("runner_classes", []):
+        class_id = require_pattern(runner_class.get("id", ""), ID_PATTERN, "runner_class")
+        records = [record for record in leases.values() if record.get("runner_class") == class_id]
+        counts = {}
+        members = []
+        for record in records:
+            state = record.get("state", "unknown")
+            counts[state] = counts.get(state, 0) + 1
+            members.append(
+                {
+                    "lease_id": record.get("lease_id"),
+                    "host_id": record.get("host_id"),
+                    "node": record.get("node"),
+                    "vmid": record.get("vmid"),
+                    "state": state,
+                    "pool_member": bool(record.get("pool_member", False)),
+                    "allocation_mode": record.get("allocation_mode", "cold-clone"),
+                    "clone_name": record.get("clone_name"),
+                }
+            )
+        pools.append(
+            {
+                "runner_class": class_id,
+                "warm_pool": runner_class.get("warm_pool", {}),
+                "counts": counts,
+                "members": sorted(members, key=lambda item: (str(item["host_id"]), int(item["vmid"] or 0))),
+            }
+        )
+    return {"result": "success", "pools": pools}
 
 
 def run_api_smoke(client_registry, inventory, request_data):
@@ -1147,6 +1453,10 @@ class RunnerCtlHandler(BaseHTTPRequestHandler):
                     },
                 )
                 return
+            if self.path == "/api/v1/pool":
+                inventory = self._inventory()
+                self._write_json(HTTPStatus.OK, {"status": "ok", **hot_pool_status(self.server.lease_store, inventory)})
+                return
             if self.path.startswith("/api/v1/leases/"):
                 lease_id = self.path.rsplit("/", 1)[-1]
                 lease_id = require_pattern(lease_id, LEASE_ID_PATTERN, "lease_id")
@@ -1194,6 +1504,12 @@ class RunnerCtlHandler(BaseHTTPRequestHandler):
                     result = release_lease(self._clients(), self.server.lease_store, inventory, request_data)
                 self._write_json(HTTPStatus.OK, {"status": "ok", **result})
                 return
+            if self.path == "/api/v1/pool/refill":
+                inventory = self._inventory()
+                with self.server.operation_lock:
+                    result = refill_hot_pool(self._clients(), self.server.lease_store, inventory, request_data)
+                self._write_json(HTTPStatus.OK, {"status": "ok", **result})
+                return
             if self.path == "/api/v1/proxmox/smoke":
                 inventory = self._inventory()
                 result = run_api_smoke(self._clients(), inventory, request_data)
@@ -1218,16 +1534,37 @@ class RunnerCtlServer(ThreadingHTTPServer):
         self.operation_lock = threading.Lock()
 
 
+def hot_pool_reconciler_loop(server, interval_seconds, initial_delay_seconds):
+    time.sleep(initial_delay_seconds)
+    while True:
+        try:
+            inventory = server.inventory_store.load()
+            with server.operation_lock:
+                refill_hot_pool(server.proxmox_clients, server.lease_store, inventory, {})
+        except Exception:  # noqa: BLE001
+            traceback.print_exc()
+        time.sleep(interval_seconds)
+
+
 def main():
     inventory_path = os.getenv("RUNNERCTL_INVENTORY_PATH", "/var/jenkins_runner/inventory.json")
     lease_store_path = os.getenv("RUNNERCTL_LEASE_STORE_PATH", "/var/jenkins_home/runnerctl/leases.json")
     listen_host = os.getenv("RUNNERCTL_LISTEN_HOST", "127.0.0.1")
     listen_port = int(os.getenv("RUNNERCTL_LISTEN_PORT", "18080"))
+    hot_pool_enabled = os.getenv("RUNNERCTL_HOT_POOL_ENABLED", "false").lower() == "true"
+    hot_pool_interval = int(os.getenv("RUNNERCTL_HOT_POOL_RECONCILE_INTERVAL_SECONDS", "60"))
+    hot_pool_initial_delay = int(os.getenv("RUNNERCTL_HOT_POOL_INITIAL_DELAY_SECONDS", "10"))
 
     inventory_store = InventoryStore(inventory_path)
     lease_store = LeaseStore(lease_store_path)
     proxmox_clients = ProxmoxClientRegistry()
     server = RunnerCtlServer((listen_host, listen_port), RunnerCtlHandler, inventory_store, lease_store, proxmox_clients)
+    if hot_pool_enabled:
+        threading.Thread(
+            target=hot_pool_reconciler_loop,
+            args=(server, hot_pool_interval, hot_pool_initial_delay),
+            daemon=True,
+        ).start()
     print(f"runnerctl listening on {listen_host}:{listen_port}", flush=True)
     server.serve_forever()
 

@@ -99,8 +99,9 @@ Credentials remain in Jenkins credentials or SOPS-managed Kubernetes Secrets.
 
 Fast job startup requires a warm pool:
 
-- the allocator keeps a small number of ready stopped clones per runner class
-- jobs prefer a warm clone over a cold clone
+- the allocator keeps a small number of already booted and health-checked
+  disposable clones per runner class
+- jobs prefer a hot pool lease over a cold clone
 - a background reconciler refills the pool after lease release
 - the pool is bounded per class and per host
 
@@ -142,7 +143,8 @@ workflow inputs.
 
 Runner class states:
 
-- `ready`: warm clone is available for immediate lease
+- `ready`: hot clone is already booted, health-checked, and available for
+  immediate lease
 - `leased`: reserved by one job
 - `creating`: clone is being created from a template
 - `booting`: guest is starting
@@ -160,8 +162,12 @@ leases or destroy stale clones without touching unrelated infrastructure.
 The preferred fast path is:
 
 ```text
-lease -> acquire warm clone -> boot -> health -> execute -> destroy
+lease -> acquire ready hot clone -> quick health -> execute -> destroy
 ```
+
+The hot clone is still disposable. It is destroyed after the job and replaced
+by the background reconciler, so the platform does not rely on mutable pet VMs
+or runtime snapshot rollback.
 
 ### Cold path
 

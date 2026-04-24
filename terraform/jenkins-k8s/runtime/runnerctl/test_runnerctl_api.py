@@ -184,13 +184,16 @@ class FakeProxmoxClient:
         self.clone_requests = []
         self.config_requests = []
         self.destroy_requests = []
+        self.tag_requests = []
+        self.vmids = {9002}
 
     def qemu_vmids(self, node):
-        return {9002}
+        return set(self.vmids)
 
     def request(self, method, path, query=None, data=None):
         if method == "POST" and path.endswith("/clone"):
             self.clone_requests.append((path, data))
+            self.vmids.add(int(data["newid"]))
             return "UPID:fake"
         if method == "POST" and path.endswith("/config"):
             self.config_requests.append((path, data))
@@ -202,6 +205,16 @@ class FakeProxmoxClient:
 
     def safe_destroy(self, node, vmid):
         self.destroy_requests.append((node, vmid))
+        return True
+
+    def vm_status(self, node, vmid):
+        return {"status": "running"}
+
+    def agent_ping(self, node, vmid):
+        return True
+
+    def set_tags(self, node, vmid, tags):
+        self.tag_requests.append((node, vmid, tags))
         return True
 
 
@@ -238,7 +251,57 @@ class CreateLeaseTests(unittest.TestCase):
             self.assertEqual(result["vmid"], 2000)
             self.assertEqual(client.clone_requests[0][1]["newid"], 2000)
             self.assertEqual(client.clone_requests[0][1]["pool"], "ci-runners")
-            self.assertEqual(client.config_requests[0][1]["tags"], "runnerctl;lifecycle-ephemeral")
+            self.assertEqual(client.config_requests[0][1]["tags"], "runnerctl;lifecycle-ephemeral;leased")
+
+    def test_create_lease_acquires_ready_hot_pool_member(self):
+        with tempfile.TemporaryDirectory() as directory:
+            lease_store = runnerctl_api.LeaseStore(Path(directory) / "leases.json")
+            pool_id = "a" * 32
+            lease_store.put(
+                pool_id,
+                {
+                    "lease_id": pool_id,
+                    "runner_class": "win-gpu-nvidia",
+                    "labels": ["gpu", "gpu-class-rtx-2070", "nvidia", "runtime-only", "vulkan", "windows"],
+                    "host_id": "example-rtx-node",
+                    "node": "pve-rtx-01",
+                    "vmid": 2000,
+                    "template_vmid": 9002,
+                    "clone_name": "runnerctl-hot-win-gpu-nvidia-aaaaaaaa",
+                    "created_at": 1,
+                    "ready_at": 2,
+                    "expires_at": 9999999999,
+                    "state": "ready",
+                    "pool_member": True,
+                    "allocation_mode": "hot-pool",
+                    "connection": {"type": "winrm"},
+                    "policy": {
+                        "boot_timeout_minutes": 10,
+                        "health_timeout_minutes": 15,
+                        "destroy_after_job": True,
+                    },
+                    "health_checks": ["guest-agent"],
+                },
+            )
+            client = FakeProxmoxClient()
+            client.vmids = {9002, 2000}
+            registry = FakeProxmoxRegistry(client)
+            result = runnerctl_api.create_lease(
+                registry,
+                lease_store,
+                SAMPLE_INVENTORY,
+                {
+                    "runner_class": "win-gpu-nvidia",
+                    "required_labels": ["windows", "gpu", "nvidia"],
+                },
+            )
+            self.assertEqual(result["allocation_mode"], "hot-pool")
+            self.assertEqual(result["vmid"], 2000)
+            self.assertEqual(client.clone_requests, [])
+            self.assertEqual(client.tag_requests, [("pve-rtx-01", 2000, "runnerctl;lifecycle-ephemeral;leased")])
+            record = lease_store.get(pool_id)
+            self.assertEqual(record["state"], "leased")
+            self.assertFalse(record["pool_member"])
 
     def test_create_lease_cleans_up_clone_when_lease_store_fails(self):
         with tempfile.TemporaryDirectory() as directory:

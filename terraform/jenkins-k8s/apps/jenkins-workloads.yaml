@@ -28,7 +28,7 @@ spec:
       labels:
         app.kubernetes.io/name: jenkins
       annotations:
-        devsh.eu/config-revision: "2026-04-24-runner-graph-view-v15"
+        devsh.eu/config-revision: "2026-04-24-runner-hot-pool-v16"
     spec:
       enableServiceLinks: false
       securityContext:
@@ -160,6 +160,12 @@ spec:
               value: 127.0.0.1
             - name: RUNNERCTL_LISTEN_PORT
               value: "18080"
+            - name: RUNNERCTL_HOT_POOL_ENABLED
+              value: "true"
+            - name: RUNNERCTL_HOT_POOL_RECONCILE_INTERVAL_SECONDS
+              value: "60"
+            - name: RUNNERCTL_HOT_POOL_INITIAL_DELAY_SECONDS
+              value: "10"
           command:
             - python3
             - /opt/runnerctl/runnerctl_api.py
@@ -295,7 +301,9 @@ spec:
         - name: proxmox-tunnel-runtime
           emptyDir: {}
         - name: runnerctl-state
-          emptyDir: {}
+          hostPath:
+            path: /mnt/data/jenkins/runnerctl
+            type: DirectoryOrCreate
         - name: proxmox-runnerctl
           configMap:
             name: proxmox-runnerctl

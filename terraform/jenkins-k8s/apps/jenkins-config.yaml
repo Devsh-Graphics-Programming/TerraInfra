@@ -416,6 +416,214 @@ data:
             }
           }
 
+          pipelineJob('ci/runners/smoke/proxmox-hot-pool-lifecycle') {
+            description('Refills the hot pool, leases an already healthy Windows GPU runner, verifies it, and releases it.')
+            parameters {
+              stringParam('RUNNER_CLASS', 'win-gpu-nvidia', 'Runner class requested by the consumer job.')
+              stringParam('REQUIRED_LABELS', 'windows,gpu,nvidia,vulkan,runtime-only,gpu-class-rtx-2070', 'Comma-separated runner capability labels.')
+              stringParam('LEASE_TTL_MINUTES', '30', 'Lease TTL for the hot pool smoke clone.')
+            }
+            definition {
+              cps {
+                sandbox()
+                script('''pipeline {
+                  agent none
+                  options {
+                    timestamps()
+                    buildDiscarder(logRotator(daysToKeepStr: '31', numToKeepStr: '100', artifactDaysToKeepStr: '31', artifactNumToKeepStr: '100'))
+                  }
+                  stages {
+                    stage('Validate runner request') {
+                      steps {
+                        script {
+                          def runnerClass = params.RUNNER_CLASS?.trim()
+                          if (!(runnerClass ==~ /[a-z0-9][a-z0-9-]*/)) {
+                            error 'RUNNER_CLASS must match [a-z0-9][a-z0-9-]*.'
+                          }
+                          def rawLabels = params.REQUIRED_LABELS?.trim()
+                          if (!rawLabels) {
+                            error 'REQUIRED_LABELS is required.'
+                          }
+                          def labels = rawLabels.split(',').collect { it.trim() }.findAll { it }
+                          if (labels.isEmpty()) {
+                            error 'At least one runner label is required.'
+                          }
+                          labels.each { label ->
+                            if (!(label ==~ /[a-z0-9][a-z0-9_.-]*/)) {
+                              error 'Invalid runner label: ' + label
+                            }
+                          }
+                          if (labels.unique(false).size() != labels.size()) {
+                            error 'Runner labels must be unique.'
+                          }
+                          def ttlText = params.LEASE_TTL_MINUTES?.trim()
+                          if (!(ttlText ==~ /[0-9]+/)) {
+                            error 'LEASE_TTL_MINUTES must be an integer.'
+                          }
+                          def ttl = ttlText.toInteger()
+                          if (ttl < 5 || ttl > 720) {
+                            error 'LEASE_TTL_MINUTES must be between 5 and 720.'
+                          }
+                          env.HOT_POOL_CLASS = runnerClass
+                          env.HOT_POOL_LABELS = labels.join(',')
+                          env.HOT_POOL_TTL = ttl.toString()
+                          echo('Hot pool request: class=' + env.HOT_POOL_CLASS + ', labels=' + env.HOT_POOL_LABELS + ', lease_ttl_minutes=' + env.HOT_POOL_TTL + '.')
+                        }
+                      }
+                    }
+                    stage('Refill hot pool') {
+                      steps {
+                        script {
+                          def response = httpRequest(
+                            consoleLogResponseBody: false,
+                            contentType: 'APPLICATION_JSON',
+                            httpMode: 'POST',
+                            requestBody: writeJSON(
+                              returnText: true,
+                              json: [
+                                runner_class: env.HOT_POOL_CLASS,
+                                required_labels: env.HOT_POOL_LABELS.split(',').collect { it.trim() }.findAll { it }
+                              ]
+                            ),
+                            url: 'http://127.0.0.1:18080/api/v1/pool/refill',
+                            validResponseCodes: '100:599'
+                          )
+                          def result = readJSON(text: response.content, returnPojo: true)
+                          if (response.status != 200 || result.status != 'ok') {
+                            error('Hot pool refill failed: ' + (result.message ?: 'unexpected error'))
+                          }
+                          result.pools.each { pool ->
+                            def created = pool.created ?: []
+                            echo('Hot pool refill: class=' + pool.runner_class + ', created=' + created.size() + '.')
+                            created.each { member ->
+                              echo('Hot pool ready: host=' + member.host_id + ', node=' + member.node + ', vmid=' + member.vmid + ', clone=' + member.clone_name + '.')
+                            }
+                          }
+                        }
+                      }
+                    }
+                    stage('Pool status') {
+                      steps {
+                        script {
+                          def response = httpRequest(
+                            consoleLogResponseBody: false,
+                            httpMode: 'GET',
+                            url: 'http://127.0.0.1:18080/api/v1/pool',
+                            validResponseCodes: '100:599'
+                          )
+                          def result = readJSON(text: response.content, returnPojo: true)
+                          if (response.status != 200 || result.status != 'ok') {
+                            error('Hot pool status failed: ' + (result.message ?: 'unexpected error'))
+                          }
+                          def pool = result.pools.find { it.runner_class == env.HOT_POOL_CLASS }
+                          if (!pool) {
+                            error('Hot pool status did not include class ' + env.HOT_POOL_CLASS + '.')
+                          }
+                          echo('Hot pool counts: ' + writeJSON(returnText: true, json: pool.counts))
+                          pool.members.each { member ->
+                            echo('Hot pool member: state=' + member.state + ', host=' + member.host_id + ', node=' + member.node + ', vmid=' + member.vmid + ', allocation_mode=' + member.allocation_mode + '.')
+                          }
+                        }
+                      }
+                    }
+                    stage('Lease hot runner') {
+                      steps {
+                        script {
+                          def response = httpRequest(
+                            consoleLogResponseBody: false,
+                            contentType: 'APPLICATION_JSON',
+                            httpMode: 'POST',
+                            requestBody: writeJSON(
+                              returnText: true,
+                              json: [
+                                runner_class: env.HOT_POOL_CLASS,
+                                required_labels: env.HOT_POOL_LABELS.split(',').collect { it.trim() }.findAll { it },
+                                lease_ttl_minutes: env.HOT_POOL_TTL
+                              ]
+                            ),
+                            url: 'http://127.0.0.1:18080/api/v1/lease',
+                            validResponseCodes: '100:599'
+                          )
+                          def result = readJSON(text: response.content, returnPojo: true)
+                          if (response.status != 200 || result.status != 'ok') {
+                            error('Hot runner lease failed: ' + (result.message ?: 'unexpected error'))
+                          }
+                          if (result.allocation_mode != 'hot-pool') {
+                            error('Expected hot-pool allocation but got ' + result.allocation_mode + '.')
+                          }
+                          env.RUNNER_LEASE_ID = result.lease_id
+                          echo('Hot lease acquired: host=' + result.host_id + ', node=' + result.node + ', vmid=' + result.vmid + ', clone=' + result.clone_name + ', ready=' + result.ready + '.')
+                        }
+                      }
+                    }
+                    stage('Prepare') {
+                      steps {
+                        script {
+                          def response = httpRequest(
+                            consoleLogResponseBody: false,
+                            contentType: 'APPLICATION_JSON',
+                            httpMode: 'POST',
+                            requestBody: writeJSON(returnText: true, json: [lease_id: env.RUNNER_LEASE_ID]),
+                            url: 'http://127.0.0.1:18080/api/v1/prepare',
+                            validResponseCodes: '100:599'
+                          )
+                          def result = readJSON(text: response.content, returnPojo: true)
+                          if (response.status != 200 || result.status != 'ok') {
+                            error('Hot runner prepare failed: ' + (result.message ?: 'unexpected error'))
+                          }
+                          echo('Hot runner prepared: allocation_mode=' + result.allocation_mode + ', host=' + result.host_id + ', node=' + result.node + ', vmid=' + result.vmid + '.')
+                          result.health.each { name, value ->
+                            echo('Prepare health ' + name + ': ' + value)
+                          }
+                        }
+                      }
+                    }
+                    stage('Health') {
+                      steps {
+                        script {
+                          def response = httpRequest(
+                            consoleLogResponseBody: false,
+                            contentType: 'APPLICATION_JSON',
+                            httpMode: 'POST',
+                            requestBody: writeJSON(returnText: true, json: [lease_id: env.RUNNER_LEASE_ID]),
+                            url: 'http://127.0.0.1:18080/api/v1/health',
+                            validResponseCodes: '100:599'
+                          )
+                          def result = readJSON(text: response.content, returnPojo: true)
+                          if (response.status != 200 || result.status != 'ok' || result.overall != 'passed') {
+                            error('Hot runner health failed: ' + writeJSON(returnText: true, json: result))
+                          }
+                          echo('Hot runner health overall: ' + result.overall + '.')
+                          result.checks.each { name, value ->
+                            echo('Health ' + name + ': ' + value)
+                          }
+                        }
+                      }
+                    }
+                  }
+                  post {
+                    always {
+                      script {
+                        if (env.RUNNER_LEASE_ID) {
+                          def response = httpRequest(
+                            consoleLogResponseBody: false,
+                            contentType: 'APPLICATION_JSON',
+                            httpMode: 'POST',
+                            requestBody: writeJSON(returnText: true, json: [lease_id: env.RUNNER_LEASE_ID]),
+                            url: 'http://127.0.0.1:18080/api/v1/release',
+                            validResponseCodes: '100:599'
+                          )
+                          def result = readJSON(text: response.content, returnPojo: true)
+                          echo('Release response HTTP ' + response.status + ': result=' + result.result + ', vmid=' + (result.vmid ?: 'n/a') + ', destroyed_vm=' + (result.destroyed_vm ?: false) + '.')
+                        }
+                      }
+                    }
+                  }
+                }''')
+              }
+            }
+          }
+
           pipelineJob('ci/runners/smoke/proxmox-runtime-lifecycle') {
             description('Exercises the real runtime lifecycle: resolve by labels, lease, boot, guest-agent and GPU health, and release for an inventory-selected runner template.')
             parameters {
@@ -523,7 +731,7 @@ data:
                             error('Runner lease failed: ' + (result.message ?: 'unexpected error'))
                           }
                           env.RUNNER_LEASE_ID = result.lease_id
-                          echo('Lease acquired: host=' + result.host_id + ', node=' + result.node + ', vmid=' + result.vmid + ', clone=' + result.clone_name + '.')
+                          echo('Lease acquired: allocation_mode=' + result.allocation_mode + ', host=' + result.host_id + ', node=' + result.node + ', vmid=' + result.vmid + ', clone=' + result.clone_name + ', ready=' + result.ready + '.')
                         }
                       }
                     }
@@ -542,7 +750,7 @@ data:
                           if (response.status != 200 || result.status != 'ok') {
                             error('Runner prepare failed: ' + (result.message ?: 'unexpected error'))
                           }
-                          echo('Runner prepared: host=' + result.host_id + ', node=' + result.node + ', vmid=' + result.vmid + '.')
+                          echo('Runner prepared: allocation_mode=' + result.allocation_mode + ', host=' + result.host_id + ', node=' + result.node + ', vmid=' + result.vmid + '.')
                           result.health.each { name, value ->
                             echo('Prepare health ' + name + ': ' + value)
                           }
@@ -566,7 +774,7 @@ data:
                             error('Runner health failed: ' + writeJSON(returnText: true, json: result))
                           }
                           echo('Runner health overall: ' + result.overall + '.')
-                          result.health.each { name, value ->
+                          result.checks.each { name, value ->
                             echo('Health ' + name + ': ' + value)
                           }
                           echo(writeJSON(returnText: true, json: result))
