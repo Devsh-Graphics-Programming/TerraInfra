@@ -394,6 +394,8 @@ class CreateLeaseTests(unittest.TestCase):
             self.assertIn("Register-ScheduledTask", script)
             self.assertIn("Clear-DnsClientCache", script)
             self.assertIn("Sysnative/drivers/etc/hosts", script)
+            self.assertIn('"{0} {1} # runnerctl-jenkins"', script)
+            self.assertNotIn('"0 1 # runnerctl-jenkins"', script)
             record = lease_store.get(result["lease_id"])
             self.assertEqual(record["state"], "agent-online")
             self.assertEqual(record["jenkins_agent"]["label"], result["label"])

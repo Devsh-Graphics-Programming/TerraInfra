@@ -1328,12 +1328,14 @@ $jar = Join-Path $agentRoot 'agent.jar'
 $baseUrl = {powershell_string(jenkins_client.public_url)}
 $jenkinsHost = {powershell_string(public_host)}
 $hostAliasIp = {powershell_string(host_alias_ip or "")}
+Write-Output ("runnerctl: jenkinsHost={{0}}; hostAliasIp={{1}}" -f $jenkinsHost, $(if ($hostAliasIp) {{ $hostAliasIp }} else {{ '<empty>' }}))
 if ($hostAliasIp -and $jenkinsHost) {{
   $hostsPath = Join-Path $env:WINDIR 'System32/drivers/etc/hosts'
   $sysnativeHostsPath = Join-Path $env:WINDIR 'Sysnative/drivers/etc/hosts'
   if (Test-Path (Split-Path $sysnativeHostsPath -Parent)) {{
     $hostsPath = $sysnativeHostsPath
   }}
+  Write-Output ("runnerctl: hostsPath={{0}}" -f $hostsPath)
   $escapedHost = [Regex]::Escape($jenkinsHost)
   $escapedIp = [Regex]::Escape($hostAliasIp)
   $entryPattern = '^\\s*' + $escapedIp + '\\s+' + $escapedHost + '(\\s|$)'
@@ -1344,9 +1346,16 @@ if ($hostAliasIp -and $jenkinsHost) {{
   }}
   $filteredHosts = @($existingHosts | Where-Object {{ ($_ -notmatch $hostPattern) -and ($_ -notmatch '# runnerctl-jenkins') }})
   [System.IO.File]::WriteAllLines($hostsPath, [string[]]$filteredHosts, [Text.Encoding]::ASCII)
-  Add-Content -Path $hostsPath -Value ("{0} {1} # runnerctl-jenkins" -f $hostAliasIp, $jenkinsHost) -Encoding ASCII
+  Add-Content -Path $hostsPath -Value ("{{0}} {{1}} # runnerctl-jenkins" -f $hostAliasIp, $jenkinsHost) -Encoding ASCII
   Clear-DnsClientCache -ErrorAction SilentlyContinue
   & ipconfig /flushdns | Out-Null
+  Write-Output ("runnerctl: hostAliasWritten={{0}}" -f $entryPattern)
+}}
+try {{
+  $resolvedAddresses = [System.Net.Dns]::GetHostAddresses($jenkinsHost) | ForEach-Object {{ $_.IPAddressToString }}
+  Write-Output ("runnerctl: dns={{0}}" -f ($resolvedAddresses -join ','))
+}} catch {{
+  Write-Output ("runnerctl: dnsError={{0}}" -f $_.Exception.Message)
 }}
 Invoke-WebRequest -Uri ($baseUrl.TrimEnd('/') + '/jnlpJars/agent.jar') -OutFile $jar -UseBasicParsing
 $javaExe = $null
