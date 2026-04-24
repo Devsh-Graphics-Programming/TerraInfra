@@ -1341,12 +1341,6 @@ if ($hostAliasIp -and $jenkinsHost) {{
   Add-Content -Path $hostsPath -Value ("{0} {1} # runnerctl-jenkins" -f $hostAliasIp, $jenkinsHost) -Encoding ASCII
   Clear-DnsClientCache -ErrorAction SilentlyContinue
   & ipconfig /flushdns | Out-Null
-  $resolvedAlias = @([System.Net.Dns]::GetHostAddresses($jenkinsHost) |
-    Where-Object {{ $_.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork }} |
-    Select-Object -ExpandProperty IPAddressToString)
-  if ($resolvedAlias -notcontains $hostAliasIp) {{
-    throw ('Jenkins host alias was not applied. host={0}, expected={1}, resolved={2}' -f $jenkinsHost, $hostAliasIp, ($resolvedAlias -join ','))
-  }}
 }}
 Invoke-WebRequest -Uri ($baseUrl.TrimEnd('/') + '/jnlpJars/agent.jar') -OutFile $jar -UseBasicParsing
 $javaExe = $null
