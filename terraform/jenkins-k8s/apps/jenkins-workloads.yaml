@@ -28,7 +28,7 @@ spec:
       labels:
         app.kubernetes.io/name: jenkins
       annotations:
-        devsh.eu/config-revision: "2026-04-24-runner-smoke-v12"
+        devsh.eu/config-revision: "2026-04-24-runner-graph-view-v13"
     spec:
       enableServiceLinks: false
       securityContext:

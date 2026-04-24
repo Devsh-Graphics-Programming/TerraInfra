@@ -16,6 +16,8 @@ data:
     timestamper
     ws-cleanup
     pipeline-utility-steps
+    pipeline-graph-view
+    pipeline-stage-view
     lockable-resources
     github
     cloudbees-folder
