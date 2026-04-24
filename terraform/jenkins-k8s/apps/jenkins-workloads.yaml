@@ -170,6 +170,10 @@ spec:
               value: "10"
             - name: RUNNERCTL_HOT_POOL_HEALTH_CACHE_TTL_SECONDS
               value: "300"
+            - name: RUNNERCTL_HOT_POOL_PRECONNECT_AGENTS
+              value: "true"
+            - name: RUNNERCTL_PRECONNECTED_AGENT_WAIT_SECONDS
+              value: "8"
             - name: RUNNERCTL_JENKINS_INTERNAL_URL
               value: http://127.0.0.1:8080
             - name: RUNNERCTL_JENKINS_PUBLIC_URL

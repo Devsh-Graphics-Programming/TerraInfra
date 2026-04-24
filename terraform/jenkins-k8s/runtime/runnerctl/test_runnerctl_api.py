@@ -404,6 +404,75 @@ class CreateLeaseTests(unittest.TestCase):
             self.assertEqual(record["state"], "agent-online")
             self.assertEqual(record["jenkins_agent"]["label"], result["label"])
 
+    def test_lease_jenkins_agent_reuses_preconnected_hot_pool_agent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            lease_store = runnerctl_api.LeaseStore(Path(directory) / "leases.json")
+            lease_id = "e" * 32
+            last_health = {
+                "guest-agent": "passed",
+                "network-interfaces": "passed",
+                "nvidia-smi": "passed",
+                "vulkan-runtime": "passed",
+                "workspace-ready": "passed",
+            }
+            node_name = "runner-lease-" + lease_id[:12]
+            lease_store.put(
+                lease_id,
+                {
+                    "lease_id": lease_id,
+                    "runner_class": "win-gpu-nvidia",
+                    "labels": ["gpu", "gpu-class-rtx-2070", "nvidia", "runtime-only", "vulkan", "windows"],
+                    "host_id": "example-rtx-node",
+                    "node": "pve-rtx-01",
+                    "vmid": 2000,
+                    "template_vmid": 9002,
+                    "clone_name": "runnerctl-hot-win-gpu-nvidia-eeeeeeee",
+                    "created_at": 1,
+                    "ready_at": runnerctl_api.now_epoch(),
+                    "last_health_at": runnerctl_api.now_epoch(),
+                    "expires_at": 9999999999,
+                    "state": "ready",
+                    "pool_member": True,
+                    "allocation_mode": "hot-pool",
+                    "connection": {"type": "winrm"},
+                    "policy": {
+                        "boot_timeout_minutes": 10,
+                        "health_timeout_minutes": 15,
+                        "destroy_after_job": True,
+                    },
+                    "health_checks": list(last_health.keys()),
+                    "last_health": last_health,
+                    "jenkins_agent": {
+                        "node_name": node_name,
+                        "label": node_name,
+                        "labels": ["runner-lease", node_name],
+                        "work_dir": "C:\\runner\\jenkins-agent",
+                        "online_at": runnerctl_api.now_epoch(),
+                    },
+                },
+            )
+            client = FakeProxmoxClient()
+            client.vmids = {9002, 2000}
+            registry = FakeProxmoxRegistry(client)
+            jenkins = FakeJenkinsClient()
+            result = runnerctl_api.lease_jenkins_agent(
+                registry,
+                lease_store,
+                SAMPLE_INVENTORY,
+                {
+                    "labels": ["windows", "gpu", "nvidia"],
+                },
+                jenkins,
+            )
+            self.assertEqual(result["allocation_mode"], "hot-pool")
+            self.assertEqual(result["label"], node_name)
+            self.assertEqual(client.guest_exec_requests, [])
+            self.assertEqual(jenkins.created_nodes, [])
+            self.assertEqual(jenkins.online_nodes[0][0], node_name)
+            record = lease_store.get(lease_id)
+            self.assertEqual(record["state"], "agent-online")
+            self.assertFalse(record["pool_member"])
+
     def test_prepare_lease_uses_fresh_hot_pool_health_cache(self):
         with tempfile.TemporaryDirectory() as directory:
             lease_store = runnerctl_api.LeaseStore(Path(directory) / "leases.json")

@@ -1072,6 +1072,18 @@ def hot_pool_health_cache_ttl_seconds():
         return 300
 
 
+def hot_pool_preconnect_agents_enabled():
+    return os.getenv("RUNNERCTL_HOT_POOL_PRECONNECT_AGENTS", "false").lower() == "true"
+
+
+def preconnected_agent_wait_seconds():
+    raw_value = os.getenv("RUNNERCTL_PRECONNECTED_AGENT_WAIT_SECONDS", "8")
+    try:
+        return max(1, int(raw_value))
+    except ValueError:
+        return 8
+
+
 def cached_health_for_record(record, requested_checks):
     if record.get("allocation_mode") != "hot-pool":
         return None
@@ -1299,8 +1311,8 @@ def build_jenkins_agent_node_name(lease_id):
     return f"runner-lease-{lease_id[:12]}"
 
 
-def build_jenkins_agent_label(record, node_name):
-    labels = set(record.get("labels", []))
+def build_jenkins_agent_label(record, node_name, include_capability_labels=True):
+    labels = set(record.get("labels", [])) if include_capability_labels else set()
     labels.add("runner-lease")
     labels.add(node_name)
     return " ".join(sorted(labels))
@@ -1431,6 +1443,62 @@ if ($task.State -ne 'Running') {{
 }}
 """
     return client.guest_exec(node, vmid, powershell_encoded_command(script), timeout_seconds)
+
+
+def attach_jenkins_agent_to_record(
+    client,
+    host,
+    record,
+    jenkins_client,
+    work_dir,
+    timeout_seconds,
+    include_capability_labels=True,
+):
+    node = require_pattern(record.get("node", ""), SAFE_NAME_PATTERN, "node")
+    vmid = require_int(record.get("vmid", ""), "vmid", minimum=100, maximum=999999999)
+    node_name = build_jenkins_agent_node_name(record["lease_id"])
+    label_string = build_jenkins_agent_label(record, node_name, include_capability_labels=include_capability_labels)
+    created_node = False
+    try:
+        if not jenkins_client.create_agent_node(node_name, label_string, work_dir):
+            raise RunnerCtlError(
+                HTTPStatus.BAD_GATEWAY,
+                "jenkins-node-create-failed",
+                "Jenkins did not confirm runner node creation.",
+                {"node_name": node_name},
+            )
+        created_node = True
+        secret = jenkins_client.agent_secret(node_name)
+        network = host.get("network") or {}
+        host_alias_ip = optional_ipv4_address(
+            record.get("jenkins_host_alias_ip") or network.get("jenkins_host_alias_ip"),
+            "network.jenkins_host_alias_ip",
+        )
+        start_jenkins_remoting_agent(
+            client,
+            node,
+            vmid,
+            jenkins_client,
+            node_name,
+            secret,
+            work_dir,
+            host_alias_ip=host_alias_ip,
+        )
+        jenkins_client.wait_agent_online(node_name, timeout_seconds)
+        return {
+            "node_name": node_name,
+            "label": node_name,
+            "labels": label_string.split(),
+            "work_dir": work_dir,
+            "online_at": now_epoch(),
+        }
+    except Exception:
+        if created_node:
+            try:
+                jenkins_client.delete_agent_node(node_name)
+            except Exception:
+                pass
+        raise
 
 
 def run_named_health_check(client, node, vmid, check_name):
@@ -1618,41 +1686,49 @@ def lease_jenkins_agent(client_registry, lease_store, inventory, request_data, j
 
         host = host_by_id(inventory, record["host_id"])
         client = client_registry.client_for_host(inventory, host)
-        node = require_pattern(record.get("node", ""), SAFE_NAME_PATTERN, "node")
-        vmid = require_int(record.get("vmid", ""), "vmid", minimum=100, maximum=999999999)
-        node_name = build_jenkins_agent_node_name(lease_id)
-        label_string = build_jenkins_agent_label(record, node_name)
         work_dir = os.getenv("RUNNERCTL_JENKINS_AGENT_WORK_DIR", "C:\\runner\\jenkins-agent")
         agent_timeout_seconds = int(os.getenv("RUNNERCTL_JENKINS_AGENT_TIMEOUT_SECONDS", "120"))
-
-        if not jenkins_client.create_agent_node(node_name, label_string, work_dir):
-            raise RunnerCtlError(
-                HTTPStatus.BAD_GATEWAY,
-                "jenkins-node-create-failed",
-                "Jenkins did not confirm runner node creation.",
-                {"node_name": node_name},
+        existing_agent = record.get("jenkins_agent") or {}
+        if existing_agent.get("node_name"):
+            node_name = existing_agent["node_name"]
+            try:
+                jenkins_client.wait_agent_online(node_name, preconnected_agent_wait_seconds())
+                agent = dict(existing_agent)
+                agent.setdefault("label", node_name)
+                agent.setdefault("labels", [node_name])
+                agent.setdefault("work_dir", work_dir)
+                agent["online_at"] = now_epoch()
+            except RunnerCtlError:
+                try:
+                    jenkins_client.delete_agent_node(node_name)
+                except Exception:
+                    pass
+                agent = attach_jenkins_agent_to_record(
+                    client,
+                    host,
+                    record,
+                    jenkins_client,
+                    work_dir,
+                    agent_timeout_seconds,
+                    include_capability_labels=True,
+                )
+        else:
+            agent = attach_jenkins_agent_to_record(
+                client,
+                host,
+                record,
+                jenkins_client,
+                work_dir,
+                agent_timeout_seconds,
+                include_capability_labels=True,
             )
-        secret = jenkins_client.agent_secret(node_name)
-        network = host.get("network") or {}
-        host_alias_ip = optional_ipv4_address(
-            record.get("jenkins_host_alias_ip") or network.get("jenkins_host_alias_ip"),
-            "network.jenkins_host_alias_ip",
-        )
-        start_jenkins_remoting_agent(client, node, vmid, jenkins_client, node_name, secret, work_dir, host_alias_ip=host_alias_ip)
-        jenkins_client.wait_agent_online(node_name, agent_timeout_seconds)
+        node_name = agent["node_name"]
 
-        now = now_epoch()
         updated = lease_store.update(
             lease_id,
             {
                 "state": "agent-online",
-                "jenkins_agent": {
-                    "node_name": node_name,
-                    "label": node_name,
-                    "labels": label_string.split(),
-                    "work_dir": work_dir,
-                    "online_at": now,
-                },
+                "jenkins_agent": agent,
             },
         )
         return public_agent_lease_result(updated, prepare_result)
@@ -1700,7 +1776,7 @@ def release_lease(client_registry, lease_store, inventory, request_data, jenkins
     }
 
 
-def build_ready_pool_member(client_registry, lease_store, inventory, resolved, candidate):
+def build_ready_pool_member(client_registry, lease_store, inventory, resolved, candidate, jenkins_client=None):
     host = host_by_id(inventory, candidate["host_id"])
     node = candidate["node"]
     client = client_registry.client_for_host(inventory, host)
@@ -1745,6 +1821,7 @@ def build_ready_pool_member(client_registry, lease_store, inventory, resolved, c
     }
     lease_store.put(pool_id, record)
 
+    preconnected_node_name = None
     try:
         clone_upid = client.request(
             "POST",
@@ -1771,17 +1848,32 @@ def build_ready_pool_member(client_registry, lease_store, inventory, resolved, c
                 "Hot pool VM failed health checks.",
                 {"host_id": candidate["host_id"], "node": node, "vmid": vmid, "checks": checks},
             )
+        jenkins_agent = None
+        if hot_pool_preconnect_agents_enabled() and jenkins_client is not None:
+            work_dir = os.getenv("RUNNERCTL_JENKINS_AGENT_WORK_DIR", "C:\\runner\\jenkins-agent")
+            agent_timeout_seconds = int(os.getenv("RUNNERCTL_JENKINS_AGENT_TIMEOUT_SECONDS", "120"))
+            latest_record = lease_store.get(pool_id) or record
+            jenkins_agent = attach_jenkins_agent_to_record(
+                client,
+                host,
+                latest_record,
+                jenkins_client,
+                work_dir,
+                agent_timeout_seconds,
+                include_capability_labels=False,
+            )
+            preconnected_node_name = jenkins_agent["node_name"]
         ready_at = now_epoch()
         client.set_tags(node, vmid, HOT_POOL_TAGS_READY)
-        updated = lease_store.update(
-            pool_id,
-            {
-                "state": "ready",
-                "ready_at": ready_at,
-                "last_health": checks,
-                "last_health_at": ready_at,
-            },
-        )
+        ready_update = {
+            "state": "ready",
+            "ready_at": ready_at,
+            "last_health": checks,
+            "last_health_at": ready_at,
+        }
+        if jenkins_agent:
+            ready_update["jenkins_agent"] = jenkins_agent
+        updated = lease_store.update(pool_id, ready_update)
         return {
             "lease_id": pool_id,
             "runner_class": updated["runner_class"],
@@ -1793,6 +1885,11 @@ def build_ready_pool_member(client_registry, lease_store, inventory, resolved, c
             "health": updated["last_health"],
         }
     except Exception:
+        if preconnected_node_name and jenkins_client is not None:
+            try:
+                jenkins_client.delete_agent_node(preconnected_node_name)
+            except Exception:
+                pass
         try:
             client.safe_destroy(node, vmid)
         finally:
@@ -1831,7 +1928,7 @@ def resolve_pool_targets(inventory, request_data):
     return targets
 
 
-def refill_hot_pool(client_registry, lease_store, inventory, request_data):
+def refill_hot_pool(client_registry, lease_store, inventory, request_data, jenkins_client=None):
     targets = resolve_pool_targets(inventory, request_data)
     results = []
     for resolved, candidates in targets:
@@ -1871,7 +1968,16 @@ def refill_hot_pool(client_registry, lease_store, inventory, request_data):
                 )
                 if ready_count >= min_ready or active_count >= max_ready:
                     break
-                class_created.append(build_ready_pool_member(client_registry, lease_store, inventory, resolved, candidate))
+                class_created.append(
+                    build_ready_pool_member(
+                        client_registry,
+                        lease_store,
+                        inventory,
+                        resolved,
+                        candidate,
+                        jenkins_client=jenkins_client,
+                    )
+                )
 
         results.append(
             {
@@ -2214,7 +2320,14 @@ class RunnerCtlHandler(BaseHTTPRequestHandler):
             if self.path == "/api/v1/pool/refill":
                 inventory = self._inventory()
                 with self.server.operation_lock:
-                    result = refill_hot_pool(self._clients(), self.server.lease_store, inventory, request_data)
+                    jenkins_client = self._jenkins() if hot_pool_preconnect_agents_enabled() else None
+                    result = refill_hot_pool(
+                        self._clients(),
+                        self.server.lease_store,
+                        inventory,
+                        request_data,
+                        jenkins_client=jenkins_client,
+                    )
                 self._write_json(HTTPStatus.OK, {"status": "ok", **result})
                 return
             if self.path == "/api/v1/proxmox/smoke":
@@ -2255,7 +2368,8 @@ def hot_pool_reconciler_loop(server, interval_seconds, initial_delay_seconds):
         try:
             inventory = server.inventory_store.load()
             with server.operation_lock:
-                refill_hot_pool(server.proxmox_clients, server.lease_store, inventory, {})
+                jenkins_client = server.jenkins_client() if hot_pool_preconnect_agents_enabled() else None
+                refill_hot_pool(server.proxmox_clients, server.lease_store, inventory, {}, jenkins_client=jenkins_client)
         except Exception:  # noqa: BLE001
             traceback.print_exc()
         time.sleep(interval_seconds)
