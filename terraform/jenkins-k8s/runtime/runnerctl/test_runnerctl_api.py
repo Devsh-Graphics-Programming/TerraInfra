@@ -123,6 +123,14 @@ class InventoryStoreTests(unittest.TestCase):
             self.assertEqual(loaded["runner_classes"][0]["id"], "win-gpu-nvidia")
 
 
+class GuestOutputTests(unittest.TestCase):
+    def test_compact_guest_output_redacts_secrets(self):
+        text = "failed -secret " + ("a" * 64) + " <Obj>noise</Obj>"
+        compact = runnerctl_api.compact_guest_output(text)
+        self.assertIn("-secret <redacted>", compact)
+        self.assertNotIn("a" * 64, compact)
+
+
 class ResolveRunnerTests(unittest.TestCase):
     def test_resolve_runner_selects_class_by_labels_without_runner_class(self):
         resolved = runnerctl_api.resolve_runner(

@@ -211,6 +211,26 @@ def powershell_string(value):
     return "'" + str(value).replace("'", "''") + "'"
 
 
+def compact_guest_output(value, limit=1600):
+    text = str(value or "").replace("_x000D__x000A_", "\n")
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"(?i)(-secret\s+)[^\s]+", r"\1<redacted>", text)
+    text = re.sub(r"\b[A-Za-z0-9+/=_-]{48,}\b", "<redacted>", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) > limit:
+        return text[:limit] + "..."
+    return text
+
+
+def guest_exec_output_summary(status):
+    parts = []
+    for key in ("err-data", "out-data"):
+        summary = compact_guest_output(status.get(key))
+        if summary:
+            parts.append(f"{key}: {summary}")
+    return " | ".join(parts)
+
+
 def optional_ipv4_address(value, field_name):
     if value is None or str(value).strip() == "":
         return None
@@ -671,11 +691,20 @@ class ProxmoxApiClient:
             )
             if status.get("exited"):
                 if int(status.get("exitcode", 0)) != 0:
+                    output_summary = guest_exec_output_summary(status)
+                    message = "Guest command failed."
+                    if output_summary:
+                        message = f"{message} {output_summary}"
                     raise RunnerCtlError(
                         HTTPStatus.BAD_GATEWAY,
                         "guest-command-failed",
-                        "Guest command failed.",
-                        {"node": node, "vmid": vmid, "exitcode": status.get("exitcode")},
+                        message,
+                        {
+                            "node": node,
+                            "vmid": vmid,
+                            "exitcode": status.get("exitcode"),
+                            "output": output_summary,
+                        },
                     )
                 return status
             time.sleep(1.0)
