@@ -840,7 +840,7 @@ data:
                 timestamps {
                   withRunner(labels: ['windows', 'gpu', 'nvidia', 'vulkan', 'runtime-only'], leaseTtlMinutes: 30) { runner ->
                     stage('Hello') {
-                      writeFile file: 'runner-summary.txt', text: "label=${runner.label}\\nnode=${env.NODE_NAME}\\nworkspace=${pwd()}\\n"
+                      writeFile file: 'runner-summary.txt', text: 'label=' + runner.label + '\\nnode=' + env.NODE_NAME + '\\nworkspace=' + pwd() + '\\n'
                       powershell 'Write-Host "Hello from ephemeral Windows GPU runner"'
                     }
                     stage('GPU sanity') {
