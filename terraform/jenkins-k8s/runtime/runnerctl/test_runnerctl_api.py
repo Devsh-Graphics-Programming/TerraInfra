@@ -1,3 +1,4 @@
+import base64
 import json
 import tempfile
 import unittest
@@ -41,6 +42,7 @@ SAMPLE_INVENTORY = {
                 "network": {
                     "bridge": "vmbr0",
                     "vlan_tag": 69,
+                    "jenkins_host_alias_ip": "10.254.254.254",
                 },
                 "vmid_ranges": {
                     "runner": {
@@ -375,6 +377,9 @@ class CreateLeaseTests(unittest.TestCase):
             self.assertIn("windows", jenkins.created_nodes[0][1].split())
             self.assertEqual(jenkins.online_nodes[0][0], result["node_name"])
             self.assertTrue(client.guest_exec_requests[-1][2][4])
+            script = base64.b64decode(client.guest_exec_requests[-1][2][5]).decode("utf-16le")
+            self.assertIn("10.254.254.254", script)
+            self.assertIn("jenkins.example.invalid", script)
             record = lease_store.get(result["lease_id"])
             self.assertEqual(record["state"], "agent-online")
             self.assertEqual(record["jenkins_agent"]["label"], result["label"])

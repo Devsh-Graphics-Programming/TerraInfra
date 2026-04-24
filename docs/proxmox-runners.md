@@ -139,6 +139,9 @@ Recommended split:
 - root SSH only for operator/debug tasks
 - reverse SSH tunnel only when the Proxmox host is private-only and there is no
   direct Jenkins route into that network yet
+- an isolated runner VLAN can expose only a host-local Jenkins HTTPS forward; in
+  that case `network.jenkins_host_alias_ip` tells `runnerctl` which address to
+  add to the guest hosts file for the Jenkins public hostname
 
 Secrets should be delivered through SOPS-managed Kubernetes Secrets or Jenkins
 credentials. They must not be committed into job definitions, docs examples, or
@@ -342,6 +345,9 @@ Current farm access model:
   inside the Jenkins pod
 - the `runnerctl` sidecar reads those local loopback API URLs from inventory and
   token material from Kubernetes Secret env vars
+- runner VMs on the isolated VLAN reach Jenkins through the per-host
+  `network.jenkins_host_alias_ip` address, keeping the job syntax independent of
+  Proxmox networking details
 - Jenkins jobs call only the local `runnerctl` HTTP API on `127.0.0.1:18080`
 - consumer jobs lease a temporary Jenkins node by labels, then run normal
   declarative or scripted Pipeline steps on `node(runner.label)`

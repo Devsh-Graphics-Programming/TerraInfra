@@ -2,6 +2,7 @@
 
 import base64
 import http.cookiejar
+import ipaddress
 import json
 import os
 import re
@@ -208,6 +209,41 @@ def groovy_string(value):
 
 def powershell_string(value):
     return "'" + str(value).replace("'", "''") + "'"
+
+
+def optional_ipv4_address(value, field_name):
+    if value is None or str(value).strip() == "":
+        return None
+    text = str(value).strip()
+    try:
+        parsed = ipaddress.ip_address(text)
+    except ValueError as exc:
+        raise RunnerCtlError(
+            HTTPStatus.INTERNAL_SERVER_ERROR,
+            "invalid-inventory",
+            f"Invalid IPv4 address for {field_name}.",
+            {"field": field_name},
+        ) from exc
+    if parsed.version != 4:
+        raise RunnerCtlError(
+            HTTPStatus.INTERNAL_SERVER_ERROR,
+            "invalid-inventory",
+            f"{field_name} must be an IPv4 address.",
+            {"field": field_name},
+        )
+    return str(parsed)
+
+
+def jenkins_public_hostname(public_url):
+    parsed = urllib.parse.urlparse(public_url)
+    if not parsed.hostname:
+        raise RunnerCtlError(
+            HTTPStatus.INTERNAL_SERVER_ERROR,
+            "invalid-jenkins-url",
+            "Jenkins public URL must include a hostname.",
+            {},
+        )
+    return parsed.hostname
 
 
 def parse_required_labels(value, field_name="required_labels"):
@@ -1235,7 +1271,18 @@ def build_jenkins_agent_label(record, node_name):
     return " ".join(sorted(labels))
 
 
-def start_jenkins_remoting_agent(client, node, vmid, jenkins_client, node_name, secret, work_dir, timeout_seconds=60):
+def start_jenkins_remoting_agent(
+    client,
+    node,
+    vmid,
+    jenkins_client,
+    node_name,
+    secret,
+    work_dir,
+    host_alias_ip=None,
+    timeout_seconds=60,
+):
+    public_host = jenkins_public_hostname(jenkins_client.public_url)
     script = f"""
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -1244,6 +1291,21 @@ $agentRoot = {powershell_string(work_dir)}
 New-Item -ItemType Directory -Force -Path $agentRoot | Out-Null
 $jar = Join-Path $agentRoot 'agent.jar'
 $baseUrl = {powershell_string(jenkins_client.public_url)}
+$jenkinsHost = {powershell_string(public_host)}
+$hostAliasIp = {powershell_string(host_alias_ip or "")}
+if ($hostAliasIp -and $jenkinsHost) {{
+  $hostsPath = Join-Path $env:WINDIR 'System32/drivers/etc/hosts'
+  $escapedHost = [Regex]::Escape($jenkinsHost)
+  $escapedIp = [Regex]::Escape($hostAliasIp)
+  $entryPattern = '^\\s*' + $escapedIp + '\\s+' + $escapedHost + '(\\s|$)'
+  $hasEntry = $false
+  if (Test-Path $hostsPath) {{
+    $hasEntry = [bool](Get-Content -Path $hostsPath | Where-Object {{ $_ -match $entryPattern }} | Select-Object -First 1)
+  }}
+  if (-not $hasEntry) {{
+    Add-Content -Path $hostsPath -Value ("`r`n{0} {1} # runnerctl-jenkins" -f $hostAliasIp, $jenkinsHost) -Encoding ASCII
+  }}
+}}
 Invoke-WebRequest -Uri ($baseUrl.TrimEnd('/') + '/jnlpJars/agent.jar') -OutFile $jar -UseBasicParsing
 $javaExe = $null
 $javaCommand = Get-Command java.exe -ErrorAction SilentlyContinue
@@ -1485,7 +1547,9 @@ def lease_jenkins_agent(client_registry, lease_store, inventory, request_data, j
                 {"node_name": node_name},
             )
         secret = jenkins_client.agent_secret(node_name)
-        start_jenkins_remoting_agent(client, node, vmid, jenkins_client, node_name, secret, work_dir)
+        network = host.get("network") or {}
+        host_alias_ip = optional_ipv4_address(network.get("jenkins_host_alias_ip"), "network.jenkins_host_alias_ip")
+        start_jenkins_remoting_agent(client, node, vmid, jenkins_client, node_name, secret, work_dir, host_alias_ip=host_alias_ip)
         jenkins_client.wait_agent_online(node_name, agent_timeout_seconds)
 
         now = now_epoch()

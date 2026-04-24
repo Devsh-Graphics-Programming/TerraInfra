@@ -40,6 +40,7 @@ proxmox:
       network:
         bridge: example-vmbr
         vlan_tag: 69
+        jenkins_host_alias_ip: 10.254.254.254
       vmid_ranges:
         runner:
           start: 2000
