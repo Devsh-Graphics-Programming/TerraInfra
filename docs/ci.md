@@ -49,11 +49,12 @@ Current jobs:
 - `system/smoke`: verifies the controller can load configuration and run a lightweight pipeline.
 - `ci/runners/proxmox-plan`: validates the generic runner class request contract and renders the hot-path/cold-path runtime plan in dry-run mode.
 - `ci/runners/packer-plan`: validates the template build and promotion contract in dry-run mode.
-- `ci/runners/proxmox-api-smoke`: runs a read-only Proxmox API smoke check through the local `runnerctl` sidecar endpoint.
-- `ci/runners/proxmox-warm-smoke`: runs a scratch template -> linked clone -> start -> stop -> destroy lifecycle through the local `runnerctl` sidecar endpoint.
+- `ci/runners/proxmox-api-smoke`: runs an inventory-driven read-only Proxmox API smoke check through the local `runnerctl` sidecar endpoint.
+- `ci/runners/proxmox-warm-smoke`: runs a scratch template -> linked clone -> start -> stop -> destroy lifecycle on an inventory-selected host through the local `runnerctl` sidecar endpoint.
+- `ci/runners/proxmox-runtime-smoke`: runs the real template lifecycle `lease -> boot -> guest-agent health -> release` through the local `runnerctl` sidecar endpoint.
 - `ci/ditt/store-smoke`: validates `store.devsh.eu` public/private report endpoint behavior without Proxmox credentials.
 - `ci/ditt/ex40-report-plan`: validates EX40 report publish parameters and stays in dry-run mode until the runtime backend is connected.
 
 Proxmox API credentials stay in the `proxmox-runner-api` Kubernetes Secret and are consumed by the `runnerctl` sidecar, not by JCasC job definitions. Future publish credentials should be added as SOPS-encrypted Kubernetes Secret values first. Do not add plaintext credentials to job definitions or workflow inputs.
 
-Runner platform design is documented in `docs/proxmox-runners.md`. DITT and EX40 jobs should consume that generic layer by labels and runner classes, not by Proxmox node names, VM IDs, or mutable pet templates.
+Runner platform design is documented in `docs/proxmox-runners.md`. DITT and EX40 jobs should consume that generic layer by labels and runner classes, not by Proxmox node names, VM IDs, storage names, PCI IDs, or mutable pet templates.

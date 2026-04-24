@@ -28,7 +28,7 @@ spec:
       labels:
         app.kubernetes.io/name: jenkins
       annotations:
-        devsh.eu/config-revision: "2026-04-23-runner-platform-v8"
+        devsh.eu/config-revision: "2026-04-24-runner-platform-v9"
     spec:
       enableServiceLinks: false
       securityContext:

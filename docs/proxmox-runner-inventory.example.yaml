@@ -1,36 +1,89 @@
-version: 2
+version: 3
 defaults:
   backend: proxmox
   clone_mode: linked
   lease_ttl_minutes: 120
   release_on_failure: true
   destroy_after_job: true
+  api_credentials:
+    token_id_env: PROXMOX_RUNNER_API_TOKEN_ID
+    token_secret_env: PROXMOX_RUNNER_API_TOKEN_SECRET
+proxmox:
+  hosts:
+    - id: example-rtx-node
+      node: example-pve-node
+      enabled: true
+      priority: 10
+      labels:
+        - windows
+        - gpu
+        - nvidia
+        - vulkan
+        - runtime-only
+        - gpu-class-rtx-2070
+      api:
+        url: https://127.0.0.1:18006/api2/json
+        token_id_env: PROXMOX_RUNNER_API_TOKEN_ID
+        token_secret_env: PROXMOX_RUNNER_API_TOKEN_SECRET
+        tunnel:
+          type: reverse-ssh
+          server_host: example-jenkins.invalid
+          server_port: 30222
+          remote_bind_host: 127.0.0.1
+          remote_bind_port: 18006
+      pools:
+        templates: example-ci-images
+        runners: example-ci-runners
+      storage:
+        runtime: example-fast-lvm
+        iso: example-iso-store
+      network:
+        bridge: example-vmbr
+        vlan_tag: 69
+      vmid_ranges:
+        runner:
+          start: 2000
+          end: 2099
+      smoke:
+        source_vmid: 9910
+        clone_vmid: 2910
+      runtime_profile:
+        os: windows-server
+        mode: runtime-only
+        components:
+          - nvidia-driver
+          - vc-redist-x64
+          - vulkan-runtime
+      gpu_devices:
+        - id: example-rtx-2070-0
+          vendor: nvidia
+          pci_host: "0000:01:00.0"
+          exclusive: true
+          labels:
+            - gpu
+            - nvidia
+            - gpu-class-rtx-2070
 templates:
   - id: windows-base-stable
     channel: windows-base/stable
     builder: proxmox-iso
-    guest_os: windows11
+    guest_os: windows-server
     communicator:
       type: winrm
-    backend:
-      type: proxmox
-      node: example-gpu-node
-      pool: example-ci-images
-      storage: example-fast-lvm
-      template_vmid: 9001
+    placements:
+      - host: example-rtx-node
+        vmid: 9001
   - id: windows-gpu-nvidia-stable
     channel: windows-gpu-nvidia/stable
     builder: proxmox-clone
     parent: windows-base-stable
-    guest_os: windows11
+    guest_os: windows-server
     communicator:
       type: winrm
-    backend:
-      type: proxmox
-      node: example-gpu-node
-      pool: example-ci-images
-      storage: example-fast-lvm
-      template_vmid: 9002
+    placements:
+      - host: example-rtx-node
+        vmid: 9002
+        gpu_device: example-rtx-2070-0
 runner_classes:
   - id: win-gpu-nvidia
     labels:
@@ -38,18 +91,22 @@ runner_classes:
       - gpu
       - nvidia
       - vulkan
+      - runtime-only
       - gpu-class-rtx-2070
     template: windows-gpu-nvidia-stable
     connection:
       type: winrm
-    backend:
-      type: proxmox
-      target_node: example-gpu-node
-      pool: example-ci-runners
-      storage: example-fast-lvm
-      vmid_range:
-        start: 2000
-        end: 2099
+    host_selector:
+      labels:
+        - windows
+        - gpu
+        - nvidia
+        - vulkan
+        - gpu-class-rtx-2070
+    runtime:
+      pool: runners
+      storage: runtime
+      vmid_range: runner
     warm_pool:
       min_ready: 1
       max_ready: 1
@@ -62,17 +119,15 @@ runner_classes:
       destroy_after_job: true
     health_checks:
       - guest-agent
-      - winrm
+      - network-interfaces
       - nvidia-smi
-      - vulkaninfo
+      - vulkan-runtime
       - workspace-ready
 janitor:
   backend: proxmox
-  pool: example-ci-runners
-  vmid_range:
-    start: 2000
-    end: 2099
+  pool: runners
+  vmid_range: runner
   require_tags:
-    - managed-by=runnerctl
-    - lifecycle=ephemeral
+    - runnerctl
+    - lifecycle-ephemeral
   stale_lease_after_minutes: 240

@@ -7,7 +7,7 @@ EX40. Those pipelines are consumers of this platform.
 ## Goals
 
 - Keep Jenkins jobs capability-based. Jobs request labels, not Proxmox nodes,
-  VM IDs, or storage names.
+  VM IDs, storage names, PCI IDs, or tunnel ports.
 - Keep Proxmox credentials and host details out of job definitions.
 - Make runner allocation exclusive with a lease and a TTL.
 - Always destroy runtime clones after a job, even when the job fails.
@@ -49,8 +49,11 @@ Recommended build flow:
 - `windows-base` is built with the `proxmox-iso` builder from a Windows ISO.
 - `windows-gpu-nvidia` is built with the `proxmox-clone` builder from the
   promoted `windows-base` template.
-- GPU driver installation happens during image promotion, not during job
-  runtime.
+- GPU driver and runtime-only components happen during image promotion, not
+  during job runtime.
+- Runtime images intentionally avoid developer stacks. They should contain only
+  workload prerequisites such as GPU driver, VC++ redistributables, Vulkan
+  runtime, workspace directories, and guest management services.
 - Every promoted template gets a channel such as `windows-base/stable` or
   `windows-gpu-nvidia/stable`.
 
@@ -59,7 +62,7 @@ Recommended build flow:
 Jobs only use labels:
 
 ```text
-windows,gpu,nvidia,vulkan,gpu-class-rtx-2070
+windows,gpu,nvidia,vulkan,runtime-only,gpu-class-rtx-2070
 ```
 
 The allocator resolves those labels to a runner class. A runner class points to
@@ -83,7 +86,7 @@ The lease response should include only non-secret operational data:
 {
   "lease_id": "opaque-lease-id",
   "runner_class": "win-gpu-nvidia",
-  "labels": ["windows", "gpu", "nvidia", "vulkan", "gpu-class-rtx-2070"],
+  "labels": ["windows", "gpu", "nvidia", "vulkan", "runtime-only", "gpu-class-rtx-2070"],
   "connection": {
     "type": "winrm"
   }
@@ -179,16 +182,19 @@ should already reflect the final data model.
 The example inventory in `docs/proxmox-runner-inventory.example.yaml` is
 intentionally fake and describes:
 
+- Proxmox hosts and their capabilities
 - template channels
+- template placements per host
 - runner classes
+- reverse tunnel API endpoints per host
 - warm pool policy
 - janitor scope
 
 The live Jenkins controller also receives:
 
-- a SOPS-managed Kubernetes Secret with the Proxmox API URL and API token
-- a committed inventory ConfigMap mounted on the controller for future allocator
-  and image tooling work
+- a SOPS-managed Kubernetes Secret with Proxmox API token material
+- a committed inventory ConfigMap mounted on the controller for allocator and
+  image tooling work
 - a `runnerctl` sidecar in the Jenkins pod that consumes the Proxmox secret and
   exposes a local HTTP API on `127.0.0.1:18080` for controller jobs
 - a Flux-managed reverse tunnel SSH endpoint in the Jenkins pod so private-only
@@ -198,15 +204,46 @@ The live Jenkins controller also receives:
 ## Example Platform Layout
 
 ```yaml
-version: 2
+version: 3
+proxmox:
+  hosts:
+    - id: example-rtx-node
+      node: example-pve-node
+      labels:
+        - windows
+        - gpu
+        - nvidia
+        - vulkan
+        - runtime-only
+        - gpu-class-rtx-2070
+      api:
+        url: https://127.0.0.1:18006/api2/json
+        tunnel:
+          type: reverse-ssh
+          remote_bind_port: 18006
+      pools:
+        templates: example-ci-images
+        runners: example-ci-runners
+      storage:
+        runtime: example-fast-lvm
+      vmid_ranges:
+        runner:
+          start: 2000
+          end: 2099
 templates:
   - id: windows-base-stable
     channel: windows-base/stable
     builder: proxmox-iso
+    placements:
+      - host: example-rtx-node
+        vmid: 9001
   - id: windows-gpu-nvidia-stable
     channel: windows-gpu-nvidia/stable
     builder: proxmox-clone
     parent: windows-base-stable
+    placements:
+      - host: example-rtx-node
+        vmid: 9002
 runner_classes:
   - id: win-gpu-nvidia
     labels:
@@ -214,8 +251,20 @@ runner_classes:
       - gpu
       - nvidia
       - vulkan
+      - runtime-only
       - gpu-class-rtx-2070
     template: windows-gpu-nvidia-stable
+    host_selector:
+      labels:
+        - windows
+        - gpu
+        - nvidia
+        - vulkan
+        - gpu-class-rtx-2070
+    runtime:
+      pool: runners
+      storage: runtime
+      vmid_range: runner
 ```
 
 ## Health Checks
@@ -264,20 +313,22 @@ Current Jenkins jobs:
 - `ci/runners/packer-plan`
 - `ci/runners/proxmox-api-smoke`
 - `ci/runners/proxmox-warm-smoke`
+- `ci/runners/proxmox-runtime-smoke`
 
-Current single-node access model:
+Current farm access model:
 
-- `node3` opens a reverse SSH tunnel into the Jenkins pod
+- each private Proxmox host opens a reverse SSH tunnel into the Jenkins pod
 - the Jenkins pod exposes a restricted SSH endpoint on port `30222`
-- the tunnel binds the Proxmox API to `127.0.0.1:18006` inside the Jenkins pod
-- the `runnerctl` sidecar consumes the local loopback API URL from Kubernetes
-  Secret env vars
+- each tunnel binds that host's Proxmox API to a configured local loopback port
+  inside the Jenkins pod
+- the `runnerctl` sidecar reads those local loopback API URLs from inventory and
+  token material from Kubernetes Secret env vars
 - Jenkins jobs call only the local `runnerctl` HTTP API on `127.0.0.1:18080`
-- future Proxmox hosts scale by adding another restricted key and another local
-  reverse tunnel port while keeping the Jenkins job contract unchanged
+- future Proxmox hosts scale by adding another host entry, restricted key, and
+  local reverse tunnel port while keeping the Jenkins job contract unchanged
 
-The plan jobs stay in dry-run mode until the real allocator and Packer execution
-paths are connected.
+The plan jobs stay capability-oriented and do not accept Proxmox nodes, storage
+names, VMIDs, PCI IDs, or mutable template names as job parameters.
 
 The smoke jobs already use the live Proxmox API token and verify:
 
@@ -285,6 +336,7 @@ The smoke jobs already use the live Proxmox API token and verify:
 - scratch template creation
 - linked clone creation
 - start/stop lifecycle
+- real template lease, boot, QEMU Guest Agent health, and release
 - destroy and cleanup behavior
 
 Future jobs, including DITT or EX40 jobs, should depend on this platform only
@@ -297,11 +349,17 @@ The durable host-side tunnel install assets live in the repo:
 
 - `scripts/proxmox-runners/install-proxmox-runner-tunnel.sh`
 - `scripts/proxmox-runners/proxmox-runner-tunnel.env.example`
+- `scripts/proxmox-runners/install-proxmox-runner-artifact-server.sh`
+- `scripts/proxmox-runners/proxmox-runner-artifact-server.env.example`
 
 These assets are intended for Proxmox hosts that stay outside k3s/Flux but must
 still follow the same repo-driven operational contract. The installer expects
 the SSH key and `known_hosts` file to be provisioned locally and writes a
 systemd unit plus an env file without committing secrets.
+
+The artifact server is for large non-committed runtime installers such as GPU
+drivers and redistributables. Packer should pull those from a host-local URL
+instead of uploading large installers through WinRM.
 
 ## First Real Implementation Order
 

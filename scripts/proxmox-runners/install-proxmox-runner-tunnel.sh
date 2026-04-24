@@ -4,11 +4,13 @@ set -euo pipefail
 INSTALL_DIR="${INSTALL_DIR:-/etc/proxmox-runner-tunnel}"
 SYSTEMD_UNIT_DIR="${SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
 ENV_FILE="${ENV_FILE:-${INSTALL_DIR}/proxmox-runner-tunnel.env}"
-SERVICE_FILE="${SERVICE_FILE:-${SYSTEMD_UNIT_DIR}/proxmox-runner-tunnel.service}"
+SERVICE_NAME="${SERVICE_NAME:-proxmox-runner-tunnel.service}"
+SERVICE_FILE="${SERVICE_FILE:-${SYSTEMD_UNIT_DIR}/${SERVICE_NAME}}"
 
 TUNNEL_USER="${TUNNEL_USER:-tunnel}"
 JENKINS_TUNNEL_HOST="${JENKINS_TUNNEL_HOST:-}"
 JENKINS_TUNNEL_PORT="${JENKINS_TUNNEL_PORT:-30222}"
+REMOTE_BIND_HOST="${REMOTE_BIND_HOST:-127.0.0.1}"
 REMOTE_BIND_PORT="${REMOTE_BIND_PORT:-}"
 PROXMOX_API_HOST="${PROXMOX_API_HOST:-127.0.0.1}"
 PROXMOX_API_PORT="${PROXMOX_API_PORT:-8006}"
@@ -22,6 +24,21 @@ fi
 
 if [[ -z "${REMOTE_BIND_PORT}" ]]; then
   echo "REMOTE_BIND_PORT is required." >&2
+  exit 1
+fi
+
+if [[ ! "${SERVICE_NAME}" =~ ^[A-Za-z0-9_.@-]+\.service$ ]]; then
+  echo "SERVICE_NAME must be a systemd service file name." >&2
+  exit 1
+fi
+
+if [[ ! "${REMOTE_BIND_HOST}" =~ ^[A-Za-z0-9_.:-]+$ ]]; then
+  echo "REMOTE_BIND_HOST is invalid." >&2
+  exit 1
+fi
+
+if [[ ! "${REMOTE_BIND_PORT}" =~ ^[0-9]+$ ]]; then
+  echo "REMOTE_BIND_PORT must be numeric." >&2
   exit 1
 fi
 
@@ -47,6 +64,7 @@ cat >"${ENV_FILE}" <<EOF
 TUNNEL_USER=${TUNNEL_USER}
 JENKINS_TUNNEL_HOST=${JENKINS_TUNNEL_HOST}
 JENKINS_TUNNEL_PORT=${JENKINS_TUNNEL_PORT}
+REMOTE_BIND_HOST=${REMOTE_BIND_HOST}
 REMOTE_BIND_PORT=${REMOTE_BIND_PORT}
 PROXMOX_API_HOST=${PROXMOX_API_HOST}
 PROXMOX_API_PORT=${PROXMOX_API_PORT}
@@ -70,7 +88,7 @@ ExecStart=/usr/bin/ssh -N \\
   -o UserKnownHostsFile=${INSTALL_DIR}/known_hosts \\
   -o IdentitiesOnly=yes \\
   -i ${INSTALL_DIR}/id_ed25519 \\
-  -R 127.0.0.1:\${REMOTE_BIND_PORT}:\${PROXMOX_API_HOST}:\${PROXMOX_API_PORT} \\
+  -R \${REMOTE_BIND_HOST}:\${REMOTE_BIND_PORT}:\${PROXMOX_API_HOST}:\${PROXMOX_API_PORT} \\
   \${TUNNEL_USER}@\${JENKINS_TUNNEL_HOST} -p \${JENKINS_TUNNEL_PORT}
 Restart=always
 RestartSec=5
@@ -81,5 +99,5 @@ EOF
 chmod 0644 "${SERVICE_FILE}"
 
 systemctl daemon-reload
-systemctl enable --now proxmox-runner-tunnel.service
-systemctl is-active --quiet proxmox-runner-tunnel.service
+systemctl enable --now "${SERVICE_NAME}"
+systemctl is-active --quiet "${SERVICE_NAME}"

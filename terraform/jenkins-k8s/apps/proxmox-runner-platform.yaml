@@ -6,61 +6,124 @@ metadata:
 data:
   inventory.json: |
     {
-      "version": 2,
+      "version": 3,
       "defaults": {
         "backend": "proxmox",
         "clone_mode": "linked",
         "lease_ttl_minutes": 120,
         "release_on_failure": true,
         "destroy_after_job": true,
-        "api_transport": {
-          "type": "reverse-ssh",
-          "ssh_server_host": "jenkins.devsh.eu",
-          "ssh_server_port": 30222,
-          "local_api_url": "https://127.0.0.1:18006/api2/json"
+        "api_credentials": {
+          "token_id_env": "PROXMOX_RUNNER_API_TOKEN_ID",
+          "token_secret_env": "PROXMOX_RUNNER_API_TOKEN_SECRET"
         }
+      },
+      "proxmox": {
+        "hosts": [
+          {
+            "id": "rtx-node3",
+            "node": "node3",
+            "enabled": true,
+            "priority": 10,
+            "labels": [
+              "windows",
+              "gpu",
+              "nvidia",
+              "vulkan",
+              "runtime-only",
+              "gpu-class-rtx-2070"
+            ],
+            "api": {
+              "url": "https://127.0.0.1:18006/api2/json",
+              "token_id_env": "PROXMOX_RUNNER_API_TOKEN_ID",
+              "token_secret_env": "PROXMOX_RUNNER_API_TOKEN_SECRET",
+              "tunnel": {
+                "type": "reverse-ssh",
+                "server_host": "jenkins.devsh.eu",
+                "server_port": 30222,
+                "remote_bind_host": "127.0.0.1",
+                "remote_bind_port": 18006
+              }
+            },
+            "pools": {
+              "templates": "ci-images",
+              "runners": "ci-runners"
+            },
+            "storage": {
+              "runtime": "local-lvm",
+              "iso": "local"
+            },
+            "network": {
+              "bridge": "vmbr0",
+              "vlan_tag": 69
+            },
+            "vmid_ranges": {
+              "runner": {
+                "start": 2000,
+                "end": 2099
+              }
+            },
+            "smoke": {
+              "source_vmid": 9910,
+              "clone_vmid": 2910
+            },
+            "runtime_profile": {
+              "os": "windows-server",
+              "mode": "runtime-only",
+              "components": [
+                "nvidia-driver",
+                "vc-redist-x64",
+                "vulkan-runtime"
+              ]
+            },
+            "gpu_devices": [
+              {
+                "id": "rtx-2070-0",
+                "vendor": "nvidia",
+                "pci_host": "0000:01:00.0",
+                "exclusive": true,
+                "labels": [
+                  "gpu",
+                  "nvidia",
+                  "gpu-class-rtx-2070"
+                ]
+              }
+            ]
+          }
+        ]
       },
       "templates": [
         {
           "id": "windows-base-stable",
           "channel": "windows-base/stable",
           "builder": "proxmox-iso",
-          "guest_os": "windows11",
+          "guest_os": "windows-server",
           "communicator": {
             "type": "winrm"
           },
-          "backend": {
-            "type": "proxmox",
-            "node": "node3",
-            "pool": "ci-images",
-            "storage": "local-lvm",
-            "template_vmid": 9001,
-            "iso_storage": "local",
-            "bridge": "vmbr0",
-            "vlan_tag": 69,
-            "reverse_tunnel_port": 18006
-          }
+          "placements": [
+            {
+              "host": "rtx-node3",
+              "vmid": 9001
+            }
+          ]
         },
         {
           "id": "windows-gpu-nvidia-stable",
           "channel": "windows-gpu-nvidia/stable",
           "builder": "proxmox-clone",
           "parent": "windows-base-stable",
-          "guest_os": "windows11",
+          "guest_os": "windows-server",
           "communicator": {
             "type": "winrm"
           },
-          "backend": {
-            "type": "proxmox",
-            "node": "node3",
-            "pool": "ci-images",
-            "storage": "local-lvm",
-            "template_vmid": 9002,
-            "bridge": "vmbr0",
-            "vlan_tag": 69,
-            "gpu_pci_host": "0000:01:00.0",
-            "reverse_tunnel_port": 18006
-          }
+          "placements": [
+            {
+              "host": "rtx-node3",
+              "vmid": 9003,
+              "gpu_device": "rtx-2070-0"
+            }
+          ]
         }
       ],
       "runner_classes": [
@@ -71,22 +134,26 @@ data:
             "gpu",
             "nvidia",
             "vulkan",
+            "runtime-only",
             "gpu-class-rtx-2070"
           ],
           "template": "windows-gpu-nvidia-stable",
           "connection": {
             "type": "winrm"
           },
-          "backend": {
-            "type": "proxmox",
-            "target_node": "node3",
-            "pool": "ci-runners",
-            "storage": "local-lvm",
-            "reverse_tunnel_port": 18006,
-            "vmid_range": {
-              "start": 2000,
-              "end": 2099
-            }
+          "host_selector": {
+            "labels": [
+              "windows",
+              "gpu",
+              "nvidia",
+              "vulkan",
+              "gpu-class-rtx-2070"
+            ]
+          },
+          "runtime": {
+            "pool": "runners",
+            "storage": "runtime",
+            "vmid_range": "runner"
           },
           "warm_pool": {
             "min_ready": 1,
@@ -102,22 +169,19 @@ data:
           },
           "health_checks": [
             "guest-agent",
-            "winrm",
+            "network-interfaces",
             "nvidia-smi",
-            "vulkaninfo",
+            "vulkan-runtime",
             "workspace-ready"
           ]
         }
       ],
       "janitor": {
         "backend": "proxmox",
-        "pool": "ci-runners",
-        "vmid_range": {
-          "start": 2000,
-          "end": 2099
-        },
+        "pool": "runners",
+        "vmid_range": "runner",
         "require_tags": [
-          "managed-by-runnerctl",
+          "runnerctl",
           "lifecycle-ephemeral"
         ],
         "stale_lease_after_minutes": 240
