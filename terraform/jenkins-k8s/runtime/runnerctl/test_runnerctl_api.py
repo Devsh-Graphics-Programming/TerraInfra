@@ -182,6 +182,7 @@ class LeaseStoreTests(unittest.TestCase):
 class FakeProxmoxClient:
     def __init__(self):
         self.clone_requests = []
+        self.config_requests = []
 
     def qemu_vmids(self, node):
         return {9002}
@@ -190,6 +191,9 @@ class FakeProxmoxClient:
         if method == "POST" and path.endswith("/clone"):
             self.clone_requests.append((path, data))
             return "UPID:fake"
+        if method == "POST" and path.endswith("/config"):
+            self.config_requests.append((path, data))
+            return "UPID:config"
         raise AssertionError(f"unexpected request {method} {path}")
 
     def wait_task(self, node, upid, timeout_seconds):
@@ -224,6 +228,7 @@ class CreateLeaseTests(unittest.TestCase):
             self.assertEqual(result["vmid"], 2000)
             self.assertEqual(client.clone_requests[0][1]["newid"], 2000)
             self.assertEqual(client.clone_requests[0][1]["pool"], "ci-runners")
+            self.assertEqual(client.config_requests[0][1]["tags"], "runnerctl;lifecycle-ephemeral")
 
 
 if __name__ == "__main__":

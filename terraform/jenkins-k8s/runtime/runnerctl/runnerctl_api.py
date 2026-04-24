@@ -688,43 +688,58 @@ def create_lease(client_registry, lease_store, inventory, request_data):
             clone_name = build_clone_name(resolved["runner_class"], lease_id)
             description = f"RunnerCtl lease {lease_id} for {resolved['runner_class']}"
 
-            clone_upid = client.request(
-                "POST",
-                f"/nodes/{node}/qemu/{template_vmid}/clone",
-                data={
-                    "newid": vmid,
-                    "name": clone_name,
-                    "target": node,
-                    "pool": candidate["pool"],
-                    "full": 0,
-                    "description": description,
-                },
-            )
-            client.wait_task(node, str(clone_upid), 180)
+            clone_created = False
+            try:
+                clone_upid = client.request(
+                    "POST",
+                    f"/nodes/{node}/qemu/{template_vmid}/clone",
+                    data={
+                        "newid": vmid,
+                        "name": clone_name,
+                        "target": node,
+                        "pool": candidate["pool"],
+                        "full": 0,
+                        "description": description,
+                    },
+                )
+                client.wait_task(node, str(clone_upid), 180)
+                clone_created = True
+                client.request(
+                    "POST",
+                    f"/nodes/{node}/qemu/{vmid}/config",
+                    data={"tags": "runnerctl;lifecycle-ephemeral"},
+                )
 
-            created_at = now_epoch()
-            expires_at = created_at + (int(resolved["policy"]["lease_ttl_minutes"]) * 60)
-            record = {
-                "lease_id": lease_id,
-                "runner_class": resolved["runner_class"],
-                "labels": resolved["labels"],
-                "host_id": candidate["host_id"],
-                "node": node,
-                "vmid": vmid,
-                "template_vmid": template_vmid,
-                "clone_name": clone_name,
-                "created_at": created_at,
-                "expires_at": expires_at,
-                "state": "leased",
-                "connection": resolved["connection"],
-                "policy": {
-                    "boot_timeout_minutes": int(resolved["policy"].get("boot_timeout_minutes", 10)),
-                    "health_timeout_minutes": int(resolved["policy"].get("health_timeout_minutes", 15)),
-                    "destroy_after_job": bool(resolved["policy"].get("destroy_after_job", True)),
-                },
-                "health_checks": resolved["health_checks"],
-            }
-            lease_store.put(lease_id, record)
+                created_at = now_epoch()
+                expires_at = created_at + (int(resolved["policy"]["lease_ttl_minutes"]) * 60)
+                record = {
+                    "lease_id": lease_id,
+                    "runner_class": resolved["runner_class"],
+                    "labels": resolved["labels"],
+                    "host_id": candidate["host_id"],
+                    "node": node,
+                    "vmid": vmid,
+                    "template_vmid": template_vmid,
+                    "clone_name": clone_name,
+                    "created_at": created_at,
+                    "expires_at": expires_at,
+                    "state": "leased",
+                    "connection": resolved["connection"],
+                    "policy": {
+                        "boot_timeout_minutes": int(resolved["policy"].get("boot_timeout_minutes", 10)),
+                        "health_timeout_minutes": int(resolved["policy"].get("health_timeout_minutes", 15)),
+                        "destroy_after_job": bool(resolved["policy"].get("destroy_after_job", True)),
+                    },
+                    "health_checks": resolved["health_checks"],
+                }
+                lease_store.put(lease_id, record)
+            except Exception:
+                if clone_created:
+                    try:
+                        safe_destroy(client, node, vmid)
+                    except Exception:
+                        pass
+                raise
 
             return {
                 "lease_id": lease_id,
