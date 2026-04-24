@@ -311,9 +311,9 @@ Current Jenkins jobs:
 
 - `ci/runners/proxmox-plan`
 - `ci/runners/packer-plan`
-- `ci/runners/proxmox-api-smoke`
-- `ci/runners/proxmox-warm-smoke`
-- `ci/runners/proxmox-runtime-smoke`
+- `ci/runners/smoke/proxmox-api`
+- `ci/runners/smoke/proxmox-warm-clone`
+- `ci/runners/smoke/proxmox-runtime-lifecycle`
 
 Current farm access model:
 

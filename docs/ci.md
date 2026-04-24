@@ -49,9 +49,9 @@ Current jobs:
 - `system/smoke`: verifies the controller can load configuration and run a lightweight pipeline.
 - `ci/runners/proxmox-plan`: validates the generic runner class request contract and renders the hot-path/cold-path runtime plan in dry-run mode.
 - `ci/runners/packer-plan`: validates the template build and promotion contract in dry-run mode.
-- `ci/runners/proxmox-api-smoke`: runs an inventory-driven read-only Proxmox API smoke check through the local `runnerctl` sidecar endpoint.
-- `ci/runners/proxmox-warm-smoke`: runs a scratch template -> linked clone -> start -> stop -> destroy lifecycle on an inventory-selected host through the local `runnerctl` sidecar endpoint.
-- `ci/runners/proxmox-runtime-smoke`: runs the real template lifecycle `lease -> boot -> guest-agent health -> release` through the local `runnerctl` sidecar endpoint.
+- `ci/runners/smoke/proxmox-api`: runs an inventory-driven read-only Proxmox API smoke check through the pod-local `runnerctl` sidecar endpoint.
+- `ci/runners/smoke/proxmox-warm-clone`: runs a scratch template -> linked clone -> start -> stop -> destroy lifecycle on an inventory-selected host through the pod-local `runnerctl` sidecar endpoint.
+- `ci/runners/smoke/proxmox-runtime-lifecycle`: runs the real template lifecycle `resolve allocation -> lease -> boot -> guest-agent and GPU health -> release` through the pod-local `runnerctl` sidecar endpoint.
 - `ci/ditt/store-smoke`: validates `store.devsh.eu` public/private report endpoint behavior without Proxmox credentials.
 - `ci/ditt/ex40-report-plan`: validates EX40 report publish parameters and stays in dry-run mode until the runtime backend is connected.
 

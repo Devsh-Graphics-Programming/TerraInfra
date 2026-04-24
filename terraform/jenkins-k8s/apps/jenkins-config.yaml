@@ -94,6 +94,11 @@ data:
             description('Generic runtime runner planning jobs managed by configuration as code.')
           }
 
+          folder('ci/runners/smoke') {
+            displayName('Smoke')
+            description('Live Proxmox runner smoke pipelines managed by configuration as code.')
+          }
+
           pipelineJob('system/smoke') {
             description('Verifies the controller can load configuration and run a lightweight pipeline.')
             definition {
@@ -267,7 +272,7 @@ data:
             }
           }
 
-          pipelineJob('ci/runners/proxmox-api-smoke') {
+          pipelineJob('ci/runners/smoke/proxmox-api') {
             description('Runs a read-only Proxmox API smoke check for the configured Proxmox runner inventory.')
             parameters {
               stringParam('HOST_ID', '', 'Optional inventory host id to validate. Empty validates all configured hosts.')
@@ -326,7 +331,7 @@ data:
             }
           }
 
-          pipelineJob('ci/runners/proxmox-warm-smoke') {
+          pipelineJob('ci/runners/smoke/proxmox-warm-clone') {
             description('Creates a scratch template and linked clone through the inventory-selected Proxmox runner host, boots it, stops it, and destroys both resources.')
             parameters {
               stringParam('RUNNER_CLASS', 'win-gpu-nvidia', 'Runner class used to select the Proxmox host and scratch settings.')
@@ -403,8 +408,8 @@ data:
             }
           }
 
-          pipelineJob('ci/runners/proxmox-runtime-smoke') {
-            description('Exercises the real runtime lifecycle: lease, boot, guest-agent health, and release for an inventory-selected runner template.')
+          pipelineJob('ci/runners/smoke/proxmox-runtime-lifecycle') {
+            description('Exercises the real runtime lifecycle: resolve by labels, lease, boot, guest-agent and GPU health, and release for an inventory-selected runner template.')
             parameters {
               stringParam('RUNNER_CLASS', 'win-gpu-nvidia', 'Runner class requested by the consumer job.')
               stringParam('REQUIRED_LABELS', 'windows,gpu,nvidia,vulkan,runtime-only,gpu-class-rtx-2070', 'Comma-separated runner capability labels.')
@@ -454,6 +459,36 @@ data:
                           env.RUNTIME_SMOKE_CLASS = runnerClass
                           env.RUNTIME_SMOKE_LABELS = labels.join(',')
                           env.RUNTIME_SMOKE_TTL = ttl.toString()
+                          echo('Runner request: class=' + env.RUNTIME_SMOKE_CLASS + ', labels=' + env.RUNTIME_SMOKE_LABELS + ', lease_ttl_minutes=' + env.RUNTIME_SMOKE_TTL + '.')
+                        }
+                      }
+                    }
+                    stage('Resolve allocation') {
+                      steps {
+                        script {
+                          def response = httpRequest(
+                            consoleLogResponseBody: false,
+                            contentType: 'APPLICATION_JSON',
+                            httpMode: 'POST',
+                            requestBody: writeJSON(
+                              returnText: true,
+                              json: [
+                                runner_class: env.RUNTIME_SMOKE_CLASS,
+                                required_labels: env.RUNTIME_SMOKE_LABELS.split(',').collect { it.trim() }.findAll { it },
+                                lease_ttl_minutes: env.RUNTIME_SMOKE_TTL
+                              ]
+                            ),
+                            url: 'http://127.0.0.1:18080/api/v1/resolve',
+                            validResponseCodes: '100:599'
+                          )
+                          def result = readJSON(text: response.content, returnPojo: true)
+                          if (response.status != 200 || result.status != 'ok') {
+                            error('Runner resolve failed: ' + (result.message ?: 'unexpected error'))
+                          }
+                          def backend = result.backend
+                          def range = backend.vmid_range
+                          echo('Allocator selected host=' + backend.host_id + ', node=' + backend.node + ', template=' + result.template.channel + ', template_vmid=' + backend.template_vmid + ', storage=' + backend.storage + ', pool=' + backend.pool + ', vmid_range=' + range.start + '-' + range.end + '.')
+                          echo('Health checks requested: ' + result.health_checks.join(', ') + '.')
                         }
                       }
                     }
@@ -480,7 +515,7 @@ data:
                             error('Runner lease failed: ' + (result.message ?: 'unexpected error'))
                           }
                           env.RUNNER_LEASE_ID = result.lease_id
-                          echo('Lease acquired on host ' + result.host_id + '.')
+                          echo('Lease acquired: host=' + result.host_id + ', node=' + result.node + ', vmid=' + result.vmid + ', clone=' + result.clone_name + '.')
                         }
                       }
                     }
@@ -498,6 +533,10 @@ data:
                           def result = readJSON(text: response.content, returnPojo: true)
                           if (response.status != 200 || result.status != 'ok') {
                             error('Runner prepare failed: ' + (result.message ?: 'unexpected error'))
+                          }
+                          echo('Runner prepared: host=' + result.host_id + ', node=' + result.node + ', vmid=' + result.vmid + '.')
+                          result.health.each { name, value ->
+                            echo('Prepare health ' + name + ': ' + value)
                           }
                           echo(writeJSON(returnText: true, json: result))
                         }
@@ -518,6 +557,10 @@ data:
                           if (response.status != 200 || result.status != 'ok' || result.overall != 'passed') {
                             error('Runner health failed: ' + writeJSON(returnText: true, json: result))
                           }
+                          echo('Runner health overall: ' + result.overall + '.')
+                          result.health.each { name, value ->
+                            echo('Health ' + name + ': ' + value)
+                          }
                           echo(writeJSON(returnText: true, json: result))
                         }
                       }
@@ -535,7 +578,8 @@ data:
                             url: 'http://127.0.0.1:18080/api/v1/release',
                             validResponseCodes: '100:599'
                           )
-                          echo('Release response HTTP ' + response.status + '.')
+                          def result = readJSON(text: response.content, returnPojo: true)
+                          echo('Release response HTTP ' + response.status + ': result=' + result.result + ', vmid=' + (result.vmid ?: 'n/a') + ', destroyed_vm=' + (result.destroyed_vm ?: false) + '.')
                         }
                       }
                     }

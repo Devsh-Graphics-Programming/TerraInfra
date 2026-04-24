@@ -28,7 +28,7 @@ spec:
       labels:
         app.kubernetes.io/name: jenkins
       annotations:
-        devsh.eu/config-revision: "2026-04-24-runner-platform-v9"
+        devsh.eu/config-revision: "2026-04-24-runner-smoke-v10"
     spec:
       enableServiceLinks: false
       securityContext:
@@ -157,26 +157,31 @@ spec:
             - name: RUNNERCTL_LEASE_STORE_PATH
               value: /var/lib/runnerctl/leases.json
             - name: RUNNERCTL_LISTEN_HOST
-              value: 0.0.0.0
+              value: 127.0.0.1
             - name: RUNNERCTL_LISTEN_PORT
               value: "18080"
           command:
             - python3
             - /opt/runnerctl/runnerctl_api.py
-          ports:
-            - name: runnerctl
-              containerPort: 18080
           readinessProbe:
-            httpGet:
-              path: /healthz
-              port: runnerctl
+            exec:
+              command:
+                - python3
+                - -c
+                - |
+                  import urllib.request
+                  urllib.request.urlopen("http://127.0.0.1:18080/healthz", timeout=5).read()
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 6
           livenessProbe:
-            httpGet:
-              path: /healthz
-              port: runnerctl
+            exec:
+              command:
+                - python3
+                - -c
+                - |
+                  import urllib.request
+                  urllib.request.urlopen("http://127.0.0.1:18080/healthz", timeout=5).read()
             initialDelaySeconds: 10
             periodSeconds: 30
             timeoutSeconds: 5
