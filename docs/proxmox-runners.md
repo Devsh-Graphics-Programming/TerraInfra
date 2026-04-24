@@ -85,6 +85,18 @@ node(runner.label) {
 runnerRelease(runner)
 ```
 
+The controller provides those helpers through the `devsh-ci` shared library.
+Normal jobs should not copy allocator HTTP code. For jobs that only need a
+leased runner around native Jenkins stages, prefer:
+
+```groovy
+withRunner(labels: ['windows', 'gpu', 'nvidia', 'vulkan', 'runtime-only']) { runner ->
+  stage('GPU sanity') {
+    powershell 'nvidia-smi'
+  }
+}
+```
+
 The lease response should include only non-secret operational data:
 
 ```json
