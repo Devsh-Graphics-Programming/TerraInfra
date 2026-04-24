@@ -399,6 +399,7 @@ class CreateLeaseTests(unittest.TestCase):
             self.assertIn("state={0}, last_result={1}", script)
             self.assertNotIn("state=0, last_result=1", script)
             self.assertIn("agent.stderr.tail", script)
+            self.assertIn("Start-Process -FilePath", script)
             record = lease_store.get(result["lease_id"])
             self.assertEqual(record["state"], "agent-online")
             self.assertEqual(record["jenkins_agent"]["label"], result["label"])

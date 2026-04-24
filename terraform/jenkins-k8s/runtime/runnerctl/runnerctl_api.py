@@ -1400,11 +1400,8 @@ $launcherContent = @"
   '-workDir', `$agentRoot
 )
 try {{
-  & '$javaLiteral' @arguments 1>> `$stdout 2>> `$stderr
-  `$exitCode = `$LASTEXITCODE
-  if (`$null -ne `$exitCode -and `$exitCode -ne 0) {{
-    exit `$exitCode
-  }}
+  `$process = Start-Process -FilePath '$javaLiteral' -ArgumentList `$arguments -RedirectStandardOutput `$stdout -RedirectStandardError `$stderr -NoNewWindow -Wait -PassThru
+  exit `$process.ExitCode
 }} catch {{
   `$message = `$_ | Out-String
   Add-Content -Path `$stderr -Value `$message -Encoding UTF8
