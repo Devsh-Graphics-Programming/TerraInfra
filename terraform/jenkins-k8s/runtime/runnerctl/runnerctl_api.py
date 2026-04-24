@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+import base64
+import http.cookiejar
 import json
 import os
 import re
@@ -12,6 +14,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+import xml.etree.ElementTree as ElementTree
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -22,7 +25,7 @@ LABEL_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_.-]*$")
 SAFE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 ENV_NAME_PATTERN = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 LEASE_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
-ACTIVE_RUNNER_STATES = {"creating", "ready", "leased", "booting", "healthy"}
+ACTIVE_RUNNER_STATES = {"creating", "ready", "leased", "booting", "healthy", "agent-online"}
 READY_POOL_STATES = {"ready"}
 HOT_POOL_TAGS_READY = "runnerctl;lifecycle-ephemeral;hot-pool;ready"
 HOT_POOL_TAGS_CREATING = "runnerctl;lifecycle-ephemeral;hot-pool;creating"
@@ -199,6 +202,33 @@ def find_by_id(items, item_id):
     return None
 
 
+def groovy_string(value):
+    return json.dumps(str(value))
+
+
+def powershell_string(value):
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def parse_required_labels(value, field_name="required_labels"):
+    labels = [require_pattern(label, LABEL_PATTERN, field_name) for label in require_list(value, field_name)]
+    if not labels:
+        raise RunnerCtlError(
+            HTTPStatus.BAD_REQUEST,
+            "invalid-request",
+            f"{field_name} must contain at least one label.",
+            {"field": field_name},
+        )
+    if len(set(labels)) != len(labels):
+        raise RunnerCtlError(
+            HTTPStatus.BAD_REQUEST,
+            "invalid-request",
+            f"{field_name} must not contain duplicate labels.",
+            {"field": field_name},
+        )
+    return labels
+
+
 def inventory_hosts(inventory):
     return inventory.get("proxmox", {}).get("hosts", [])
 
@@ -322,18 +352,51 @@ def public_candidate(candidate):
     }
 
 
-def resolve_runner_context(inventory, runner_class, required_labels):
-    class_id = require_pattern(runner_class, ID_PATTERN, "runner_class")
-    labels = [require_pattern(label, LABEL_PATTERN, "required_labels") for label in required_labels]
+def runtime_network_config(candidate):
+    return f"e1000,bridge={candidate['bridge']},tag={candidate['vlan_tag']},firewall=1"
 
-    selected_class = find_by_id(inventory.get("runner_classes", []), class_id)
-    if selected_class is None:
+
+def configure_runtime_network(client, node, vmid, candidate):
+    client.request("POST", f"/nodes/{node}/qemu/{vmid}/config", data={"net0": runtime_network_config(candidate)})
+
+
+def select_runner_class(inventory, runner_class, labels):
+    requested_class = str(runner_class or "").strip()
+    if requested_class:
+        class_id = require_pattern(requested_class, ID_PATTERN, "runner_class")
+        selected_class = find_by_id(inventory.get("runner_classes", []), class_id)
+        if selected_class is None:
+            raise RunnerCtlError(
+                HTTPStatus.BAD_REQUEST,
+                "unknown-runner-class",
+                "Requested runner class is not configured.",
+                {"runner_class": class_id},
+            )
+        return class_id, selected_class
+
+    requested_labels = set(labels)
+    matches = []
+    for candidate in inventory.get("runner_classes", []):
+        class_id = require_pattern(candidate.get("id", ""), ID_PATTERN, "runner_class")
+        class_labels = set(candidate.get("labels", []))
+        if requested_labels.issubset(class_labels):
+            matches.append((len(class_labels), class_id, candidate))
+
+    if not matches:
         raise RunnerCtlError(
             HTTPStatus.BAD_REQUEST,
-            "unknown-runner-class",
-            "Requested runner class is not configured.",
-            {"runner_class": class_id},
+            "no-runner-class",
+            "No configured runner class satisfies the requested labels.",
+            {"required_labels": sorted(requested_labels)},
         )
+
+    matches.sort(key=lambda item: (item[0], item[1]))
+    return matches[0][1], matches[0][2]
+
+
+def resolve_runner_context(inventory, runner_class, required_labels):
+    labels = parse_required_labels(required_labels)
+    class_id, selected_class = select_runner_class(inventory, runner_class, labels)
 
     class_labels = set(selected_class.get("labels", []))
     missing_labels = [label for label in labels if label not in class_labels]
@@ -412,9 +475,15 @@ def resolve_runner(inventory, runner_class, required_labels):
     return resolved
 
 
+def request_labels(request_data):
+    if "required_labels" in request_data:
+        return request_data.get("required_labels", [])
+    return request_data.get("labels", [])
+
+
 def resolve_lease_request(inventory, request_data):
-    runner_class = request_data.get("runner_class", "")
-    required_labels = require_list(request_data.get("required_labels", []), "required_labels")
+    runner_class = request_data.get("runner_class")
+    required_labels = request_labels(request_data)
     resolved, candidates = resolve_runner_context(inventory, runner_class, required_labels)
     ttl_minutes = request_data.get("lease_ttl_minutes")
     if ttl_minutes is None:
@@ -644,6 +713,205 @@ class ProxmoxClientRegistry:
             return client
 
 
+class JenkinsApiClient:
+    def __init__(self, internal_url, public_url, username, password, timeout_seconds=30):
+        if not internal_url or not public_url or not username or not password:
+            raise RunnerCtlError(
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                "missing-jenkins-auth",
+                "Jenkins API credentials are not configured for runnerctl.",
+            )
+        self.internal_url = internal_url.rstrip("/")
+        self.public_url = public_url.rstrip("/")
+        self.timeout_seconds = timeout_seconds
+        self.cookie_jar = http.cookiejar.CookieJar()
+        self.opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self.cookie_jar))
+        self.basic_auth = base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
+        self._crumb = None
+
+    @classmethod
+    def from_env(cls, env=None):
+        env = env or os.environ
+        internal_url = env.get("RUNNERCTL_JENKINS_INTERNAL_URL", "http://127.0.0.1:8080")
+        public_url = env.get("RUNNERCTL_JENKINS_PUBLIC_URL", "https://jenkins.devsh.eu")
+        user_env = env.get("RUNNERCTL_JENKINS_USER_ENV", "JENKINS_ADMIN_ID")
+        password_env = env.get("RUNNERCTL_JENKINS_PASSWORD_ENV", "JENKINS_ADMIN_PASSWORD")
+        require_pattern(user_env, ENV_NAME_PATTERN, "RUNNERCTL_JENKINS_USER_ENV")
+        require_pattern(password_env, ENV_NAME_PATTERN, "RUNNERCTL_JENKINS_PASSWORD_ENV")
+        username = env.get(user_env, "")
+        password = env.get(password_env, "")
+        timeout_seconds = int(env.get("RUNNERCTL_JENKINS_TIMEOUT_SECONDS", "30"))
+        return cls(internal_url, public_url, username, password, timeout_seconds=timeout_seconds)
+
+    def _url(self, path):
+        if path.startswith("http://") or path.startswith("https://"):
+            return path
+        if not path.startswith("/"):
+            path = "/" + path
+        return f"{self.internal_url}{path}"
+
+    def _request(self, method, path, data=None, headers=None, use_crumb=True):
+        body = None
+        request_headers = {
+            "Authorization": f"Basic {self.basic_auth}",
+        }
+        if headers:
+            request_headers.update(headers)
+        if data is not None:
+            if isinstance(data, bytes):
+                body = data
+            else:
+                body = urllib.parse.urlencode(data, doseq=True).encode("utf-8")
+                request_headers.setdefault("Content-Type", "application/x-www-form-urlencoded")
+        if use_crumb and method.upper() not in {"GET", "HEAD"}:
+            crumb = self.crumb()
+            if crumb is not None:
+                crumb_field, crumb_value = crumb
+                request_headers[crumb_field] = crumb_value
+
+        request = urllib.request.Request(self._url(path), data=body, headers=request_headers, method=method)
+        try:
+            with self.opener.open(request, timeout=self.timeout_seconds) as response:
+                return response.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as exc:
+            raise RunnerCtlError(
+                HTTPStatus.BAD_GATEWAY,
+                "jenkins-http-error",
+                "Jenkins API returned an unexpected response.",
+                {"path": path, "upstream_status": exc.code},
+            ) from exc
+        except OSError as exc:
+            raise RunnerCtlError(
+                HTTPStatus.BAD_GATEWAY,
+                "jenkins-network-error",
+                "Runnerctl could not reach Jenkins.",
+                {"path": path},
+            ) from exc
+
+    def crumb(self):
+        if self._crumb is not None:
+            return self._crumb
+        try:
+            payload = self._request("GET", "/crumbIssuer/api/json", use_crumb=False)
+            parsed = json.loads(payload)
+            self._crumb = (parsed["crumbRequestField"], parsed["crumb"])
+            return self._crumb
+        except RunnerCtlError as exc:
+            if exc.details.get("upstream_status") == 404:
+                return None
+            raise
+        except (KeyError, json.JSONDecodeError) as exc:
+            raise RunnerCtlError(
+                HTTPStatus.BAD_GATEWAY,
+                "jenkins-invalid-crumb",
+                "Jenkins crumb issuer returned an invalid response.",
+            ) from exc
+
+    def json(self, path):
+        payload = self._request("GET", path)
+        try:
+            return json.loads(payload)
+        except json.JSONDecodeError as exc:
+            raise RunnerCtlError(
+                HTTPStatus.BAD_GATEWAY,
+                "jenkins-invalid-json",
+                "Jenkins API returned invalid JSON.",
+                {"path": path},
+            ) from exc
+
+    def text(self, path):
+        return self._request("GET", path)
+
+    def script_text(self, script):
+        return self._request("POST", "/scriptText", data={"script": script})
+
+    def create_agent_node(self, node_name, label_string, remote_fs):
+        script = f"""
+import hudson.model.Node
+import hudson.slaves.DumbSlave
+import hudson.slaves.JNLPLauncher
+import hudson.slaves.RetentionStrategy
+import jenkins.model.Jenkins
+
+String name = {groovy_string(node_name)}
+String labels = {groovy_string(label_string)}
+String remoteFs = {groovy_string(remote_fs)}
+def instance = Jenkins.get()
+def existing = instance.getNode(name)
+if (existing != null) {{
+  instance.removeNode(existing)
+}}
+def launcher = new JNLPLauncher()
+def node = new DumbSlave(name, "Temporary runner lease " + name, remoteFs, "1", Node.Mode.EXCLUSIVE, labels, launcher, RetentionStrategy.INSTANCE, [])
+instance.addNode(node)
+println(name)
+"""
+        output = self.script_text(script)
+        return node_name in output.splitlines()
+
+    def delete_agent_node(self, node_name):
+        script = f"""
+import jenkins.model.Jenkins
+
+String name = {groovy_string(node_name)}
+def instance = Jenkins.get()
+def node = instance.getNode(name)
+if (node != null) {{
+  instance.removeNode(node)
+  println("deleted")
+}} else {{
+  println("missing")
+}}
+"""
+        output = self.script_text(script)
+        return "deleted" in output.splitlines()
+
+    def agent_secret(self, node_name):
+        encoded_name = urllib.parse.quote(node_name, safe="")
+        payload = self.text(f"/computer/{encoded_name}/jenkins-agent.jnlp")
+        try:
+            root = ElementTree.fromstring(payload)
+        except ElementTree.ParseError as exc:
+            raise RunnerCtlError(
+                HTTPStatus.BAD_GATEWAY,
+                "jenkins-invalid-jnlp",
+                "Jenkins returned an invalid inbound agent descriptor.",
+                {"node_name": node_name},
+            ) from exc
+        arguments = []
+        for element in root.iter():
+            if element.tag.endswith("argument") and element.text:
+                arguments.append(element.text.strip())
+        for argument in arguments:
+            if argument != node_name and len(argument) >= 20:
+                return argument
+        raise RunnerCtlError(
+            HTTPStatus.BAD_GATEWAY,
+            "jenkins-agent-secret-missing",
+            "Jenkins did not return an inbound agent secret.",
+            {"node_name": node_name},
+        )
+
+    def wait_agent_online(self, node_name, timeout_seconds):
+        encoded_name = urllib.parse.quote(node_name, safe="")
+        deadline = time.time() + timeout_seconds
+        while time.time() < deadline:
+            try:
+                status = self.json(f"/computer/{encoded_name}/api/json?tree=offline,temporarilyOffline")
+                if status.get("offline") is False and status.get("temporarilyOffline") is False:
+                    return True
+            except RunnerCtlError as exc:
+                if exc.details.get("upstream_status") != 404:
+                    raise
+            time.sleep(1.0)
+        raise RunnerCtlError(
+            HTTPStatus.BAD_GATEWAY,
+            "jenkins-agent-timeout",
+            "Timed out while waiting for the Jenkins runner node to come online.",
+            {"node_name": node_name},
+        )
+
+
 def build_service_state(inventory):
     return {
         "inventory_version": inventory.get("version"),
@@ -863,6 +1131,7 @@ def create_lease(client_registry, lease_store, inventory, request_data):
                 )
                 client.wait_task(node, str(clone_upid), 180)
                 clone_created = True
+                configure_runtime_network(client, node, vmid, candidate)
                 client.request(
                     "POST",
                     f"/nodes/{node}/qemu/{vmid}/config",
@@ -941,6 +1210,79 @@ def run_guest_powershell_check(client, node, vmid, script, timeout_seconds=60):
         script,
     ]
     return client.guest_exec(node, vmid, command, timeout_seconds)
+
+
+def powershell_encoded_command(script):
+    encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")
+    return [
+        "powershell",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-EncodedCommand",
+        encoded,
+    ]
+
+
+def build_jenkins_agent_node_name(lease_id):
+    return f"runner-lease-{lease_id[:12]}"
+
+
+def build_jenkins_agent_label(record, node_name):
+    labels = set(record.get("labels", []))
+    labels.add("runner-lease")
+    labels.add(node_name)
+    return " ".join(sorted(labels))
+
+
+def start_jenkins_remoting_agent(client, node, vmid, jenkins_client, node_name, secret, work_dir, timeout_seconds=60):
+    script = f"""
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+$agentRoot = {powershell_string(work_dir)}
+New-Item -ItemType Directory -Force -Path $agentRoot | Out-Null
+$jar = Join-Path $agentRoot 'agent.jar'
+$baseUrl = {powershell_string(jenkins_client.public_url)}
+Invoke-WebRequest -Uri ($baseUrl.TrimEnd('/') + '/jnlpJars/agent.jar') -OutFile $jar -UseBasicParsing
+$javaExe = $null
+$javaCommand = Get-Command java.exe -ErrorAction SilentlyContinue
+if ($javaCommand) {{
+  $javaExe = $javaCommand.Source
+}}
+if (-not $javaExe) {{
+  $searchRoots = @($env:ProgramFiles)
+  $programFilesX86 = [Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
+  if ($programFilesX86) {{
+    $searchRoots += $programFilesX86
+  }}
+  $javaExe = Get-ChildItem -Path $searchRoots -Recurse -Filter java.exe -ErrorAction SilentlyContinue |
+    Where-Object {{ $_.FullName -match '\\\\bin\\\\java\\.exe$' }} |
+    Select-Object -ExpandProperty FullName -First 1
+}}
+if (-not $javaExe) {{
+  throw 'java.exe was not found on the runner.'
+}}
+$stdout = Join-Path $agentRoot 'agent.stdout.log'
+$stderr = Join-Path $agentRoot 'agent.stderr.log'
+$arguments = @(
+  '-jar', $jar,
+  '-url', ($baseUrl.TrimEnd('/') + '/'),
+  '-secret', {powershell_string(secret)},
+  '-name', {powershell_string(node_name)},
+  '-webSocket',
+  '-workDir', $agentRoot
+)
+$process = Start-Process -FilePath $javaExe -ArgumentList $arguments -WorkingDirectory $agentRoot -RedirectStandardOutput $stdout -RedirectStandardError $stderr -WindowStyle Hidden -PassThru
+Start-Sleep -Seconds 1
+if (-not (Get-Process -Id $process.Id -ErrorAction SilentlyContinue)) {{
+  if (Test-Path $stderr) {{
+    Get-Content -Path $stderr -Tail 30 | Write-Host
+  }}
+  throw 'Jenkins remoting process exited immediately.'
+}}
+"""
+    return client.guest_exec(node, vmid, powershell_encoded_command(script), timeout_seconds)
 
 
 def run_named_health_check(client, node, vmid, check_name):
@@ -1087,7 +1429,95 @@ def health_lease(client_registry, lease_store, inventory, request_data):
     }
 
 
-def release_lease(client_registry, lease_store, inventory, request_data):
+def public_agent_lease_result(record, prepare_result):
+    agent = record.get("jenkins_agent", {})
+    return {
+        "lease_id": record["lease_id"],
+        "runner_class": record["runner_class"],
+        "labels": record["labels"],
+        "label": agent["label"],
+        "node_name": agent["node_name"],
+        "agent_online": True,
+        "host_id": record["host_id"],
+        "node": record["node"],
+        "vmid": record["vmid"],
+        "template_vmid": record["template_vmid"],
+        "clone_name": record["clone_name"],
+        "allocation_mode": record.get("allocation_mode", "cold-clone"),
+        "health": prepare_result.get("health", {}),
+        "health_cached": bool(prepare_result.get("health_cached", False)),
+    }
+
+
+def lease_jenkins_agent(client_registry, lease_store, inventory, request_data, jenkins_client):
+    lease_id = None
+    node_name = None
+    try:
+        lease_request = {
+            "required_labels": request_labels(request_data),
+        }
+        if request_data.get("runner_class"):
+            lease_request["runner_class"] = request_data["runner_class"]
+        if request_data.get("lease_ttl_minutes") is not None:
+            lease_request["lease_ttl_minutes"] = request_data["lease_ttl_minutes"]
+
+        lease_result = create_lease(client_registry, lease_store, inventory, lease_request)
+        lease_id = lease_result["lease_id"]
+        prepare_result = prepare_lease(client_registry, lease_store, inventory, {"lease_id": lease_id})
+        record = lease_store.get(lease_id)
+        if record is None:
+            raise RunnerCtlError(HTTPStatus.NOT_FOUND, "not-found", "Lease was not found.", {"lease_id": lease_id})
+
+        host = host_by_id(inventory, record["host_id"])
+        client = client_registry.client_for_host(inventory, host)
+        node = require_pattern(record.get("node", ""), SAFE_NAME_PATTERN, "node")
+        vmid = require_int(record.get("vmid", ""), "vmid", minimum=100, maximum=999999999)
+        node_name = build_jenkins_agent_node_name(lease_id)
+        label_string = build_jenkins_agent_label(record, node_name)
+        work_dir = os.getenv("RUNNERCTL_JENKINS_AGENT_WORK_DIR", "C:\\runner\\jenkins-agent")
+        agent_timeout_seconds = int(os.getenv("RUNNERCTL_JENKINS_AGENT_TIMEOUT_SECONDS", "120"))
+
+        if not jenkins_client.create_agent_node(node_name, label_string, work_dir):
+            raise RunnerCtlError(
+                HTTPStatus.BAD_GATEWAY,
+                "jenkins-node-create-failed",
+                "Jenkins did not confirm runner node creation.",
+                {"node_name": node_name},
+            )
+        secret = jenkins_client.agent_secret(node_name)
+        start_jenkins_remoting_agent(client, node, vmid, jenkins_client, node_name, secret, work_dir)
+        jenkins_client.wait_agent_online(node_name, agent_timeout_seconds)
+
+        now = now_epoch()
+        updated = lease_store.update(
+            lease_id,
+            {
+                "state": "agent-online",
+                "jenkins_agent": {
+                    "node_name": node_name,
+                    "label": node_name,
+                    "labels": label_string.split(),
+                    "work_dir": work_dir,
+                    "online_at": now,
+                },
+            },
+        )
+        return public_agent_lease_result(updated, prepare_result)
+    except Exception:
+        if node_name:
+            try:
+                jenkins_client.delete_agent_node(node_name)
+            except Exception:
+                pass
+        if lease_id:
+            try:
+                release_lease(client_registry, lease_store, inventory, {"lease_id": lease_id}, jenkins_client=jenkins_client)
+            except Exception:
+                pass
+        raise
+
+
+def release_lease(client_registry, lease_store, inventory, request_data, jenkins_client=None):
     lease_id = require_pattern(request_data.get("lease_id", ""), LEASE_ID_PATTERN, "lease_id")
     record = lease_store.get(lease_id)
     if record is None:
@@ -1097,6 +1527,13 @@ def release_lease(client_registry, lease_store, inventory, request_data):
     client = client_registry.client_for_host(inventory, host)
     node = require_pattern(record.get("node", ""), SAFE_NAME_PATTERN, "node")
     vmid = require_int(record.get("vmid", ""), "vmid", minimum=100, maximum=999999999)
+    agent_deleted = False
+    agent = record.get("jenkins_agent") or {}
+    if jenkins_client is not None and agent.get("node_name"):
+        try:
+            agent_deleted = jenkins_client.delete_agent_node(agent["node_name"])
+        except RunnerCtlError:
+            agent_deleted = False
     destroyed = client.safe_destroy(node, vmid)
     lease_store.delete(lease_id)
     return {
@@ -1106,6 +1543,7 @@ def release_lease(client_registry, lease_store, inventory, request_data):
         "node": node,
         "vmid": vmid,
         "destroyed_vm": destroyed,
+        "deleted_jenkins_node": agent_deleted,
     }
 
 
@@ -1167,6 +1605,7 @@ def build_ready_pool_member(client_registry, lease_store, inventory, resolved, c
             },
         )
         client.wait_task(node, str(clone_upid), 180)
+        configure_runtime_network(client, node, vmid, candidate)
         client.set_tags(node, vmid, HOT_POOL_TAGS_CREATING)
         client.start_vm(node, vmid)
         wait_for_guest_agent(client, node, vmid, int(resolved["policy"].get("boot_timeout_minutes", 10)) * 60)
@@ -1211,15 +1650,21 @@ def resolve_pool_targets(inventory, request_data):
     requested_class = request_data.get("runner_class")
     if requested_class:
         requested_class = require_pattern(requested_class, ID_PATTERN, "runner_class")
+    requested_labels = request_data.get("required_labels")
+    if requested_labels is None:
+        requested_labels = request_data.get("labels")
+    if not requested_class and requested_labels is not None:
+        resolved, candidates = resolve_runner_context(inventory, None, requested_labels)
+        return [(resolved, candidates)]
+
     targets = []
     for runner_class in inventory.get("runner_classes", []):
         class_id = require_pattern(runner_class.get("id", ""), ID_PATTERN, "runner_class")
         if requested_class and requested_class != class_id:
             continue
-        labels = request_data.get("required_labels")
+        labels = requested_labels
         if labels is None:
             labels = runner_class.get("labels", [])
-        labels = require_list(labels, "required_labels")
         resolved, candidates = resolve_runner_context(inventory, class_id, labels)
         targets.append((resolved, candidates))
     if requested_class and not targets:
@@ -1511,6 +1956,9 @@ class RunnerCtlHandler(BaseHTTPRequestHandler):
     def _clients(self):
         return self.server.proxmox_clients
 
+    def _jenkins(self):
+        return self.server.jenkins_client()
+
     def _handle_exception(self, exc):
         if isinstance(exc, RunnerCtlError):
             self._write_json(
@@ -1577,6 +2025,12 @@ class RunnerCtlHandler(BaseHTTPRequestHandler):
                     result = create_lease(self._clients(), self.server.lease_store, inventory, request_data)
                 self._write_json(HTTPStatus.OK, {"status": "ok", **result})
                 return
+            if self.path == "/api/v1/agent/lease":
+                inventory = self._inventory()
+                with self.server.operation_lock:
+                    result = lease_jenkins_agent(self._clients(), self.server.lease_store, inventory, request_data, self._jenkins())
+                self._write_json(HTTPStatus.OK, {"status": "ok", **result})
+                return
             if self.path == "/api/v1/prepare":
                 inventory = self._inventory()
                 with self.server.operation_lock:
@@ -1591,7 +2045,16 @@ class RunnerCtlHandler(BaseHTTPRequestHandler):
             if self.path == "/api/v1/release":
                 inventory = self._inventory()
                 with self.server.operation_lock:
-                    result = release_lease(self._clients(), self.server.lease_store, inventory, request_data)
+                    lease_id = require_pattern(request_data.get("lease_id", ""), LEASE_ID_PATTERN, "lease_id")
+                    record = self.server.lease_store.get(lease_id)
+                    jenkins_client = self._jenkins() if record and record.get("jenkins_agent") else None
+                    result = release_lease(
+                        self._clients(),
+                        self.server.lease_store,
+                        inventory,
+                        request_data,
+                        jenkins_client=jenkins_client,
+                    )
                 self._write_json(HTTPStatus.OK, {"status": "ok", **result})
                 return
             if self.path == "/api/v1/pool/refill":
@@ -1622,6 +2085,14 @@ class RunnerCtlServer(ThreadingHTTPServer):
         self.lease_store = lease_store
         self.proxmox_clients = proxmox_clients
         self.operation_lock = threading.Lock()
+        self._jenkins_client = None
+        self._jenkins_lock = threading.Lock()
+
+    def jenkins_client(self):
+        with self._jenkins_lock:
+            if self._jenkins_client is None:
+                self._jenkins_client = JenkinsApiClient.from_env()
+            return self._jenkins_client
 
 
 def hot_pool_reconciler_loop(server, interval_seconds, initial_delay_seconds):

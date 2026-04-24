@@ -53,7 +53,8 @@ Recommended build flow:
   during job runtime.
 - Runtime images intentionally avoid developer stacks. They should contain only
   workload prerequisites such as GPU driver, VC++ redistributables, Vulkan
-  runtime, workspace directories, and guest management services.
+  runtime, Java for Jenkins remoting, workspace directories, and guest
+  management services.
 - Every promoted template gets a channel such as `windows-base/stable` or
   `windows-gpu-nvidia/stable`.
 
@@ -70,14 +71,18 @@ a template channel and to Proxmox placement policy.
 
 ### 3. Allocator / runnerctl
 
-The allocator should expose a small CLI or API with JSON-safe output and no
-secrets in stdout.
+The allocator exposes a small local API with JSON-safe output and no secrets in
+stdout. Jenkins pipelines should use a minimal helper and then switch to normal
+Jenkins syntax on the leased runner:
 
-```bash
-runnerctl lease --class win-gpu-nvidia --labels windows,gpu,nvidia,vulkan --ttl-minutes 120
-runnerctl prepare --lease <lease-id>
-runnerctl health --lease <lease-id>
-runnerctl release --lease <lease-id>
+```groovy
+runner = runnerLease(labels: ['windows', 'gpu', 'nvidia', 'vulkan', 'runtime-only'])
+
+node(runner.label) {
+  powershell 'nvidia-smi'
+}
+
+runnerRelease(runner)
 ```
 
 The lease response should include only non-secret operational data:
@@ -87,9 +92,9 @@ The lease response should include only non-secret operational data:
   "lease_id": "opaque-lease-id",
   "runner_class": "win-gpu-nvidia",
   "labels": ["windows", "gpu", "nvidia", "vulkan", "runtime-only", "gpu-class-rtx-2070"],
-  "connection": {
-    "type": "winrm"
-  }
+  "label": "runner-lease-opaque",
+  "node_name": "runner-lease-opaque",
+  "agent_online": true
 }
 ```
 
@@ -325,7 +330,9 @@ Current Jenkins jobs:
 - `ci/runners/packer-plan`
 - `ci/runners/smoke/proxmox-api`
 - `ci/runners/smoke/proxmox-warm-clone`
+- `ci/runners/smoke/proxmox-hot-pool-lifecycle`
 - `ci/runners/smoke/proxmox-runtime-lifecycle`
+- `ci/runners/examples/windows-gpu-hello`
 
 Current farm access model:
 
@@ -336,6 +343,8 @@ Current farm access model:
 - the `runnerctl` sidecar reads those local loopback API URLs from inventory and
   token material from Kubernetes Secret env vars
 - Jenkins jobs call only the local `runnerctl` HTTP API on `127.0.0.1:18080`
+- consumer jobs lease a temporary Jenkins node by labels, then run normal
+  declarative or scripted Pipeline steps on `node(runner.label)`
 - future Proxmox hosts scale by adding another host entry, restricted key, and
   local reverse tunnel port while keeping the Jenkins job contract unchanged
 

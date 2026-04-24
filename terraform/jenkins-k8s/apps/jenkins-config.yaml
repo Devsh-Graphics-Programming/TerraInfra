@@ -107,6 +107,11 @@ data:
             description('Live Proxmox runner smoke pipelines managed by configuration as code.')
           }
 
+          folder('ci/runners/examples') {
+            displayName('Examples')
+            description('Minimal consumer pipelines for ephemeral runtime runners.')
+          }
+
           pipelineJob('system/smoke') {
             description('Verifies the controller can load configuration and run a lightweight pipeline.')
             definition {
@@ -804,6 +809,109 @@ data:
                           echo('Release response HTTP ' + response.status + ': result=' + result.result + ', vmid=' + (result.vmid ?: 'n/a') + ', destroyed_vm=' + (result.destroyed_vm ?: false) + '.')
                         }
                       }
+                    }
+                  }
+                }''')
+              }
+            }
+          }
+
+          pipelineJob('ci/runners/examples/windows-gpu-hello') {
+            description('Minimal consumer pipeline that leases an ephemeral Windows GPU runner by labels, runs native Jenkins steps on it, archives a small proof, and releases it.')
+            definition {
+              cps {
+                sandbox()
+                script('''properties([
+                  buildDiscarder(logRotator(daysToKeepStr: '31', numToKeepStr: '100', artifactDaysToKeepStr: '31', artifactNumToKeepStr: '100'))
+                ])
+
+                def runnerctlPost(String path, Map body) {
+                  def response = httpRequest(
+                    consoleLogResponseBody: false,
+                    contentType: 'APPLICATION_JSON',
+                    httpMode: 'POST',
+                    requestBody: writeJSON(returnText: true, json: body),
+                    url: 'http://127.0.0.1:18080' + path,
+                    validResponseCodes: '100:599'
+                  )
+                  def result = readJSON(text: response.content, returnPojo: true)
+                  if (response.status != 200 || result.status != 'ok') {
+                    error('runnerctl ' + path + ' failed: ' + (result.message ?: 'unexpected error'))
+                  }
+                  return result
+                }
+
+                def runnerLease(Map args) {
+                  def labels = (args.labels ?: []).collect { it.toString().trim() }.findAll { it }
+                  if (labels.isEmpty()) {
+                    error('runnerLease requires at least one label.')
+                  }
+                  labels.each { label ->
+                    if (!(label ==~ /[a-z0-9][a-z0-9_.-]*/)) {
+                      error('Invalid runner label: ' + label)
+                    }
+                  }
+                  if (labels.unique(false).size() != labels.size()) {
+                    error('Runner labels must be unique.')
+                  }
+                  def result = runnerctlPost('/api/v1/agent/lease', [
+                    labels: labels,
+                    lease_ttl_minutes: (args.leaseTtlMinutes ?: 30).toString()
+                  ])
+                  echo('Runner online: label=' + result.label + ', allocation_mode=' + result.allocation_mode + ', host=' + result.host_id + ', node=' + result.node + ', vmid=' + result.vmid + '.')
+                  return result
+                }
+
+                def runnerRelease(Map runner) {
+                  if (!runner?.lease_id) {
+                    return
+                  }
+                  def result = runnerctlPost('/api/v1/release', [lease_id: runner.lease_id])
+                  echo('Runner release: result=' + result.result + ', vmid=' + (result.vmid ?: 'n/a') + ', destroyed_vm=' + (result.destroyed_vm ?: false) + ', deleted_jenkins_node=' + (result.deleted_jenkins_node ?: false) + '.')
+                }
+
+                def runner = null
+                try {
+                  timestamps {
+                    stage('Lease runner') {
+                      runner = runnerLease(labels: ['windows', 'gpu', 'nvidia', 'vulkan', 'runtime-only'], leaseTtlMinutes: 30)
+                    }
+                    node(runner.label) {
+                      stage('Hello') {
+                        powershell(
+                          '$ErrorActionPreference = "Stop"\n' +
+                          '$summary = [pscustomobject]@{\n' +
+                          '  hostname = $env:COMPUTERNAME\n' +
+                          '  user = $env:USERNAME\n' +
+                          '  os = (Get-CimInstance Win32_OperatingSystem).Caption\n' +
+                          '  workspace = (Get-Location).Path\n' +
+                          '}\n' +
+                          '$summary | ConvertTo-Json -Depth 4 | Set-Content -Path runner-summary.json -Encoding UTF8\n' +
+                          'Write-Host "Hello from ephemeral Windows GPU runner"\n'
+                        )
+                      }
+                      stage('GPU sanity') {
+                        powershell(
+                          '$ErrorActionPreference = "Stop"\n' +
+                          '$nvidiaSmi = Get-Command nvidia-smi.exe -ErrorAction SilentlyContinue\n' +
+                          'if (-not $nvidiaSmi) { $nvidiaSmi = Get-ChildItem -Path "$env:ProgramFiles\\NVIDIA Corporation\\NVSMI" -Filter nvidia-smi.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 }\n' +
+                          'if (-not $nvidiaSmi) { throw "nvidia-smi.exe was not found." }\n' +
+                          '$nvidiaSmiPath = if ($nvidiaSmi.Source) { $nvidiaSmi.Source } else { $nvidiaSmi.FullName }\n' +
+                          '& $nvidiaSmiPath | Tee-Object -FilePath gpu.txt\n' +
+                          'if ($LASTEXITCODE -ne 0) { throw "nvidia-smi failed with exit code $LASTEXITCODE." }\n' +
+                          'if (-not (Test-Path "$env:WINDIR\\System32\\vulkan-1.dll")) { throw "Vulkan runtime is missing." }\n' +
+                          'Write-Host "Vulkan runtime is present."\n'
+                        )
+                      }
+                      stage('Artifacts') {
+                        archiveArtifacts artifacts: 'runner-summary.json,gpu.txt', fingerprint: true
+                      }
+                    }
+                  }
+                } finally {
+                  timestamps {
+                    stage('Release runner') {
+                      runnerRelease(runner)
                     }
                   }
                 }''')

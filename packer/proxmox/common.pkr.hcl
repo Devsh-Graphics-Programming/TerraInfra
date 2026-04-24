@@ -175,6 +175,21 @@ variable "vc_redist_x64_args" {
   default = "/install /quiet /norestart"
 }
 
+variable "java_runtime_url" {
+  type    = string
+  default = ""
+}
+
+variable "java_runtime_args" {
+  type    = string
+  default = "/quiet /norestart"
+}
+
+variable "java_runtime_file_extension" {
+  type    = string
+  default = ".msi"
+}
+
 variable "runtime_component_timeout_minutes" {
   type    = number
   default = 10

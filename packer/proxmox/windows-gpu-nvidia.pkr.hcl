@@ -68,12 +68,19 @@ build {
       "REQUIRE_NVIDIA_DRIVER=${var.require_nvidia_driver}",
       "VC_REDIST_X64_URL=${var.vc_redist_x64_url}",
       "VC_REDIST_X64_ARGS=${var.vc_redist_x64_args}",
+      "JAVA_RUNTIME_URL=${var.java_runtime_url}",
+      "JAVA_RUNTIME_ARGS=${var.java_runtime_args}",
+      "JAVA_RUNTIME_FILE_EXTENSION=${var.java_runtime_file_extension}",
       "RUNTIME_COMPONENT_TIMEOUT_MINUTES=${var.runtime_component_timeout_minutes}",
       "VULKAN_RUNTIME_URL=${var.vulkan_runtime_url}",
       "VULKAN_RUNTIME_ARGS=${var.vulkan_runtime_args}",
     ]
     script  = "${abspath(path.root)}/scripts/windows-gpu-nvidia/install-runtime-components.ps1"
     timeout = "45m"
+  }
+
+  provisioner "windows-restart" {
+    restart_timeout = "20m"
   }
 
   provisioner "powershell" {

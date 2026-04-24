@@ -122,6 +122,15 @@ class InventoryStoreTests(unittest.TestCase):
 
 
 class ResolveRunnerTests(unittest.TestCase):
+    def test_resolve_runner_selects_class_by_labels_without_runner_class(self):
+        resolved = runnerctl_api.resolve_runner(
+            SAMPLE_INVENTORY,
+            None,
+            ["windows", "gpu", "nvidia"],
+        )
+        self.assertEqual(resolved["runner_class"], "win-gpu-nvidia")
+        self.assertEqual(resolved["backend"]["host_id"], "example-rtx-node")
+
     def test_resolve_runner_returns_capability_based_placement(self):
         resolved = runnerctl_api.resolve_runner(
             SAMPLE_INVENTORY,
@@ -246,6 +255,29 @@ class FakeProxmoxRegistry:
         return self.client
 
 
+class FakeJenkinsClient:
+    def __init__(self):
+        self.public_url = "https://jenkins.example.invalid"
+        self.created_nodes = []
+        self.deleted_nodes = []
+        self.online_nodes = []
+
+    def create_agent_node(self, node_name, label_string, remote_fs):
+        self.created_nodes.append((node_name, label_string, remote_fs))
+        return True
+
+    def agent_secret(self, node_name):
+        return "s" * 64
+
+    def wait_agent_online(self, node_name, timeout_seconds):
+        self.online_nodes.append((node_name, timeout_seconds))
+        return True
+
+    def delete_agent_node(self, node_name):
+        self.deleted_nodes.append(node_name)
+        return True
+
+
 class CreateLeaseTests(unittest.TestCase):
     def test_create_lease_clones_selected_template_on_capability_host(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -266,7 +298,8 @@ class CreateLeaseTests(unittest.TestCase):
             self.assertEqual(result["vmid"], 2000)
             self.assertEqual(client.clone_requests[0][1]["newid"], 2000)
             self.assertEqual(client.clone_requests[0][1]["pool"], "ci-runners")
-            self.assertEqual(client.config_requests[0][1]["tags"], "runnerctl;lifecycle-ephemeral;leased")
+            self.assertEqual(client.config_requests[0][1]["net0"], "e1000,bridge=vmbr0,tag=69,firewall=1")
+            self.assertEqual(client.config_requests[1][1]["tags"], "runnerctl;lifecycle-ephemeral;leased")
 
     def test_create_lease_acquires_ready_hot_pool_member(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -317,6 +350,34 @@ class CreateLeaseTests(unittest.TestCase):
             record = lease_store.get(pool_id)
             self.assertEqual(record["state"], "leased")
             self.assertFalse(record["pool_member"])
+
+    def test_lease_jenkins_agent_returns_unique_node_label(self):
+        with tempfile.TemporaryDirectory() as directory:
+            lease_store = runnerctl_api.LeaseStore(Path(directory) / "leases.json")
+            client = FakeProxmoxClient()
+            registry = FakeProxmoxRegistry(client)
+            jenkins = FakeJenkinsClient()
+            result = runnerctl_api.lease_jenkins_agent(
+                registry,
+                lease_store,
+                SAMPLE_INVENTORY,
+                {
+                    "labels": ["windows", "gpu", "nvidia"],
+                    "lease_ttl_minutes": "30",
+                },
+                jenkins,
+            )
+            self.assertEqual(result["runner_class"], "win-gpu-nvidia")
+            self.assertEqual(result["allocation_mode"], "cold-clone")
+            self.assertTrue(result["label"].startswith("runner-lease-"))
+            self.assertEqual(result["label"], result["node_name"])
+            self.assertEqual(jenkins.created_nodes[0][0], result["node_name"])
+            self.assertIn("windows", jenkins.created_nodes[0][1].split())
+            self.assertEqual(jenkins.online_nodes[0][0], result["node_name"])
+            self.assertTrue(client.guest_exec_requests[-1][2][4])
+            record = lease_store.get(result["lease_id"])
+            self.assertEqual(record["state"], "agent-online")
+            self.assertEqual(record["jenkins_agent"]["label"], result["label"])
 
     def test_prepare_lease_uses_fresh_hot_pool_health_cache(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -425,6 +486,48 @@ class CreateLeaseTests(unittest.TestCase):
             self.assertEqual(result["checks"], last_health)
             self.assertEqual(client.guest_exec_requests, [])
             self.assertEqual(client.agent_ping_requests, [("pve-rtx-01", 2000)])
+
+    def test_release_lease_deletes_jenkins_agent_node(self):
+        with tempfile.TemporaryDirectory() as directory:
+            lease_store = runnerctl_api.LeaseStore(Path(directory) / "leases.json")
+            lease_id = "d" * 32
+            lease_store.put(
+                lease_id,
+                {
+                    "lease_id": lease_id,
+                    "runner_class": "win-gpu-nvidia",
+                    "labels": ["gpu", "nvidia", "windows"],
+                    "host_id": "example-rtx-node",
+                    "node": "pve-rtx-01",
+                    "vmid": 2000,
+                    "template_vmid": 9002,
+                    "clone_name": "runnerctl-win-gpu-nvidia-dddddddd",
+                    "created_at": 1,
+                    "expires_at": 9999999999,
+                    "state": "agent-online",
+                    "pool_member": False,
+                    "allocation_mode": "hot-pool",
+                    "connection": {"type": "winrm"},
+                    "policy": {"destroy_after_job": True},
+                    "health_checks": ["guest-agent"],
+                    "jenkins_agent": {"node_name": "runner-lease-dddddddddddd", "label": "runner-lease-dddddddddddd"},
+                },
+            )
+            client = FakeProxmoxClient()
+            client.vmids = {9002, 2000}
+            registry = FakeProxmoxRegistry(client)
+            jenkins = FakeJenkinsClient()
+            result = runnerctl_api.release_lease(
+                registry,
+                lease_store,
+                SAMPLE_INVENTORY,
+                {"lease_id": lease_id},
+                jenkins_client=jenkins,
+            )
+            self.assertEqual(result["result"], "released")
+            self.assertTrue(result["deleted_jenkins_node"])
+            self.assertEqual(jenkins.deleted_nodes, ["runner-lease-dddddddddddd"])
+            self.assertIsNone(lease_store.get(lease_id))
 
     def test_create_lease_cleans_up_clone_when_lease_store_fails(self):
         with tempfile.TemporaryDirectory() as directory:

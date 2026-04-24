@@ -53,6 +53,7 @@ proxmox:
         components:
           - nvidia-driver
           - vc-redist-x64
+          - java-runtime
           - vulkan-runtime
       gpu_devices:
         - id: example-rtx-2070-0

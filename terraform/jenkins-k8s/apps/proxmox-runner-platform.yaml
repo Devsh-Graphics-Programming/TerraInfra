@@ -73,6 +73,7 @@ data:
               "components": [
                 "nvidia-driver",
                 "vc-redist-x64",
+                "java-runtime",
                 "vulkan-runtime"
               ]
             },

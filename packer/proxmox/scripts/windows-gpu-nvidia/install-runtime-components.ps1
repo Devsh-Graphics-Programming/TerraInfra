@@ -39,7 +39,9 @@ function Save-Installer {
         [string] $Url,
 
         [Parameter(Mandatory = $true)]
-        [string[]] $ArtifactPatterns
+        [string[]] $ArtifactPatterns,
+
+        [string] $FileExtension = ""
     )
 
     if ([string]::IsNullOrWhiteSpace($Url)) {
@@ -57,7 +59,10 @@ function Save-Installer {
         return $null
     }
 
-    $extension = [IO.Path]::GetExtension(([Uri] $Url).AbsolutePath)
+    $extension = $FileExtension
+    if ([string]::IsNullOrWhiteSpace($extension)) {
+        $extension = [IO.Path]::GetExtension(([Uri] $Url).AbsolutePath)
+    }
     if ([string]::IsNullOrWhiteSpace($extension)) {
         $extension = ".exe"
     }
@@ -84,7 +89,14 @@ function Invoke-Installer {
     )
 
     Write-Host "Installing $Name."
-    $process = Start-Process -FilePath $Path -ArgumentList $Arguments -PassThru
+    $extension = [IO.Path]::GetExtension($Path).ToLowerInvariant()
+    $filePath = $Path
+    $argumentList = $Arguments
+    if ($extension -eq ".msi") {
+        $filePath = "msiexec.exe"
+        $argumentList = "/i `"$Path`" $Arguments"
+    }
+    $process = Start-Process -FilePath $filePath -ArgumentList $argumentList -PassThru
     $timeoutMilliseconds = [Math]::Max(1, $TimeoutMinutes) * 60 * 1000
     $finished = $process.WaitForExit($timeoutMilliseconds)
     if (-not $finished) {
@@ -101,6 +113,34 @@ function Invoke-Installer {
         throw "$Name installer failed with exit code $($process.ExitCode)."
     }
     Write-Host "$Name installer completed with exit code $($process.ExitCode)."
+}
+
+function Update-ProcessPath {
+    $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+    $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+    $env:Path = @($machinePath, $userPath) -join ";"
+}
+
+function Find-Java {
+    $command = Get-Command java.exe -ErrorAction SilentlyContinue
+    if ($command) {
+        return $command.Source
+    }
+
+    $searchRoots = @($env:ProgramFiles)
+    $programFilesX86 = [Environment]::GetEnvironmentVariable("ProgramFiles(x86)")
+    if ($programFilesX86) {
+        $searchRoots += $programFilesX86
+    }
+
+    $candidate = Get-ChildItem -Path $searchRoots -Recurse -Filter java.exe -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -match "\\bin\\java\.exe$" } |
+        Select-Object -First 1
+    if ($candidate) {
+        return $candidate.FullName
+    }
+
+    return $null
 }
 
 function Find-NvidiaSmi {
@@ -161,6 +201,26 @@ if ([string]::IsNullOrWhiteSpace($vcRedistArgs)) {
 $vcRedistInstaller = Save-Installer -Name "vc_redist_x64" -Url $vcRedistUrl -ArtifactPatterns @("vc_redist.x64*.exe", "*vc*redist*x64*.exe")
 if ($vcRedistInstaller) {
     Invoke-Installer -Name "VC++ Redistributable x64" -Path $vcRedistInstaller -Arguments $vcRedistArgs -TimeoutMinutes $runtimeComponentTimeoutMinutes
+}
+
+$javaRuntimeUrl = Get-EnvText -Name "JAVA_RUNTIME_URL"
+$javaRuntimeArgs = Get-EnvText -Name "JAVA_RUNTIME_ARGS"
+if ([string]::IsNullOrWhiteSpace($javaRuntimeArgs)) {
+    $javaRuntimeArgs = "/quiet /norestart"
+}
+$javaRuntimeFileExtension = Get-EnvText -Name "JAVA_RUNTIME_FILE_EXTENSION"
+if ([string]::IsNullOrWhiteSpace($javaRuntimeFileExtension)) {
+    $javaRuntimeFileExtension = ".msi"
+}
+$javaInstaller = Save-Installer -Name "java_runtime" -Url $javaRuntimeUrl -ArtifactPatterns @("*jdk*.msi", "*jre*.msi", "*java*.msi", "*OpenJDK*.msi", "*Temurin*.msi", "*jdk*.exe", "*jre*.exe", "*java*.exe") -FileExtension $javaRuntimeFileExtension
+if ($javaInstaller) {
+    Invoke-Installer -Name "Java runtime" -Path $javaInstaller -Arguments $javaRuntimeArgs -TimeoutMinutes $runtimeComponentTimeoutMinutes
+    Update-ProcessPath
+    $javaExe = Find-Java
+    if (-not $javaExe) {
+        throw "java.exe was not found after Java runtime installation."
+    }
+    Write-Host "Java runtime validation passed: $javaExe"
 }
 
 $vulkanRuntimeUrl = Get-EnvText -Name "VULKAN_RUNTIME_URL"

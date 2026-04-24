@@ -28,7 +28,7 @@ spec:
       labels:
         app.kubernetes.io/name: jenkins
       annotations:
-        devsh.eu/config-revision: "2026-04-24-runner-hot-pool-cache-v17"
+        devsh.eu/config-revision: "2026-04-24-ephemeral-jenkins-runners-v18"
     spec:
       enableServiceLinks: false
       securityContext:
@@ -149,6 +149,8 @@ spec:
           envFrom:
             - secretRef:
                 name: proxmox-runner-api
+            - secretRef:
+                name: jenkins-admin
           env:
             - name: PYTHONUNBUFFERED
               value: "1"
@@ -168,6 +170,14 @@ spec:
               value: "10"
             - name: RUNNERCTL_HOT_POOL_HEALTH_CACHE_TTL_SECONDS
               value: "300"
+            - name: RUNNERCTL_JENKINS_INTERNAL_URL
+              value: http://127.0.0.1:8080
+            - name: RUNNERCTL_JENKINS_PUBLIC_URL
+              value: https://jenkins.devsh.eu
+            - name: RUNNERCTL_JENKINS_AGENT_WORK_DIR
+              value: 'C:\runner\jenkins-agent'
+            - name: RUNNERCTL_JENKINS_AGENT_TIMEOUT_SECONDS
+              value: "120"
           command:
             - python3
             - /opt/runnerctl/runnerctl_api.py
