@@ -18,6 +18,7 @@ data:
     pipeline-utility-steps
     pipeline-graph-view
     pipeline-stage-view
+    dark-theme
     lockable-resources
     github
     cloudbees-folder
@@ -52,6 +53,11 @@ data:
                 permissions:
                   - Overall/Read
                   - Metrics/View
+
+    appearance:
+      themeManager:
+        disableUserThemes: true
+        theme: "dark"
 
     unclassified:
       location:
