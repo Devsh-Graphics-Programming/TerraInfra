@@ -1327,21 +1327,44 @@ if (-not $javaExe) {{
 }}
 $stdout = Join-Path $agentRoot 'agent.stdout.log'
 $stderr = Join-Path $agentRoot 'agent.stderr.log'
-$arguments = @(
-  '-jar', $jar,
-  '-url', ($baseUrl.TrimEnd('/') + '/'),
-  '-secret', {powershell_string(secret)},
-  '-name', {powershell_string(node_name)},
+$javaLiteral = $javaExe.Replace("'", "''")
+$agentRootLiteral = $agentRoot.Replace("'", "''")
+$baseUrlLiteral = ($baseUrl.TrimEnd('/') + '/').Replace("'", "''")
+$secretLiteral = {powershell_string(secret)}.Replace("'", "''")
+$nodeNameLiteral = {powershell_string(node_name)}.Replace("'", "''")
+$launcher = Join-Path $agentRoot 'start-agent.ps1'
+$launcherContent = @"
+`$ErrorActionPreference = 'Stop'
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+`$agentRoot = '$agentRootLiteral'
+`$jar = Join-Path `$agentRoot 'agent.jar'
+`$stdout = Join-Path `$agentRoot 'agent.stdout.log'
+`$stderr = Join-Path `$agentRoot 'agent.stderr.log'
+`$arguments = @(
+  '-jar', `$jar,
+  '-url', '$baseUrlLiteral',
+  '-secret', '$secretLiteral',
+  '-name', '$nodeNameLiteral',
   '-webSocket',
-  '-workDir', $agentRoot
+  '-workDir', `$agentRoot
 )
-$process = Start-Process -FilePath $javaExe -ArgumentList $arguments -WorkingDirectory $agentRoot -RedirectStandardOutput $stdout -RedirectStandardError $stderr -WindowStyle Hidden -PassThru
-Start-Sleep -Seconds 1
-if (-not (Get-Process -Id $process.Id -ErrorAction SilentlyContinue)) {{
+& '$javaLiteral' @arguments 1>> `$stdout 2>> `$stderr
+"@
+Set-Content -Path $launcher -Value $launcherContent -Encoding UTF8
+$taskName = {powershell_string("runnerctl-" + node_name)}
+Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -ExecutionPolicy Bypass -File "{{0}}"' -f $launcher)
+$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5)
+Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -User 'SYSTEM' -RunLevel Highest -Force | Out-Null
+Start-ScheduledTask -TaskName $taskName
+Start-Sleep -Seconds 3
+$task = Get-ScheduledTask -TaskName $taskName
+$taskInfo = Get-ScheduledTaskInfo -TaskName $taskName
+if ($task.State -ne 'Running') {{
   if (Test-Path $stderr) {{
     Get-Content -Path $stderr -Tail 30 | Write-Host
   }}
-  throw 'Jenkins remoting process exited immediately.'
+  throw ('Jenkins remoting task is not running. state={0}, last_result={1}.' -f $task.State, $taskInfo.LastTaskResult)
 }}
 """
     return client.guest_exec(node, vmid, powershell_encoded_command(script), timeout_seconds)

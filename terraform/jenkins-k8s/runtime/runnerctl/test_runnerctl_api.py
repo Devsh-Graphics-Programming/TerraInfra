@@ -380,6 +380,7 @@ class CreateLeaseTests(unittest.TestCase):
             script = base64.b64decode(client.guest_exec_requests[-1][2][5]).decode("utf-16le")
             self.assertIn("10.254.254.254", script)
             self.assertIn("jenkins.example.invalid", script)
+            self.assertIn("Register-ScheduledTask", script)
             record = lease_store.get(result["lease_id"])
             self.assertEqual(record["state"], "agent-online")
             self.assertEqual(record["jenkins_agent"]["label"], result["label"])
