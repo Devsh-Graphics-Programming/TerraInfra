@@ -116,7 +116,7 @@ data:
                   agent none
                   options {
                     timestamps()
-                    buildDiscarder(logRotator(numToKeepStr: '20'))
+                    buildDiscarder(logRotator(daysToKeepStr: '31', numToKeepStr: '100', artifactDaysToKeepStr: '31', artifactNumToKeepStr: '100'))
                   }
                   stages {
                     stage('Smoke') {
@@ -148,7 +148,7 @@ data:
                   agent none
                   options {
                     timestamps()
-                    buildDiscarder(logRotator(numToKeepStr: '20'))
+                    buildDiscarder(logRotator(daysToKeepStr: '31', numToKeepStr: '100', artifactDaysToKeepStr: '31', artifactNumToKeepStr: '100'))
                   }
                   stages {
                     stage('Validate runner request') {
@@ -233,7 +233,7 @@ data:
                   agent none
                   options {
                     timestamps()
-                    buildDiscarder(logRotator(numToKeepStr: '20'))
+                    buildDiscarder(logRotator(daysToKeepStr: '31', numToKeepStr: '100', artifactDaysToKeepStr: '31', artifactNumToKeepStr: '100'))
                   }
                   stages {
                     stage('Validate image request') {
@@ -292,7 +292,7 @@ data:
                   agent none
                   options {
                     timestamps()
-                    buildDiscarder(logRotator(numToKeepStr: '20'))
+                    buildDiscarder(logRotator(daysToKeepStr: '31', numToKeepStr: '100', artifactDaysToKeepStr: '31', artifactNumToKeepStr: '100'))
                   }
                   stages {
                     stage('Validate request') {
@@ -352,7 +352,7 @@ data:
                   agent none
                   options {
                     timestamps()
-                    buildDiscarder(logRotator(numToKeepStr: '20'))
+                    buildDiscarder(logRotator(daysToKeepStr: '31', numToKeepStr: '100', artifactDaysToKeepStr: '31', artifactNumToKeepStr: '100'))
                   }
                   stages {
                     stage('Validate request') {
@@ -430,7 +430,7 @@ data:
                   agent none
                   options {
                     timestamps()
-                    buildDiscarder(logRotator(numToKeepStr: '20'))
+                    buildDiscarder(logRotator(daysToKeepStr: '31', numToKeepStr: '100', artifactDaysToKeepStr: '31', artifactNumToKeepStr: '100'))
                   }
                   stages {
                     stage('Validate runner request') {
@@ -610,7 +610,7 @@ data:
                   agent none
                   options {
                     timestamps()
-                    buildDiscarder(logRotator(numToKeepStr: '20'))
+                    buildDiscarder(logRotator(daysToKeepStr: '31', numToKeepStr: '100', artifactDaysToKeepStr: '31', artifactNumToKeepStr: '100'))
                   }
                   stages {
                     stage('Validate parameters') {
@@ -670,7 +670,7 @@ data:
                   agent none
                   options {
                     timestamps()
-                    buildDiscarder(logRotator(numToKeepStr: '20'))
+                    buildDiscarder(logRotator(daysToKeepStr: '31', numToKeepStr: '100', artifactDaysToKeepStr: '31', artifactNumToKeepStr: '100'))
                   }
                   stages {
                     stage('Validate plan') {
