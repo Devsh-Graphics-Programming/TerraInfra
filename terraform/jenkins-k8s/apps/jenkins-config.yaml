@@ -818,35 +818,35 @@ data:
                     observedReadyMs = runner.ready_wall_ms
                     stage('Runtime probe') {
                       powershell(
-                        '$ErrorActionPreference = "Stop"\n' +
-                        '$java = Get-Command java.exe -ErrorAction SilentlyContinue\n' +
-                        'if (-not $java) { throw "java.exe was not found." }\n' +
-                        '$summary = [pscustomobject]@{\n' +
-                        '  hostname = $env:COMPUTERNAME\n' +
-                        '  user = $env:USERNAME\n' +
-                        '  os = (Get-CimInstance Win32_OperatingSystem).Caption\n' +
-                        '  workspace = (Get-Location).Path\n' +
-                        '  java = $java.Source\n' +
-                        '  vulkan = Test-Path "$env:WINDIR/System32/vulkan-1.dll"\n' +
-                        '  vcRuntime = Test-Path "$env:WINDIR/System32/vcruntime140.dll"\n' +
-                        '}\n' +
-                        '$summary | ConvertTo-Json -Depth 4 | Set-Content -Path runner-preflight.json -Encoding UTF8\n' +
-                        'if (-not $summary.vulkan) { throw "Vulkan runtime is missing." }\n' +
-                        'if (-not $summary.vcRuntime) { throw "VC runtime is missing." }\n' +
-                        'Write-Host "Runtime probe passed."\n'
+                        '$ErrorActionPreference = "Stop"\\n' +
+                        '$java = Get-Command java.exe -ErrorAction SilentlyContinue\\n' +
+                        'if (-not $java) { throw "java.exe was not found." }\\n' +
+                        '$summary = [pscustomobject]@{\\n' +
+                        '  hostname = $env:COMPUTERNAME\\n' +
+                        '  user = $env:USERNAME\\n' +
+                        '  os = (Get-CimInstance Win32_OperatingSystem).Caption\\n' +
+                        '  workspace = (Get-Location).Path\\n' +
+                        '  java = $java.Source\\n' +
+                        '  vulkan = Test-Path "$env:WINDIR/System32/vulkan-1.dll"\\n' +
+                        '  vcRuntime = Test-Path "$env:WINDIR/System32/vcruntime140.dll"\\n' +
+                        '}\\n' +
+                        '$summary | ConvertTo-Json -Depth 4 | Set-Content -Path runner-preflight.json -Encoding UTF8\\n' +
+                        'if (-not $summary.vulkan) { throw "Vulkan runtime is missing." }\\n' +
+                        'if (-not $summary.vcRuntime) { throw "VC runtime is missing." }\\n' +
+                        'Write-Host "Runtime probe passed."\\n'
                       )
                     }
                     stage('GPU sanity') {
                       powershell(
-                        '$ErrorActionPreference = "Stop"\n' +
-                        '$nvidiaSmi = Get-Command nvidia-smi.exe -ErrorAction SilentlyContinue\n' +
-                        'if (-not $nvidiaSmi) {\n' +
-                        '  $nvidiaSmi = Get-ChildItem -Path (Join-Path $env:ProgramFiles "NVIDIA Corporation/NVSMI") -Filter nvidia-smi.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1\n' +
-                        '}\n' +
-                        'if (-not $nvidiaSmi) { throw "nvidia-smi.exe was not found." }\n' +
-                        '$nvidiaSmiPath = if ($nvidiaSmi.Source) { $nvidiaSmi.Source } else { $nvidiaSmi.FullName }\n' +
-                        '& $nvidiaSmiPath | Tee-Object -FilePath gpu.txt\n' +
-                        'if ($LASTEXITCODE -ne 0) { throw "nvidia-smi failed with exit code $LASTEXITCODE." }\n'
+                        '$ErrorActionPreference = "Stop"\\n' +
+                        '$nvidiaSmi = Get-Command nvidia-smi.exe -ErrorAction SilentlyContinue\\n' +
+                        'if (-not $nvidiaSmi) {\\n' +
+                        '  $nvidiaSmi = Get-ChildItem -Path (Join-Path $env:ProgramFiles "NVIDIA Corporation/NVSMI") -Filter nvidia-smi.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1\\n' +
+                        '}\\n' +
+                        'if (-not $nvidiaSmi) { throw "nvidia-smi.exe was not found." }\\n' +
+                        '$nvidiaSmiPath = if ($nvidiaSmi.Source) { $nvidiaSmi.Source } else { $nvidiaSmi.FullName }\\n' +
+                        '& $nvidiaSmiPath | Tee-Object -FilePath gpu.txt\\n' +
+                        'if ($LASTEXITCODE -ne 0) { throw "nvidia-smi failed with exit code $LASTEXITCODE." }\\n'
                       )
                     }
                     stage('Artifacts') {
