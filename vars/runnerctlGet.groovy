@@ -1,10 +1,8 @@
-def call(String path, Map body) {
+def call(String path) {
   def started = System.currentTimeMillis()
   def response = httpRequest(
     consoleLogResponseBody: false,
-    contentType: 'APPLICATION_JSON',
-    httpMode: 'POST',
-    requestBody: writeJSON(returnText: true, json: body),
+    httpMode: 'GET',
     url: 'http://127.0.0.1:18080' + path,
     validResponseCodes: '100:599'
   )

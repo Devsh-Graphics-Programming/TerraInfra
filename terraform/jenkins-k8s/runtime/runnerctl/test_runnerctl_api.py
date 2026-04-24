@@ -109,6 +109,13 @@ SAMPLE_INVENTORY = {
             "health_checks": ["guest-agent", "network-interfaces", "nvidia-smi", "vulkan-runtime", "workspace-ready"],
         }
     ],
+    "janitor": {
+        "backend": "proxmox",
+        "pool": "runners",
+        "vmid_range": "runner",
+        "require_tags": ["runnerctl", "lifecycle-ephemeral"],
+        "stale_lease_after_minutes": 240,
+    },
 }
 
 
@@ -208,6 +215,7 @@ class FakeProxmoxClient:
         self.guest_exec_requests = []
         self.tag_requests = []
         self.vmids = {9002}
+        self.config_tags = "runnerctl;lifecycle-ephemeral;leased"
 
     def qemu_vmids(self, node):
         return set(self.vmids)
@@ -235,6 +243,9 @@ class FakeProxmoxClient:
 
     def vm_status(self, node, vmid):
         return {"status": "running"}
+
+    def vm_config(self, node, vmid):
+        return {"tags": self.config_tags}
 
     def agent_ping(self, node, vmid):
         self.agent_ping_requests.append((node, vmid))
@@ -310,8 +321,11 @@ class CreateLeaseTests(unittest.TestCase):
             self.assertEqual(client.clone_requests[0][1]["pool"], "ci-runners")
             self.assertEqual(client.config_requests[0][1]["net0"], "e1000,bridge=vmbr0,tag=69,firewall=1")
             self.assertEqual(client.config_requests[1][1]["tags"], "runnerctl;lifecycle-ephemeral;leased")
+            self.assertIn("timings", result)
+            self.assertIn("clone_ms", result["timings"])
             record = lease_store.get(result["lease_id"])
             self.assertEqual(record["jenkins_host_alias_ip"], "10.254.254.254")
+            self.assertIn("lease_total_ms", record["timings"])
 
     def test_create_lease_acquires_ready_hot_pool_member(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -357,6 +371,7 @@ class CreateLeaseTests(unittest.TestCase):
             )
             self.assertEqual(result["allocation_mode"], "hot-pool")
             self.assertEqual(result["vmid"], 2000)
+            self.assertIn("hot_pool_acquire_ms", result["timings"])
             self.assertEqual(client.clone_requests, [])
             self.assertEqual(client.tag_requests, [("pve-rtx-01", 2000, "runnerctl;lifecycle-ephemeral;leased")])
             record = lease_store.get(pool_id)
@@ -403,6 +418,8 @@ class CreateLeaseTests(unittest.TestCase):
             record = lease_store.get(result["lease_id"])
             self.assertEqual(record["state"], "agent-online")
             self.assertEqual(record["jenkins_agent"]["label"], result["label"])
+            self.assertIn("agent_lease_total_ms", result["timings"])
+            self.assertIn("jenkins_agent_connect_ms", result["timings"])
 
     def test_lease_jenkins_agent_reuses_preconnected_hot_pool_agent(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -620,6 +637,7 @@ class CreateLeaseTests(unittest.TestCase):
             )
             self.assertEqual(result["result"], "released")
             self.assertTrue(result["deleted_jenkins_node"])
+            self.assertIn("release_ms", result["timings"])
             self.assertEqual(jenkins.deleted_nodes, ["runner-lease-dddddddddddd"])
             self.assertIsNone(lease_store.get(lease_id))
 
@@ -639,6 +657,85 @@ class CreateLeaseTests(unittest.TestCase):
                     },
                 )
             self.assertEqual(client.destroy_requests, [("pve-rtx-01", 2000)])
+
+    def test_janitor_removes_expired_runner_scoped_lease(self):
+        with tempfile.TemporaryDirectory() as directory:
+            lease_store = runnerctl_api.LeaseStore(Path(directory) / "leases.json")
+            lease_id = "f" * 32
+            node_name = "runner-lease-" + lease_id[:12]
+            lease_store.put(
+                lease_id,
+                {
+                    "lease_id": lease_id,
+                    "runner_class": "win-gpu-nvidia",
+                    "labels": ["gpu", "nvidia", "windows"],
+                    "host_id": "example-rtx-node",
+                    "node": "pve-rtx-01",
+                    "vmid": 2000,
+                    "template_vmid": 9002,
+                    "clone_name": "runnerctl-win-gpu-nvidia-ffffffff",
+                    "created_at": 1,
+                    "expires_at": 2,
+                    "state": "agent-online",
+                    "pool_member": False,
+                    "allocation_mode": "cold-clone",
+                    "connection": {"type": "winrm"},
+                    "policy": {"destroy_after_job": True},
+                    "health_checks": ["guest-agent"],
+                    "jenkins_agent": {"node_name": node_name, "label": node_name},
+                },
+            )
+            client = FakeProxmoxClient()
+            client.vmids = {9002, 2000}
+            registry = FakeProxmoxRegistry(client)
+            jenkins = FakeJenkinsClient()
+            result = runnerctl_api.run_janitor(
+                registry,
+                lease_store,
+                SAMPLE_INVENTORY,
+                {},
+                jenkins_client=jenkins,
+            )
+            self.assertEqual(result["cleaned_count"], 1)
+            self.assertEqual(result["cleaned"][0]["reason"], "expired")
+            self.assertEqual(client.destroy_requests, [("pve-rtx-01", 2000)])
+            self.assertEqual(jenkins.deleted_nodes, [node_name])
+            self.assertIsNone(lease_store.get(lease_id))
+
+    def test_janitor_skips_expired_vm_without_required_tags(self):
+        with tempfile.TemporaryDirectory() as directory:
+            lease_store = runnerctl_api.LeaseStore(Path(directory) / "leases.json")
+            lease_id = "1" * 32
+            lease_store.put(
+                lease_id,
+                {
+                    "lease_id": lease_id,
+                    "runner_class": "win-gpu-nvidia",
+                    "labels": ["gpu", "nvidia", "windows"],
+                    "host_id": "example-rtx-node",
+                    "node": "pve-rtx-01",
+                    "vmid": 2000,
+                    "template_vmid": 9002,
+                    "clone_name": "runnerctl-win-gpu-nvidia-11111111",
+                    "created_at": 1,
+                    "expires_at": 2,
+                    "state": "leased",
+                    "pool_member": False,
+                    "allocation_mode": "cold-clone",
+                    "connection": {"type": "winrm"},
+                    "policy": {"destroy_after_job": True},
+                    "health_checks": ["guest-agent"],
+                },
+            )
+            client = FakeProxmoxClient()
+            client.vmids = {9002, 2000}
+            client.config_tags = "unrelated"
+            registry = FakeProxmoxRegistry(client)
+            result = runnerctl_api.run_janitor(registry, lease_store, SAMPLE_INVENTORY, {})
+            self.assertEqual(result["cleaned_count"], 0)
+            self.assertEqual(result["skipped"][0]["reason"], "missing-required-tags")
+            self.assertEqual(client.destroy_requests, [])
+            self.assertIsNotNone(lease_store.get(lease_id))
 
 
 if __name__ == "__main__":

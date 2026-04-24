@@ -647,6 +647,97 @@ data:
             }
           }
 
+          pipelineJob('ci/runners/smoke/proxmox-pool-ready') {
+            description('Runs the safe janitor, refills the hot pool, and waits until the requested runner class has a ready preconnected runner.')
+            parameters {
+              stringParam('RUNNER_CLASS', 'win-gpu-nvidia', 'Runner class to keep warm.')
+              stringParam('REQUIRED_LABELS', 'windows,gpu,nvidia,vulkan,runtime-only,gpu-class-rtx-2070', 'Comma-separated runner capability labels.')
+              stringParam('MIN_READY', '1', 'Minimum ready hot-pool members required before success.')
+              stringParam('TIMEOUT_SECONDS', '300', 'Maximum time to wait for pool readiness.')
+            }
+            definition {
+              cps {
+                sandbox()
+                script('''pipeline {
+                  agent none
+                  options {
+                    timestamps()
+                    buildDiscarder(logRotator(daysToKeepStr: '31', numToKeepStr: '100', artifactDaysToKeepStr: '31', artifactNumToKeepStr: '100'))
+                  }
+                  stages {
+                    stage('Validate request') {
+                      steps {
+                        script {
+                          def runnerClass = params.RUNNER_CLASS?.trim()
+                          if (!(runnerClass ==~ /[a-z0-9][a-z0-9-]*/)) {
+                            error 'RUNNER_CLASS must match [a-z0-9][a-z0-9-]*.'
+                          }
+                          def rawLabels = params.REQUIRED_LABELS?.trim()
+                          if (!rawLabels) {
+                            error 'REQUIRED_LABELS is required.'
+                          }
+                          def labels = rawLabels.split(',').collect { it.trim() }.findAll { it }
+                          if (labels.isEmpty()) {
+                            error 'At least one runner label is required.'
+                          }
+                          labels.each { label ->
+                            if (!(label ==~ /[a-z0-9][a-z0-9_.-]*/)) {
+                              error 'Invalid runner label: ' + label
+                            }
+                          }
+                          if (labels.unique(false).size() != labels.size()) {
+                            error 'Runner labels must be unique.'
+                          }
+                          def minReadyText = params.MIN_READY?.trim()
+                          if (!(minReadyText ==~ /[0-9]+/)) {
+                            error 'MIN_READY must be an integer.'
+                          }
+                          def timeoutText = params.TIMEOUT_SECONDS?.trim()
+                          if (!(timeoutText ==~ /[0-9]+/)) {
+                            error 'TIMEOUT_SECONDS must be an integer.'
+                          }
+                          env.POOL_READY_CLASS = runnerClass
+                          env.POOL_READY_LABELS = labels.join(',')
+                          env.POOL_READY_MIN = minReadyText
+                          env.POOL_READY_TIMEOUT = timeoutText
+                          echo('Pool readiness request: class=' + env.POOL_READY_CLASS + ', labels=' + env.POOL_READY_LABELS + ', min_ready=' + env.POOL_READY_MIN + ', timeout_seconds=' + env.POOL_READY_TIMEOUT + '.')
+                        }
+                      }
+                    }
+                    stage('Janitor') {
+                      steps {
+                        script {
+                          runnerJanitor()
+                        }
+                      }
+                    }
+                    stage('Refill hot pool') {
+                      steps {
+                        script {
+                          def labels = env.POOL_READY_LABELS.split(',').collect { it.trim() }.findAll { it }
+                          runnerPoolRefill(runnerClass: env.POOL_READY_CLASS, labels: labels)
+                        }
+                      }
+                    }
+                    stage('Wait ready') {
+                      steps {
+                        script {
+                          def pool = runnerWaitForPoolReady(
+                            runnerClass: env.POOL_READY_CLASS,
+                            minReady: env.POOL_READY_MIN.toInteger(),
+                            timeoutSeconds: env.POOL_READY_TIMEOUT.toInteger(),
+                            pollSeconds: 5
+                          )
+                          echo('Pool is ready: class=' + pool.runner_class + ', counts=' + writeJSON(returnText: true, json: pool.counts ?: [:]) + '.')
+                        }
+                      }
+                    }
+                  }
+                }''')
+              }
+            }
+          }
+
           pipelineJob('ci/runners/smoke/proxmox-runtime-lifecycle') {
             description('Exercises the real runtime lifecycle: resolve by labels, lease, boot, guest-agent and GPU health, and release for an inventory-selected runner template.')
             parameters {
@@ -840,7 +931,7 @@ data:
                 timestamps {
                   withRunner(labels: ['windows', 'gpu', 'nvidia', 'vulkan', 'runtime-only'], leaseTtlMinutes: 30) { runner ->
                     stage('Hello') {
-                      writeFile file: 'runner-summary.txt', text: 'label=' + runner.label + '\\nnode=' + env.NODE_NAME + '\\nworkspace=' + pwd() + '\\n'
+                      writeFile file: 'runner-summary.txt', text: 'label=' + runner.label + '\\nnode=' + env.NODE_NAME + '\\nworkspace=' + pwd() + '\\nready_wall_ms=' + runner.ready_wall_ms + '\\nnode_enter_ms=' + runner.node_enter_ms + '\\n'
                       powershell 'Write-Host "Hello from ephemeral Windows GPU runner"'
                     }
                     stage('GPU sanity') {

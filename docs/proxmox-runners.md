@@ -97,6 +97,10 @@ withRunner(labels: ['windows', 'gpu', 'nvidia', 'vulkan', 'runtime-only']) { run
 }
 ```
 
+`withRunner` logs the client-side wall time for the lease request, entry into
+the Jenkins node, and release. When `runnerctl` returns backend timings, the
+helper prints the allocator phases as sanitized operational data.
+
 The lease response should include only non-secret operational data:
 
 ```json
@@ -337,6 +341,11 @@ The platform should export enough data to explain both correctness and speed:
 - janitor cleanup count
 - stale lease count
 
+`runnerctl` exposes this through sanitized response fields named `timings` and
+through the pool status endpoint. The values are durations and runner state
+only. They do not include credentials, Proxmox token material, guest command
+secrets, or raw provider response bodies.
+
 ## Jenkins Integration
 
 Current Jenkins jobs:
@@ -345,6 +354,7 @@ Current Jenkins jobs:
 - `ci/runners/packer-plan`
 - `ci/runners/smoke/proxmox-api`
 - `ci/runners/smoke/proxmox-warm-clone`
+- `ci/runners/smoke/proxmox-pool-ready`
 - `ci/runners/smoke/proxmox-hot-pool-lifecycle`
 - `ci/runners/smoke/proxmox-runtime-lifecycle`
 - `ci/runners/examples/windows-gpu-hello`
@@ -375,6 +385,8 @@ The smoke jobs already use the live Proxmox API token and verify:
 - scratch template creation
 - linked clone creation
 - start/stop lifecycle
+- safe janitor cleanup for stale tracked runner leases
+- hot-pool refill and readiness before consumer jobs
 - real template lease, boot, QEMU Guest Agent health, and release
 - destroy and cleanup behavior
 

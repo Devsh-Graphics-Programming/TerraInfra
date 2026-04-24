@@ -51,6 +51,7 @@ Current jobs:
 - `ci/runners/packer-plan`: validates the template build and promotion contract in dry-run mode.
 - `ci/runners/smoke/proxmox-api`: runs an inventory-driven read-only Proxmox API smoke check through the pod-local `runnerctl` sidecar endpoint.
 - `ci/runners/smoke/proxmox-warm-clone`: runs a scratch template -> linked clone -> start -> stop -> destroy lifecycle on an inventory-selected host through the pod-local `runnerctl` sidecar endpoint.
+- `ci/runners/smoke/proxmox-pool-ready`: runs the safe runner janitor, refills the hot pool, and waits until the requested runner class has a ready preconnected runner.
 - `ci/runners/smoke/proxmox-hot-pool-lifecycle`: refills the hot pool, leases an already running and healthy Windows GPU runner, verifies the cached hot-pool health guard, and releases it.
 - `ci/runners/smoke/proxmox-runtime-lifecycle`: runs the real template lifecycle `resolve allocation -> lease -> boot -> guest-agent and GPU health -> release` through the pod-local `runnerctl` sidecar endpoint.
 - `ci/runners/examples/windows-gpu-hello`: leases an ephemeral Windows GPU Jenkins node by labels, runs native Pipeline steps on `node(runner.label)`, archives a small proof, and releases the node and VM.

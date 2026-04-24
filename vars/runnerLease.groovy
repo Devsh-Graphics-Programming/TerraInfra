@@ -1,4 +1,5 @@
 def call(Map args = [:]) {
+  def started = System.currentTimeMillis()
   def labels = (args.labels ?: []).collect { it.toString().trim() }.findAll { it }
   if (labels.isEmpty()) {
     error('runnerLease requires at least one label.')
@@ -16,6 +17,11 @@ def call(Map args = [:]) {
     labels: labels,
     lease_ttl_minutes: (args.leaseTtlMinutes ?: 30).toString()
   ])
-  echo('Runner online: label=' + result.label + ', allocation_mode=' + result.allocation_mode + ', host=' + result.host_id + ', node=' + result.node + ', vmid=' + result.vmid + '.')
+  result.client_lease_ms = System.currentTimeMillis() - started
+  echo('Runner online after ' + runnerFormatDuration(result.client_lease_ms) + ': label=' + result.label + ', allocation_mode=' + result.allocation_mode + ', host=' + result.host_id + ', node=' + result.node + ', vmid=' + result.vmid + '.')
+  def timingText = runnerDescribeTimings(result.timings ?: [:])
+  if (timingText) {
+    echo('Runner lease timings: ' + timingText + '.')
+  }
   return result
 }

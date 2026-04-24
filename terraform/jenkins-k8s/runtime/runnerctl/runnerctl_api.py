@@ -107,6 +107,22 @@ def now_epoch():
     return int(time.time())
 
 
+def monotonic_ms():
+    return int(time.monotonic() * 1000)
+
+
+def elapsed_ms(start_ms):
+    return max(0, monotonic_ms() - start_ms)
+
+
+def merge_timings(*items):
+    merged = {}
+    for item in items:
+        if isinstance(item, dict):
+            merged.update(item)
+    return merged
+
+
 class InventoryStore:
     def __init__(self, path):
         self.path = Path(path)
@@ -650,6 +666,9 @@ class ProxmoxApiClient:
     def vm_status(self, node, vmid):
         return self.request("GET", f"/nodes/{node}/qemu/{vmid}/status/current") or {}
 
+    def vm_config(self, node, vmid):
+        return self.request("GET", f"/nodes/{node}/qemu/{vmid}/config") or {}
+
     def start_vm(self, node, vmid):
         status = self.vm_status(node, vmid)
         if status.get("status") == "running":
@@ -1032,8 +1051,8 @@ def active_records_for_candidate(leases, runner_class, candidate):
     return records
 
 
-def public_lease_result(record, allocation_mode):
-    return {
+def public_lease_result(record, allocation_mode, timings=None):
+    result = {
         "lease_id": record["lease_id"],
         "runner_class": record["runner_class"],
         "labels": record["labels"],
@@ -1046,6 +1065,10 @@ def public_lease_result(record, allocation_mode):
         "allocation_mode": allocation_mode,
         "ready": record.get("state") in {"ready", "leased", "healthy"} and allocation_mode == "hot-pool",
     }
+    timing_data = merge_timings(record.get("timings"), timings)
+    if timing_data:
+        result["timings"] = timing_data
+    return result
 
 
 def run_health_checks(client, node, vmid, requested_checks):
@@ -1117,6 +1140,7 @@ def health_cache_age_seconds(record):
 
 
 def acquire_ready_pool_member(client_registry, lease_store, inventory, resolved, candidates):
+    acquire_started_ms = monotonic_ms()
     leases = lease_store.all()
     now = now_epoch()
     for candidate in candidates:
@@ -1163,14 +1187,29 @@ def acquire_ready_pool_member(client_registry, lease_store, inventory, resolved,
                     "jenkins_host_alias_ip": candidate.get("jenkins_host_alias_ip"),
                 },
             )
-            return public_lease_result(updated, "hot-pool")
+            timings = merge_timings(
+                record.get("timings"),
+                {
+                    "allocation_ms": elapsed_ms(acquire_started_ms),
+                    "hot_pool_acquire_ms": elapsed_ms(acquire_started_ms),
+                    "health_cache_age_seconds": health_cache_age_seconds(record),
+                },
+            )
+            updated = lease_store.update(lease_id, {"timings": timings})
+            return public_lease_result(updated, "hot-pool", timings)
     return None
 
 
 def create_lease(client_registry, lease_store, inventory, request_data):
+    lease_started_ms = monotonic_ms()
     resolved, candidates = resolve_lease_request(inventory, request_data)
     ready_result = acquire_ready_pool_member(client_registry, lease_store, inventory, resolved, candidates)
     if ready_result is not None:
+        ready_timings = merge_timings(
+            ready_result.get("timings"),
+            {"lease_total_ms": elapsed_ms(lease_started_ms), "allocation_mode": "hot-pool"},
+        )
+        ready_result["timings"] = ready_timings
         return ready_result
 
     skipped = []
@@ -1199,6 +1238,7 @@ def create_lease(client_registry, lease_store, inventory, request_data):
 
             clone_created = False
             try:
+                clone_started_ms = monotonic_ms()
                 clone_upid = client.request(
                     "POST",
                     f"/nodes/{node}/qemu/{template_vmid}/clone",
@@ -1212,13 +1252,16 @@ def create_lease(client_registry, lease_store, inventory, request_data):
                     },
                 )
                 client.wait_task(node, str(clone_upid), 180)
+                clone_ms = elapsed_ms(clone_started_ms)
                 clone_created = True
+                configure_started_ms = monotonic_ms()
                 configure_runtime_network(client, node, vmid, candidate)
                 client.request(
                     "POST",
                     f"/nodes/{node}/qemu/{vmid}/config",
                     data={"tags": LEASED_TAGS},
                 )
+                configure_ms = elapsed_ms(configure_started_ms)
 
                 created_at = now_epoch()
                 expires_at = created_at + (int(resolved["policy"]["lease_ttl_minutes"]) * 60)
@@ -1240,6 +1283,13 @@ def create_lease(client_registry, lease_store, inventory, request_data):
                     "policy": build_policy_record(resolved),
                     "health_checks": resolved["health_checks"],
                     "jenkins_host_alias_ip": candidate.get("jenkins_host_alias_ip"),
+                    "timings": {
+                        "clone_ms": clone_ms,
+                        "configure_ms": configure_ms,
+                        "allocation_ms": elapsed_ms(lease_started_ms),
+                        "lease_total_ms": elapsed_ms(lease_started_ms),
+                        "allocation_mode": "cold-clone",
+                    },
                 }
                 lease_store.put(lease_id, record)
             except Exception:
@@ -1539,6 +1589,7 @@ def run_named_health_check(client, node, vmid, check_name):
 
 
 def prepare_lease(client_registry, lease_store, inventory, request_data):
+    prepare_started_ms = monotonic_ms()
     lease_id = require_pattern(request_data.get("lease_id", ""), LEASE_ID_PATTERN, "lease_id")
     record = lease_store.get(lease_id)
     if record is None:
@@ -1552,15 +1603,27 @@ def prepare_lease(client_registry, lease_store, inventory, request_data):
 
     cached_health = cached_health_for_record(record, requested_checks)
     if cached_health is not None:
+        guard_started_ms = monotonic_ms()
         client.agent_ping(node, vmid)
+        guard_ms = elapsed_ms(guard_started_ms)
+        prepared_at = now_epoch()
+        timings = merge_timings(
+            record.get("timings"),
+            {
+                "prepare_ms": elapsed_ms(prepare_started_ms),
+                "guest_agent_guard_ms": guard_ms,
+                "health_source": "hot-pool-cache",
+            },
+        )
         updated = lease_store.update(
             lease_id,
             {
                 "state": "healthy",
-                "prepared_at": now_epoch(),
-                "healthy_at": now_epoch(),
+                "prepared_at": prepared_at,
+                "healthy_at": prepared_at,
                 "last_health": cached_health,
                 "last_health_source": "hot-pool-cache",
+                "timings": timings,
             },
         )
         return {
@@ -1574,13 +1637,30 @@ def prepare_lease(client_registry, lease_store, inventory, request_data):
             "health_cached": True,
             "health_cache_age_seconds": health_cache_age_seconds(record),
             "last_health_at": record.get("last_health_at"),
+            "timings": timings,
         }
 
     lease_store.update(lease_id, {"state": "booting", "prepared_at": now_epoch()})
+    start_started_ms = monotonic_ms()
     client.start_vm(node, vmid)
+    start_vm_ms = elapsed_ms(start_started_ms)
+    guest_agent_started_ms = monotonic_ms()
     wait_for_guest_agent(client, node, vmid, boot_timeout_seconds)
+    guest_agent_wait_ms = elapsed_ms(guest_agent_started_ms)
+    health_started_ms = monotonic_ms()
     checks = run_health_checks(client, node, vmid, requested_checks)
+    health_check_ms = elapsed_ms(health_started_ms)
     last_health_at = now_epoch()
+    timings = merge_timings(
+        record.get("timings"),
+        {
+            "start_vm_ms": start_vm_ms,
+            "guest_agent_wait_ms": guest_agent_wait_ms,
+            "health_check_ms": health_check_ms,
+            "prepare_ms": elapsed_ms(prepare_started_ms),
+            "health_source": "live",
+        },
+    )
     updated = lease_store.update(
         lease_id,
         {
@@ -1589,6 +1669,7 @@ def prepare_lease(client_registry, lease_store, inventory, request_data):
             "last_health": checks,
             "last_health_at": last_health_at,
             "last_health_source": "live",
+            "timings": timings,
         },
     )
     return {
@@ -1601,10 +1682,12 @@ def prepare_lease(client_registry, lease_store, inventory, request_data):
         "health": updated["last_health"],
         "health_cached": False,
         "last_health_at": updated.get("last_health_at"),
+        "timings": timings,
     }
 
 
 def health_lease(client_registry, lease_store, inventory, request_data):
+    health_started_ms = monotonic_ms()
     lease_id = require_pattern(request_data.get("lease_id", ""), LEASE_ID_PATTERN, "lease_id")
     record = lease_store.get(lease_id)
     if record is None:
@@ -1617,9 +1700,19 @@ def health_lease(client_registry, lease_store, inventory, request_data):
     requested_checks = record.get("health_checks", []) or ["guest-agent"]
     cached_health = cached_health_for_record(record, requested_checks)
     if cached_health is not None:
+        guard_started_ms = monotonic_ms()
         client.agent_ping(node, vmid)
+        guard_ms = elapsed_ms(guard_started_ms)
         overall = "passed" if health_checks_passed(cached_health) else "failed"
-        lease_store.update(lease_id, {"last_health": cached_health, "last_health_source": "hot-pool-cache"})
+        timings = merge_timings(
+            record.get("timings"),
+            {
+                "health_ms": elapsed_ms(health_started_ms),
+                "health_guard_ms": guard_ms,
+                "health_source": "hot-pool-cache",
+            },
+        )
+        lease_store.update(lease_id, {"last_health": cached_health, "last_health_source": "hot-pool-cache", "timings": timings})
         return {
             "lease_id": lease_id,
             "state": record.get("state"),
@@ -1628,13 +1721,21 @@ def health_lease(client_registry, lease_store, inventory, request_data):
             "cached": True,
             "health_cache_age_seconds": health_cache_age_seconds(record),
             "last_health_at": record.get("last_health_at"),
+            "timings": timings,
         }
 
     checks = run_health_checks(client, node, vmid, requested_checks)
 
     overall = "passed" if health_checks_passed(checks) else "failed"
     last_health_at = now_epoch()
-    lease_store.update(lease_id, {"last_health": checks, "last_health_at": last_health_at, "last_health_source": "live"})
+    timings = merge_timings(
+        record.get("timings"),
+        {
+            "health_ms": elapsed_ms(health_started_ms),
+            "health_source": "live",
+        },
+    )
+    lease_store.update(lease_id, {"last_health": checks, "last_health_at": last_health_at, "last_health_source": "live", "timings": timings})
     return {
         "lease_id": lease_id,
         "state": record.get("state"),
@@ -1642,12 +1743,13 @@ def health_lease(client_registry, lease_store, inventory, request_data):
         "checks": checks,
         "cached": False,
         "last_health_at": last_health_at,
+        "timings": timings,
     }
 
 
 def public_agent_lease_result(record, prepare_result):
     agent = record.get("jenkins_agent", {})
-    return {
+    result = {
         "lease_id": record["lease_id"],
         "runner_class": record["runner_class"],
         "labels": record["labels"],
@@ -1663,9 +1765,14 @@ def public_agent_lease_result(record, prepare_result):
         "health": prepare_result.get("health", {}),
         "health_cached": bool(prepare_result.get("health_cached", False)),
     }
+    timings = merge_timings(record.get("timings"), prepare_result.get("timings"))
+    if timings:
+        result["timings"] = timings
+    return result
 
 
 def lease_jenkins_agent(client_registry, lease_store, inventory, request_data, jenkins_client):
+    lease_agent_started_ms = monotonic_ms()
     lease_id = None
     node_name = None
     try:
@@ -1677,9 +1784,13 @@ def lease_jenkins_agent(client_registry, lease_store, inventory, request_data, j
         if request_data.get("lease_ttl_minutes") is not None:
             lease_request["lease_ttl_minutes"] = request_data["lease_ttl_minutes"]
 
+        allocator_started_ms = monotonic_ms()
         lease_result = create_lease(client_registry, lease_store, inventory, lease_request)
+        allocator_ms = elapsed_ms(allocator_started_ms)
         lease_id = lease_result["lease_id"]
+        prepare_started_ms = monotonic_ms()
         prepare_result = prepare_lease(client_registry, lease_store, inventory, {"lease_id": lease_id})
+        prepare_ms = elapsed_ms(prepare_started_ms)
         record = lease_store.get(lease_id)
         if record is None:
             raise RunnerCtlError(HTTPStatus.NOT_FOUND, "not-found", "Lease was not found.", {"lease_id": lease_id})
@@ -1689,6 +1800,7 @@ def lease_jenkins_agent(client_registry, lease_store, inventory, request_data, j
         work_dir = os.getenv("RUNNERCTL_JENKINS_AGENT_WORK_DIR", "C:\\runner\\jenkins-agent")
         agent_timeout_seconds = int(os.getenv("RUNNERCTL_JENKINS_AGENT_TIMEOUT_SECONDS", "120"))
         existing_agent = record.get("jenkins_agent") or {}
+        agent_started_ms = monotonic_ms()
         if existing_agent.get("node_name"):
             node_name = existing_agent["node_name"]
             try:
@@ -1723,12 +1835,25 @@ def lease_jenkins_agent(client_registry, lease_store, inventory, request_data, j
                 include_capability_labels=True,
             )
         node_name = agent["node_name"]
+        agent_connect_ms = elapsed_ms(agent_started_ms)
+        timings = merge_timings(
+            record.get("timings"),
+            lease_result.get("timings"),
+            prepare_result.get("timings"),
+            {
+                "allocator_api_ms": allocator_ms,
+                "prepare_api_ms": prepare_ms,
+                "jenkins_agent_connect_ms": agent_connect_ms,
+                "agent_lease_total_ms": elapsed_ms(lease_agent_started_ms),
+            },
+        )
 
         updated = lease_store.update(
             lease_id,
             {
                 "state": "agent-online",
                 "jenkins_agent": agent,
+                "timings": timings,
             },
         )
         return public_agent_lease_result(updated, prepare_result)
@@ -1747,6 +1872,7 @@ def lease_jenkins_agent(client_registry, lease_store, inventory, request_data, j
 
 
 def release_lease(client_registry, lease_store, inventory, request_data, jenkins_client=None):
+    release_started_ms = monotonic_ms()
     lease_id = require_pattern(request_data.get("lease_id", ""), LEASE_ID_PATTERN, "lease_id")
     record = lease_store.get(lease_id)
     if record is None:
@@ -1758,12 +1884,17 @@ def release_lease(client_registry, lease_store, inventory, request_data, jenkins
     vmid = require_int(record.get("vmid", ""), "vmid", minimum=100, maximum=999999999)
     agent_deleted = False
     agent = record.get("jenkins_agent") or {}
+    delete_agent_ms = 0
     if jenkins_client is not None and agent.get("node_name"):
+        delete_agent_started_ms = monotonic_ms()
         try:
             agent_deleted = jenkins_client.delete_agent_node(agent["node_name"])
         except RunnerCtlError:
             agent_deleted = False
+        delete_agent_ms = elapsed_ms(delete_agent_started_ms)
+    destroy_started_ms = monotonic_ms()
     destroyed = client.safe_destroy(node, vmid)
+    destroy_vm_ms = elapsed_ms(destroy_started_ms)
     lease_store.delete(lease_id)
     return {
         "lease_id": lease_id,
@@ -1773,10 +1904,131 @@ def release_lease(client_registry, lease_store, inventory, request_data, jenkins
         "vmid": vmid,
         "destroyed_vm": destroyed,
         "deleted_jenkins_node": agent_deleted,
+        "timings": {
+            "delete_jenkins_node_ms": delete_agent_ms,
+            "destroy_vm_ms": destroy_vm_ms,
+            "release_ms": elapsed_ms(release_started_ms),
+        },
+    }
+
+
+def request_bool(request_data, field_name, default=False):
+    value = request_data.get(field_name, default)
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def lease_record_janitor_reason(inventory, record, now, stale_after_seconds):
+    lease_id = str(record.get("lease_id", ""))
+    if not LEASE_ID_PATTERN.fullmatch(lease_id):
+        return None
+    state = record.get("state")
+    if state not in ACTIVE_RUNNER_STATES:
+        return None
+    if not str(record.get("clone_name", "")).startswith("runnerctl-"):
+        return None
+    host = host_by_id(inventory, record.get("host_id"))
+    if record.get("node") != host.get("node"):
+        return None
+    vmid = require_int(record.get("vmid", ""), "vmid", minimum=100, maximum=999999999)
+    janitor = inventory.get("janitor", {})
+    range_ref = janitor.get("vmid_range", "runner")
+    vmid_range = host_vmid_range(host, range_ref)
+    if vmid < vmid_range["start"] or vmid > vmid_range["end"]:
+        return None
+    try:
+        expires_at = int(record.get("expires_at", 0))
+    except (TypeError, ValueError):
+        expires_at = 0
+    if expires_at > 0 and now >= expires_at:
+        return "expired"
+    if state == "ready":
+        return None
+    timestamps = []
+    for key in ("leased_at", "prepared_at", "healthy_at", "created_at"):
+        try:
+            value = int(record.get(key, 0))
+        except (TypeError, ValueError):
+            value = 0
+        if value > 0:
+            timestamps.append(value)
+    reference_at = max(timestamps) if timestamps else 0
+    if reference_at > 0 and now - reference_at >= stale_after_seconds:
+        return "stale"
+    return None
+
+
+def run_janitor(client_registry, lease_store, inventory, request_data, jenkins_client=None):
+    dry_run = request_bool(request_data, "dry_run", False)
+    now = now_epoch()
+    janitor = inventory.get("janitor", {})
+    stale_after_minutes = int(janitor.get("stale_lease_after_minutes", 240))
+    stale_after_seconds = max(60, stale_after_minutes * 60)
+    cleaned = []
+    skipped = []
+
+    for lease_id, record in sorted(lease_store.all().items()):
+        try:
+            reason = lease_record_janitor_reason(inventory, record, now, stale_after_seconds)
+        except RunnerCtlError as exc:
+            skipped.append({"lease_id": lease_id, "reason": exc.code})
+            continue
+        if reason is None:
+            continue
+
+        host = host_by_id(inventory, record["host_id"])
+        client = client_registry.client_for_host(inventory, host)
+        node = require_pattern(record.get("node", ""), SAFE_NAME_PATTERN, "node")
+        vmid = require_int(record.get("vmid", ""), "vmid", minimum=100, maximum=999999999)
+        active_vmids = client.qemu_vmids(node)
+        vm_exists = vmid in active_vmids
+        if vm_exists:
+            required_tags = set(janitor.get("require_tags", []))
+            vm_config = client.vm_config(node, vmid)
+            actual_tags = set(str(vm_config.get("tags", "")).split(";"))
+            missing_tags = sorted(required_tags - actual_tags)
+            if missing_tags:
+                skipped.append({"lease_id": lease_id, "reason": "missing-required-tags", "missing_tags": missing_tags})
+                continue
+        agent_deleted = False
+        destroyed = False
+        if not dry_run:
+            agent = record.get("jenkins_agent") or {}
+            if jenkins_client is not None and agent.get("node_name"):
+                try:
+                    agent_deleted = jenkins_client.delete_agent_node(agent["node_name"])
+                except RunnerCtlError:
+                    agent_deleted = False
+            if vm_exists:
+                destroyed = client.safe_destroy(node, vmid)
+            lease_store.delete(lease_id)
+        cleaned.append(
+            {
+                "lease_id": lease_id,
+                "runner_class": record.get("runner_class"),
+                "host_id": record.get("host_id"),
+                "node": node,
+                "vmid": vmid,
+                "state": record.get("state"),
+                "reason": reason,
+                "destroyed_vm": destroyed,
+                "deleted_jenkins_node": agent_deleted,
+            }
+        )
+
+    return {
+        "result": "success",
+        "dry_run": dry_run,
+        "cleaned": cleaned,
+        "skipped": skipped,
+        "cleaned_count": len(cleaned),
+        "skipped_count": len(skipped),
     }
 
 
 def build_ready_pool_member(client_registry, lease_store, inventory, resolved, candidate, jenkins_client=None):
+    pool_started_ms = monotonic_ms()
     host = host_by_id(inventory, candidate["host_id"])
     node = candidate["node"]
     client = client_registry.client_for_host(inventory, host)
@@ -1823,6 +2075,7 @@ def build_ready_pool_member(client_registry, lease_store, inventory, resolved, c
 
     preconnected_node_name = None
     try:
+        clone_started_ms = monotonic_ms()
         clone_upid = client.request(
             "POST",
             f"/nodes/{node}/qemu/{template_vmid}/clone",
@@ -1836,11 +2089,20 @@ def build_ready_pool_member(client_registry, lease_store, inventory, resolved, c
             },
         )
         client.wait_task(node, str(clone_upid), 180)
+        clone_ms = elapsed_ms(clone_started_ms)
+        configure_started_ms = monotonic_ms()
         configure_runtime_network(client, node, vmid, candidate)
         client.set_tags(node, vmid, HOT_POOL_TAGS_CREATING)
+        configure_ms = elapsed_ms(configure_started_ms)
+        start_started_ms = monotonic_ms()
         client.start_vm(node, vmid)
+        start_vm_ms = elapsed_ms(start_started_ms)
+        guest_agent_started_ms = monotonic_ms()
         wait_for_guest_agent(client, node, vmid, int(resolved["policy"].get("boot_timeout_minutes", 10)) * 60)
+        guest_agent_wait_ms = elapsed_ms(guest_agent_started_ms)
+        health_started_ms = monotonic_ms()
         checks = run_health_checks(client, node, vmid, resolved["health_checks"])
+        health_check_ms = elapsed_ms(health_started_ms)
         if not health_checks_passed(checks):
             raise RunnerCtlError(
                 HTTPStatus.BAD_GATEWAY,
@@ -1849,10 +2111,12 @@ def build_ready_pool_member(client_registry, lease_store, inventory, resolved, c
                 {"host_id": candidate["host_id"], "node": node, "vmid": vmid, "checks": checks},
             )
         jenkins_agent = None
+        jenkins_agent_ms = 0
         if hot_pool_preconnect_agents_enabled() and jenkins_client is not None:
             work_dir = os.getenv("RUNNERCTL_JENKINS_AGENT_WORK_DIR", "C:\\runner\\jenkins-agent")
             agent_timeout_seconds = int(os.getenv("RUNNERCTL_JENKINS_AGENT_TIMEOUT_SECONDS", "120"))
             latest_record = lease_store.get(pool_id) or record
+            jenkins_agent_started_ms = monotonic_ms()
             jenkins_agent = attach_jenkins_agent_to_record(
                 client,
                 host,
@@ -1862,6 +2126,7 @@ def build_ready_pool_member(client_registry, lease_store, inventory, resolved, c
                 agent_timeout_seconds,
                 include_capability_labels=False,
             )
+            jenkins_agent_ms = elapsed_ms(jenkins_agent_started_ms)
             preconnected_node_name = jenkins_agent["node_name"]
         ready_at = now_epoch()
         client.set_tags(node, vmid, HOT_POOL_TAGS_READY)
@@ -1870,6 +2135,15 @@ def build_ready_pool_member(client_registry, lease_store, inventory, resolved, c
             "ready_at": ready_at,
             "last_health": checks,
             "last_health_at": ready_at,
+            "timings": {
+                "clone_ms": clone_ms,
+                "configure_ms": configure_ms,
+                "start_vm_ms": start_vm_ms,
+                "guest_agent_wait_ms": guest_agent_wait_ms,
+                "health_check_ms": health_check_ms,
+                "jenkins_agent_connect_ms": jenkins_agent_ms,
+                "pool_member_ready_ms": elapsed_ms(pool_started_ms),
+            },
         }
         if jenkins_agent:
             ready_update["jenkins_agent"] = jenkins_agent
@@ -1883,6 +2157,7 @@ def build_ready_pool_member(client_registry, lease_store, inventory, resolved, c
             "clone_name": updated["clone_name"],
             "state": updated["state"],
             "health": updated["last_health"],
+            "timings": updated.get("timings", {}),
         }
     except Exception:
         if preconnected_node_name and jenkins_client is not None:
@@ -1929,6 +2204,7 @@ def resolve_pool_targets(inventory, request_data):
 
 
 def refill_hot_pool(client_registry, lease_store, inventory, request_data, jenkins_client=None):
+    janitor_result = run_janitor(client_registry, lease_store, inventory, {}, jenkins_client=jenkins_client)
     targets = resolve_pool_targets(inventory, request_data)
     results = []
     for resolved, candidates in targets:
@@ -1987,11 +2263,12 @@ def refill_hot_pool(client_registry, lease_store, inventory, request_data, jenki
                 "status": class_status,
             }
         )
-    return {"result": "success", "pools": results}
+    return {"result": "success", "janitor": janitor_result, "pools": results}
 
 
 def hot_pool_status(lease_store, inventory):
     leases = lease_store.all()
+    now = now_epoch()
     pools = []
     for runner_class in inventory.get("runner_classes", []):
         class_id = require_pattern(runner_class.get("id", ""), ID_PATTERN, "runner_class")
@@ -2011,6 +2288,16 @@ def hot_pool_status(lease_store, inventory):
                     "pool_member": bool(record.get("pool_member", False)),
                     "allocation_mode": record.get("allocation_mode", "cold-clone"),
                     "clone_name": record.get("clone_name"),
+                    "created_at": record.get("created_at"),
+                    "ready_at": record.get("ready_at"),
+                    "leased_at": record.get("leased_at"),
+                    "expires_at": record.get("expires_at"),
+                    "age_seconds": max(0, now - int(record.get("created_at", now) or now)),
+                    "expires_in_seconds": int(record.get("expires_at", now) or now) - now,
+                    "last_health_at": record.get("last_health_at"),
+                    "health_cache_age_seconds": health_cache_age_seconds(record),
+                    "has_jenkins_agent": bool((record.get("jenkins_agent") or {}).get("node_name")),
+                    "timings": record.get("timings", {}),
                 }
             )
         pools.append(
@@ -2328,6 +2615,12 @@ class RunnerCtlHandler(BaseHTTPRequestHandler):
                         request_data,
                         jenkins_client=jenkins_client,
                     )
+                self._write_json(HTTPStatus.OK, {"status": "ok", **result})
+                return
+            if self.path == "/api/v1/janitor/run":
+                inventory = self._inventory()
+                with self.server.operation_lock:
+                    result = run_janitor(self._clients(), self.server.lease_store, inventory, request_data, jenkins_client=self._jenkins())
                 self._write_json(HTTPStatus.OK, {"status": "ok", **result})
                 return
             if self.path == "/api/v1/proxmox/smoke":
