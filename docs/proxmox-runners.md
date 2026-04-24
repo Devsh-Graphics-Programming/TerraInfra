@@ -162,12 +162,18 @@ leases or destroy stale clones without touching unrelated infrastructure.
 The preferred fast path is:
 
 ```text
-lease -> acquire ready hot clone -> quick health -> execute -> destroy
+lease -> acquire ready hot clone -> cached health guard -> execute -> destroy
 ```
 
 The hot clone is still disposable. It is destroyed after the job and replaced
 by the background reconciler, so the platform does not rely on mutable pet VMs
 or runtime snapshot rollback.
+
+Hot pool members are fully health-checked before they enter the `ready` state.
+When a job leases a fresh hot member, the allocator can reuse that recent
+health result and only perform a live guest-agent guard before handing the VM
+to the job. If the cached result is too old, the allocator falls back to full
+live health checks.
 
 ### Cold path
 

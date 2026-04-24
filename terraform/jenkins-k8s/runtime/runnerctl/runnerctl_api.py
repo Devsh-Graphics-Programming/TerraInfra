@@ -727,6 +727,46 @@ def health_checks_passed(checks):
     return bool(checks) and all(value == "passed" for value in checks.values())
 
 
+def hot_pool_health_cache_ttl_seconds():
+    raw_value = os.getenv("RUNNERCTL_HOT_POOL_HEALTH_CACHE_TTL_SECONDS", "300")
+    try:
+        return max(0, int(raw_value))
+    except ValueError:
+        return 300
+
+
+def cached_health_for_record(record, requested_checks):
+    if record.get("allocation_mode") != "hot-pool":
+        return None
+    ttl_seconds = hot_pool_health_cache_ttl_seconds()
+    if ttl_seconds <= 0:
+        return None
+    last_health = record.get("last_health")
+    if not isinstance(last_health, dict):
+        return None
+    try:
+        last_health_at = int(record.get("last_health_at", 0))
+    except (TypeError, ValueError):
+        return None
+    if now_epoch() - last_health_at > ttl_seconds:
+        return None
+    checks = requested_checks or ["guest-agent"]
+    for check_name in checks:
+        if last_health.get(check_name) != "passed":
+            return None
+    return dict(last_health)
+
+
+def health_cache_age_seconds(record):
+    try:
+        last_health_at = int(record.get("last_health_at", 0))
+    except (TypeError, ValueError):
+        return None
+    if last_health_at <= 0:
+        return None
+    return max(0, now_epoch() - last_health_at)
+
+
 def acquire_ready_pool_member(client_registry, lease_store, inventory, resolved, candidates):
     leases = lease_store.all()
     now = now_epoch()
@@ -950,17 +990,47 @@ def prepare_lease(client_registry, lease_store, inventory, request_data):
     node = require_pattern(record.get("node", ""), SAFE_NAME_PATTERN, "node")
     vmid = require_int(record.get("vmid", ""), "vmid", minimum=100, maximum=999999999)
     boot_timeout_seconds = int(record.get("policy", {}).get("boot_timeout_minutes", 10)) * 60
+    requested_checks = record.get("health_checks", [])
+
+    cached_health = cached_health_for_record(record, requested_checks)
+    if cached_health is not None:
+        client.agent_ping(node, vmid)
+        updated = lease_store.update(
+            lease_id,
+            {
+                "state": "healthy",
+                "prepared_at": now_epoch(),
+                "healthy_at": now_epoch(),
+                "last_health": cached_health,
+                "last_health_source": "hot-pool-cache",
+            },
+        )
+        return {
+            "lease_id": lease_id,
+            "state": updated["state"],
+            "host_id": record["host_id"],
+            "node": node,
+            "vmid": vmid,
+            "allocation_mode": record.get("allocation_mode", "cold-clone"),
+            "health": updated["last_health"],
+            "health_cached": True,
+            "health_cache_age_seconds": health_cache_age_seconds(record),
+            "last_health_at": record.get("last_health_at"),
+        }
 
     lease_store.update(lease_id, {"state": "booting", "prepared_at": now_epoch()})
     client.start_vm(node, vmid)
     wait_for_guest_agent(client, node, vmid, boot_timeout_seconds)
-    checks = run_health_checks(client, node, vmid, record.get("health_checks", []))
+    checks = run_health_checks(client, node, vmid, requested_checks)
+    last_health_at = now_epoch()
     updated = lease_store.update(
         lease_id,
         {
             "state": "healthy",
-            "healthy_at": now_epoch(),
+            "healthy_at": last_health_at,
             "last_health": checks,
+            "last_health_at": last_health_at,
+            "last_health_source": "live",
         },
     )
     return {
@@ -971,6 +1041,8 @@ def prepare_lease(client_registry, lease_store, inventory, request_data):
         "vmid": vmid,
         "allocation_mode": record.get("allocation_mode", "cold-clone"),
         "health": updated["last_health"],
+        "health_cached": False,
+        "last_health_at": updated.get("last_health_at"),
     }
 
 
@@ -985,15 +1057,33 @@ def health_lease(client_registry, lease_store, inventory, request_data):
     vmid = require_int(record.get("vmid", ""), "vmid", minimum=100, maximum=999999999)
 
     requested_checks = record.get("health_checks", []) or ["guest-agent"]
+    cached_health = cached_health_for_record(record, requested_checks)
+    if cached_health is not None:
+        client.agent_ping(node, vmid)
+        overall = "passed" if health_checks_passed(cached_health) else "failed"
+        lease_store.update(lease_id, {"last_health": cached_health, "last_health_source": "hot-pool-cache"})
+        return {
+            "lease_id": lease_id,
+            "state": record.get("state"),
+            "overall": overall,
+            "checks": cached_health,
+            "cached": True,
+            "health_cache_age_seconds": health_cache_age_seconds(record),
+            "last_health_at": record.get("last_health_at"),
+        }
+
     checks = run_health_checks(client, node, vmid, requested_checks)
 
     overall = "passed" if health_checks_passed(checks) else "failed"
-    lease_store.update(lease_id, {"last_health": checks, "last_health_at": now_epoch()})
+    last_health_at = now_epoch()
+    lease_store.update(lease_id, {"last_health": checks, "last_health_at": last_health_at, "last_health_source": "live"})
     return {
         "lease_id": lease_id,
         "state": record.get("state"),
         "overall": overall,
         "checks": checks,
+        "cached": False,
+        "last_health_at": last_health_at,
     }
 
 

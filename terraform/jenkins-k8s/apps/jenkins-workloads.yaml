@@ -28,7 +28,7 @@ spec:
       labels:
         app.kubernetes.io/name: jenkins
       annotations:
-        devsh.eu/config-revision: "2026-04-24-runner-hot-pool-v16"
+        devsh.eu/config-revision: "2026-04-24-runner-hot-pool-cache-v17"
     spec:
       enableServiceLinks: false
       securityContext:
@@ -166,6 +166,8 @@ spec:
               value: "60"
             - name: RUNNERCTL_HOT_POOL_INITIAL_DELAY_SECONDS
               value: "10"
+            - name: RUNNERCTL_HOT_POOL_HEALTH_CACHE_TTL_SECONDS
+              value: "300"
           command:
             - python3
             - /opt/runnerctl/runnerctl_api.py

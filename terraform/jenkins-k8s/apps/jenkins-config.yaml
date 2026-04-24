@@ -572,6 +572,9 @@ data:
                             error('Hot runner prepare failed: ' + (result.message ?: 'unexpected error'))
                           }
                           echo('Hot runner prepared: allocation_mode=' + result.allocation_mode + ', host=' + result.host_id + ', node=' + result.node + ', vmid=' + result.vmid + '.')
+                          if (result.health_cached) {
+                            echo('Prepare used cached hot-pool health, age=' + result.health_cache_age_seconds + 's.')
+                          }
                           result.health.each { name, value ->
                             echo('Prepare health ' + name + ': ' + value)
                           }
@@ -594,6 +597,9 @@ data:
                             error('Hot runner health failed: ' + writeJSON(returnText: true, json: result))
                           }
                           echo('Hot runner health overall: ' + result.overall + '.')
+                          if (result.cached) {
+                            echo('Health used cached hot-pool result, age=' + result.health_cache_age_seconds + 's.')
+                          }
                           result.checks.each { name, value ->
                             echo('Health ' + name + ': ' + value)
                           }

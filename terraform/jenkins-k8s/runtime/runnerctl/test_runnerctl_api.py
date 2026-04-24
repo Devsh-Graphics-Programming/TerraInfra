@@ -184,6 +184,9 @@ class FakeProxmoxClient:
         self.clone_requests = []
         self.config_requests = []
         self.destroy_requests = []
+        self.start_requests = []
+        self.agent_ping_requests = []
+        self.guest_exec_requests = []
         self.tag_requests = []
         self.vmids = {9002}
 
@@ -207,11 +210,23 @@ class FakeProxmoxClient:
         self.destroy_requests.append((node, vmid))
         return True
 
+    def start_vm(self, node, vmid):
+        self.start_requests.append((node, vmid))
+        return True
+
     def vm_status(self, node, vmid):
         return {"status": "running"}
 
     def agent_ping(self, node, vmid):
+        self.agent_ping_requests.append((node, vmid))
         return True
+
+    def agent_network_get_interfaces(self, node, vmid):
+        return [{"name": "Ethernet"}]
+
+    def guest_exec(self, node, vmid, command, timeout_seconds):
+        self.guest_exec_requests.append((node, vmid, command, timeout_seconds))
+        return {"exitcode": 0}
 
     def set_tags(self, node, vmid, tags):
         self.tag_requests.append((node, vmid, tags))
@@ -302,6 +317,114 @@ class CreateLeaseTests(unittest.TestCase):
             record = lease_store.get(pool_id)
             self.assertEqual(record["state"], "leased")
             self.assertFalse(record["pool_member"])
+
+    def test_prepare_lease_uses_fresh_hot_pool_health_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            lease_store = runnerctl_api.LeaseStore(Path(directory) / "leases.json")
+            lease_id = "b" * 32
+            last_health = {
+                "guest-agent": "passed",
+                "network-interfaces": "passed",
+                "nvidia-smi": "passed",
+                "vulkan-runtime": "passed",
+                "workspace-ready": "passed",
+            }
+            lease_store.put(
+                lease_id,
+                {
+                    "lease_id": lease_id,
+                    "runner_class": "win-gpu-nvidia",
+                    "labels": ["gpu", "gpu-class-rtx-2070", "nvidia", "runtime-only", "vulkan", "windows"],
+                    "host_id": "example-rtx-node",
+                    "node": "pve-rtx-01",
+                    "vmid": 2000,
+                    "template_vmid": 9002,
+                    "clone_name": "runnerctl-hot-win-gpu-nvidia-bbbbbbbb",
+                    "created_at": 1,
+                    "ready_at": runnerctl_api.now_epoch(),
+                    "last_health_at": runnerctl_api.now_epoch(),
+                    "expires_at": 9999999999,
+                    "state": "leased",
+                    "pool_member": False,
+                    "allocation_mode": "hot-pool",
+                    "connection": {"type": "winrm"},
+                    "policy": {
+                        "boot_timeout_minutes": 10,
+                        "health_timeout_minutes": 15,
+                        "destroy_after_job": True,
+                    },
+                    "health_checks": list(last_health.keys()),
+                    "last_health": last_health,
+                },
+            )
+            client = FakeProxmoxClient()
+            client.vmids = {9002, 2000}
+            registry = FakeProxmoxRegistry(client)
+            result = runnerctl_api.prepare_lease(
+                registry,
+                lease_store,
+                SAMPLE_INVENTORY,
+                {"lease_id": lease_id},
+            )
+            self.assertTrue(result["health_cached"])
+            self.assertEqual(result["health"], last_health)
+            self.assertEqual(client.start_requests, [])
+            self.assertEqual(client.guest_exec_requests, [])
+            self.assertEqual(client.agent_ping_requests, [("pve-rtx-01", 2000)])
+
+    def test_health_lease_uses_fresh_hot_pool_health_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            lease_store = runnerctl_api.LeaseStore(Path(directory) / "leases.json")
+            lease_id = "c" * 32
+            last_health = {
+                "guest-agent": "passed",
+                "network-interfaces": "passed",
+                "nvidia-smi": "passed",
+                "vulkan-runtime": "passed",
+                "workspace-ready": "passed",
+            }
+            lease_store.put(
+                lease_id,
+                {
+                    "lease_id": lease_id,
+                    "runner_class": "win-gpu-nvidia",
+                    "labels": ["gpu", "gpu-class-rtx-2070", "nvidia", "runtime-only", "vulkan", "windows"],
+                    "host_id": "example-rtx-node",
+                    "node": "pve-rtx-01",
+                    "vmid": 2000,
+                    "template_vmid": 9002,
+                    "clone_name": "runnerctl-hot-win-gpu-nvidia-cccccccc",
+                    "created_at": 1,
+                    "ready_at": runnerctl_api.now_epoch(),
+                    "last_health_at": runnerctl_api.now_epoch(),
+                    "expires_at": 9999999999,
+                    "state": "healthy",
+                    "pool_member": False,
+                    "allocation_mode": "hot-pool",
+                    "connection": {"type": "winrm"},
+                    "policy": {
+                        "boot_timeout_minutes": 10,
+                        "health_timeout_minutes": 15,
+                        "destroy_after_job": True,
+                    },
+                    "health_checks": list(last_health.keys()),
+                    "last_health": last_health,
+                },
+            )
+            client = FakeProxmoxClient()
+            client.vmids = {9002, 2000}
+            registry = FakeProxmoxRegistry(client)
+            result = runnerctl_api.health_lease(
+                registry,
+                lease_store,
+                SAMPLE_INVENTORY,
+                {"lease_id": lease_id},
+            )
+            self.assertEqual(result["overall"], "passed")
+            self.assertTrue(result["cached"])
+            self.assertEqual(result["checks"], last_health)
+            self.assertEqual(client.guest_exec_requests, [])
+            self.assertEqual(client.agent_ping_requests, [("pve-rtx-01", 2000)])
 
     def test_create_lease_cleans_up_clone_when_lease_store_fails(self):
         with tempfile.TemporaryDirectory() as directory:
