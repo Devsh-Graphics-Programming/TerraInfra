@@ -95,6 +95,11 @@ Current object stores are split by reuse and sensitivity:
 - `ditt-reference-renders`: DITT reference renders.
 
 Jenkins does not upload media, scenes, or reference renders. It only passes commit SHAs, suite name, shard index, and the small EX40 runtime package. Object cache remotes and any read-only credentials are host-side configuration and must not be committed.
+Large EX40 reports are published through an archived `publish.zip` artifact. The
+Windows runner creates the zip, Jenkins archives it, and the `runnerctl` sidecar
+downloads that artifact through the internal Jenkins API before uploading each
+file to Object Storage. This keeps Object Storage credentials out of the runner
+and avoids sending large base64 JSON payloads through the Jenkins controller.
 When `FAIL_ON_RENDER_FAILURE=false`, EX40 may return a comparison-failure exit
 code and the Jenkins job still proceeds if `summary.json` was produced and no
 runtime/load errors appear in the log. The failure remains visible in the

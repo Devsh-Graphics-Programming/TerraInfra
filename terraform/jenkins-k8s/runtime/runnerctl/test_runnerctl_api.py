@@ -1,9 +1,11 @@
 import base64
+import io
 import json
 import os
 import threading
 import tempfile
 import unittest
+import zipfile
 from unittest import mock
 from pathlib import Path
 
@@ -307,6 +309,94 @@ class HelpersTests(unittest.TestCase):
         self.assertEqual(result["url"], "https://store.devsh.eu/ditt/dummy/")
         self.assertEqual(result["file_count"], 1)
         self.assertEqual(calls[0][0].full_url, "https://devsh-store-prod.s3.fr-par.scw.cloud/ditt/dummy/index.html")
+
+    def test_publish_store_artifact_zip_downloads_jenkins_artifact(self):
+        class FakeResponse:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+        class FakeJenkinsClient:
+            def __init__(self, payload):
+                self.payload = payload
+                self.downloads = []
+
+            def download_artifact(self, job, build_number, artifact_path, target_path, max_bytes):
+                self.downloads.append((job, build_number, artifact_path, max_bytes))
+                target_path.write_bytes(self.payload)
+                return len(self.payload)
+
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w") as archive:
+            archive.writestr("index.html", b"hello")
+            archive.writestr("css/report.css", b"body{}")
+        jenkins = FakeJenkinsClient(zip_buffer.getvalue())
+        calls = []
+
+        def fake_open(request, timeout):
+            calls.append((request, timeout))
+            return FakeResponse()
+
+        env = {
+            "RUNNERCTL_STORE_ALLOWED_PREFIXES": "ditt/private/",
+            "RUNNERCTL_STORE_S3_BUCKET": "devsh-store-prod",
+            "RUNNERCTL_STORE_AWS_ACCESS_KEY_ID": "test-access",
+            "RUNNERCTL_STORE_AWS_SECRET_ACCESS_KEY": "test-secret",
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            result = runnerctl_api.publish_store_artifact_zip(
+                {
+                    "prefix": "ditt/private/latest/",
+                    "job": "ci/ditt/ex40-scene-smoke",
+                    "build": "42",
+                    "artifact": "publish.zip",
+                },
+                jenkins,
+                opener=fake_open,
+            )
+
+        self.assertEqual(result["result"], "published")
+        self.assertEqual(result["file_count"], 2)
+        self.assertEqual(result["bytes"], 11)
+        self.assertEqual(jenkins.downloads[0][0], "ci/ditt/ex40-scene-smoke")
+        self.assertEqual(jenkins.downloads[0][1], 42)
+        uploaded_urls = [call[0].full_url for call in calls]
+        self.assertIn("https://devsh-store-prod.s3.fr-par.scw.cloud/ditt/private/latest/index.html", uploaded_urls)
+        self.assertIn("https://devsh-store-prod.s3.fr-par.scw.cloud/ditt/private/latest/css/report.css", uploaded_urls)
+
+    def test_publish_store_artifact_zip_rejects_traversal_entry(self):
+        class FakeJenkinsClient:
+            def __init__(self, payload):
+                self.payload = payload
+
+            def download_artifact(self, job, build_number, artifact_path, target_path, max_bytes):
+                target_path.write_bytes(self.payload)
+                return len(self.payload)
+
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w") as archive:
+            archive.writestr("../index.html", b"bad")
+
+        env = {
+            "RUNNERCTL_STORE_ALLOWED_PREFIXES": "ditt/private/",
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            with self.assertRaises(runnerctl_api.RunnerCtlError) as raised:
+                runnerctl_api.publish_store_artifact_zip(
+                    {
+                        "prefix": "ditt/private/latest/",
+                        "job": "ci/ditt/ex40-scene-smoke",
+                        "build": "42",
+                        "artifact": "publish.zip",
+                    },
+                    FakeJenkinsClient(zip_buffer.getvalue()),
+                )
+
+        self.assertEqual(raised.exception.code, "invalid-request")
 
 
 class LeaseStoreTests(unittest.TestCase):

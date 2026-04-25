@@ -12,6 +12,7 @@ import os
 import re
 import ssl
 import sys
+import tempfile
 import threading
 import time
 import traceback
@@ -19,6 +20,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+import zipfile
 import xml.etree.ElementTree as ElementTree
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -709,6 +711,148 @@ def publish_store_bundle(request_data, opener=urllib.request.urlopen):
     }
 
 
+def validate_store_cache_control(value):
+    cache_control = str(value or "no-store").strip()
+    if "\r" in cache_control or "\n" in cache_control:
+        raise RunnerCtlError(
+            HTTPStatus.BAD_REQUEST,
+            "invalid-request",
+            "cache_control contains unsupported characters.",
+            {"field": "cache_control"},
+        )
+    return cache_control
+
+
+def normalize_jenkins_job_path(value, field_name="job"):
+    text = str(value or "").strip().replace("\\", "/")
+    if not text or text.startswith("/") or text.endswith("/") or "//" in text or "/../" in f"/{text}/":
+        raise RunnerCtlError(
+            HTTPStatus.BAD_REQUEST,
+            "invalid-request",
+            f"Invalid value for {field_name}.",
+            {"field": field_name},
+        )
+    segments = text.split("/")
+    for segment in segments:
+        require_pattern(segment, SAFE_NAME_PATTERN, field_name)
+    return "/".join(segments)
+
+
+def jenkins_job_build_path(job, build_number, artifact_path=None):
+    path_parts = []
+    for segment in normalize_jenkins_job_path(job).split("/"):
+        path_parts.extend(["job", urllib.parse.quote(segment, safe="")])
+    path_parts.append(str(build_number))
+    if artifact_path is not None:
+        path_parts.append("artifact")
+        path_parts.extend(urllib.parse.quote(segment, safe="") for segment in artifact_path.split("/"))
+    return "/" + "/".join(path_parts)
+
+
+def prepare_store_files_from_zip(zip_path, max_bytes):
+    total_bytes = 0
+    prepared_files = []
+    seen_paths = set()
+    try:
+        with zipfile.ZipFile(zip_path) as archive:
+            entries = [entry for entry in archive.infolist() if not entry.is_dir()]
+            if not entries:
+                raise RunnerCtlError(
+                    HTTPStatus.BAD_REQUEST,
+                    "invalid-request",
+                    "Artifact zip contains no files.",
+                    {"field": "artifact"},
+                )
+            if len(entries) > 200:
+                raise RunnerCtlError(
+                    HTTPStatus.BAD_REQUEST,
+                    "invalid-request",
+                    "Artifact zip contains too many files.",
+                    {"field": "artifact", "maximum": 200},
+                )
+            for index, entry in enumerate(entries):
+                file_type = (entry.external_attr >> 16) & 0o170000
+                if file_type == 0o120000:
+                    raise RunnerCtlError(
+                        HTTPStatus.BAD_REQUEST,
+                        "invalid-request",
+                        "Artifact zip must not contain symbolic links.",
+                        {"path": entry.filename},
+                    )
+                relative_path = normalize_store_file_path(entry.filename.replace("\\", "/"), f"artifact[{index}].path")
+                if relative_path in seen_paths:
+                    raise RunnerCtlError(
+                        HTTPStatus.BAD_REQUEST,
+                        "invalid-request",
+                        "Duplicate store file path.",
+                        {"path": relative_path},
+                    )
+                seen_paths.add(relative_path)
+                total_bytes += int(entry.file_size)
+                if total_bytes > max_bytes:
+                    raise RunnerCtlError(
+                        HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                        "store-payload-too-large",
+                        "Store publish artifact is too large.",
+                        {"maximum_bytes": max_bytes},
+                    )
+                content = archive.read(entry)
+                prepared_files.append(
+                    {
+                        "key": relative_path,
+                        "path": relative_path,
+                        "content": content,
+                        "content_type": content_type_for_store_path(relative_path, None),
+                    }
+                )
+    except zipfile.BadZipFile as exc:
+        raise RunnerCtlError(
+            HTTPStatus.BAD_REQUEST,
+            "invalid-request",
+            "Artifact must be a valid zip file.",
+            {"field": "artifact"},
+        ) from exc
+    return prepared_files, total_bytes
+
+
+def publish_store_artifact_zip(request_data, jenkins_client, opener=urllib.request.urlopen):
+    prefix = normalize_store_prefix(request_data.get("prefix", ""))
+    require_store_prefix_allowed(prefix)
+    job = normalize_jenkins_job_path(request_data.get("job", ""))
+    build_number = require_int(request_data.get("build", ""), "build", minimum=1)
+    artifact_path = normalize_store_file_path(request_data.get("artifact", ""), "artifact")
+    if not artifact_path.lower().endswith(".zip"):
+        raise RunnerCtlError(
+            HTTPStatus.BAD_REQUEST,
+            "invalid-request",
+            "artifact must point to a zip file.",
+            {"field": "artifact"},
+        )
+    cache_control = validate_store_cache_control(request_data.get("cache_control"))
+    max_bytes = store_publish_max_bytes()
+
+    with tempfile.TemporaryDirectory(prefix="runnerctl-store-publish-") as directory:
+        zip_path = Path(directory) / "artifact.zip"
+        artifact_bytes = jenkins_client.download_artifact(job, build_number, artifact_path, zip_path, max_bytes)
+        prepared_files, total_bytes = prepare_store_files_from_zip(zip_path, max_bytes)
+
+    publisher = S3StorePublisher(store_config_from_env(), opener=opener)
+    for item in prepared_files:
+        publisher.put_object(prefix + item["path"], item["content"], item["content_type"], cache_control)
+
+    return {
+        "result": "published",
+        "prefix": prefix,
+        "url": store_public_url(prefix),
+        "file_count": len(prepared_files),
+        "bytes": total_bytes,
+        "artifact_bytes": artifact_bytes,
+        "artifact": artifact_path,
+        "job": job,
+        "build": build_number,
+    }
+
+
 def jenkins_public_hostname(public_url):
     parsed = urllib.parse.urlparse(public_url)
     if not parsed.hostname:
@@ -1281,7 +1425,7 @@ class JenkinsApiClient:
             path = "/" + path
         return f"{self.internal_url}{path}"
 
-    def _request(self, method, path, data=None, headers=None, use_crumb=True):
+    def _build_request(self, method, path, data=None, headers=None, use_crumb=True):
         body = None
         request_headers = {
             "Authorization": f"Basic {self.basic_auth}",
@@ -1300,10 +1444,12 @@ class JenkinsApiClient:
                 crumb_field, crumb_value = crumb
                 request_headers[crumb_field] = crumb_value
 
-        request = urllib.request.Request(self._url(path), data=body, headers=request_headers, method=method)
+        return urllib.request.Request(self._url(path), data=body, headers=request_headers, method=method)
+
+    def _open(self, method, path, data=None, headers=None, use_crumb=True):
+        request = self._build_request(method, path, data=data, headers=headers, use_crumb=use_crumb)
         try:
-            with self.opener.open(request, timeout=self.timeout_seconds) as response:
-                return response.read().decode("utf-8", errors="replace")
+            return self.opener.open(request, timeout=self.timeout_seconds)
         except urllib.error.HTTPError as exc:
             raise RunnerCtlError(
                 HTTPStatus.BAD_GATEWAY,
@@ -1318,6 +1464,10 @@ class JenkinsApiClient:
                 "Runnerctl could not reach Jenkins.",
                 {"path": path},
             ) from exc
+
+    def _request(self, method, path, data=None, headers=None, use_crumb=True):
+        with self._open(method, path, data=data, headers=headers, use_crumb=use_crumb) as response:
+            return response.read().decode("utf-8", errors="replace")
 
     def crumb(self):
         if self._crumb is not None:
@@ -1352,6 +1502,30 @@ class JenkinsApiClient:
 
     def text(self, path):
         return self._request("GET", path)
+
+    def download_file(self, path, target_path, max_bytes):
+        target = Path(target_path)
+        total_bytes = 0
+        with self._open("GET", path, use_crumb=False) as response:
+            with target.open("wb") as handle:
+                while True:
+                    chunk = response.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    total_bytes += len(chunk)
+                    if total_bytes > max_bytes:
+                        raise RunnerCtlError(
+                            HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                            "store-payload-too-large",
+                            "Jenkins artifact is too large.",
+                            {"maximum_bytes": max_bytes},
+                        )
+                    handle.write(chunk)
+        return total_bytes
+
+    def download_artifact(self, job, build_number, artifact_path, target_path, max_bytes):
+        path = jenkins_job_build_path(job, build_number, artifact_path)
+        return self.download_file(path, target_path, max_bytes)
 
     def script_text(self, script):
         return self._request("POST", "/scriptText", data={"script": script})
@@ -3413,6 +3587,10 @@ class RunnerCtlHandler(BaseHTTPRequestHandler):
                 return
             if self.path == "/api/v1/store/publish":
                 result = publish_store_bundle(request_data)
+                self._write_json(HTTPStatus.OK, {"status": "ok", **result})
+                return
+            if self.path == "/api/v1/store/publish-artifact":
+                result = publish_store_artifact_zip(request_data, self._jenkins())
                 self._write_json(HTTPStatus.OK, {"status": "ok", **result})
                 return
             self._write_json(HTTPStatus.NOT_FOUND, {"status": "error", "code": "not-found", "message": "Unknown endpoint."})

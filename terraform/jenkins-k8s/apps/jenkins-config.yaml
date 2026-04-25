@@ -1539,7 +1539,7 @@ data:
                 def storePrefix = null
                 def shardCount = null
                 def shardIndex = null
-                def storePublishRequest = null
+                def storePublishArtifact = null
 
                 timestamps {
                   stage('Validate request') {
@@ -1743,23 +1743,36 @@ data:
                         }
                         stage('Prepare publish') {
                           if (params.PUBLISH) {
-                            storePublishRequest = storePreparePublishRequest(storePrefix, 'publish')
+                            writeFile file: 'prepare-publish-zip.ps1', text: [
+                              '$ErrorActionPreference = "Stop"',
+                              '$publishRoot = Join-Path $env:WORKSPACE "publish"',
+                              '$zipPath = Join-Path $env:WORKSPACE "publish.zip"',
+                              'if (-not (Test-Path -LiteralPath $publishRoot)) { throw "Publish directory does not exist." }',
+                              'if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }',
+                              '$files = Get-ChildItem -LiteralPath $publishRoot -Recurse -File',
+                              'if (-not $files) { throw "Publish directory is empty." }',
+                              'Compress-Archive -Path (Join-Path $publishRoot "*") -DestinationPath $zipPath -Force',
+                              '$zipSize = (Get-Item -LiteralPath $zipPath).Length',
+                              'Write-Host ("Prepared publish.zip with {0} files, {1} bytes." -f @($files).Count, $zipSize)'
+                            ].join('\\n')
+                            powershell './prepare-publish-zip.ps1'
+                            storePublishArtifact = 'publish.zip'
                           } else {
                             echo 'Publishing disabled by PUBLISH=false.'
                           }
                         }
                         stage('Artifacts') {
-                          archiveArtifacts artifacts: 'package-info.json,scene-cache-info.json,scene-git-request.json,git-object-cache.json,resolved-scenes.json,selected-scenes.txt,ex40.log,publish/**', allowEmptyArchive: true, fingerprint: false
+                          archiveArtifacts artifacts: 'package-info.json,scene-cache-info.json,scene-git-request.json,git-object-cache.json,resolved-scenes.json,selected-scenes.txt,ex40.log,publish.zip,publish/**', allowEmptyArchive: true, fingerprint: false
                         }
                       }
                     }
                   }
                   stage('Publish report') {
                     if (params.PUBLISH) {
-                      if (!storePublishRequest) {
-                        error 'Store publish payload was not prepared.'
+                      if (!storePublishArtifact) {
+                        error 'Store publish artifact was not prepared.'
                       }
-                      def result = storePublishPrepared(storePublishRequest)
+                      def result = storePublishArchivedZip(storePrefix, storePublishArtifact)
                       currentBuild.description = result.url
                     } else {
                       echo 'Publishing disabled by PUBLISH=false.'
