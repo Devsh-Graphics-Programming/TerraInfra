@@ -1201,6 +1201,12 @@ data:
 
           pipelineJob('ci/ditt/ex40-dummy-smoke') {
             description('Runs EX40 from an uploaded or URL-provided runtime package on a Windows GPU runner, renders a tiny built-in dummy scene, and publishes the report to store.devsh.eu/ditt/dummy/.')
+            logRotator {
+              daysToKeep(31)
+              numToKeep(100)
+              artifactDaysToKeep(31)
+              artifactNumToKeep(100)
+            }
             parameters {
               stringParam('EX40_PACKAGE_URL', '', 'Optional HTTPS URL of an EX40 runtime package zip. Leave empty when uploading EX40_PACKAGE_FILE.')
               stringParam('STORE_PREFIX', 'ditt/dummy/', 'Destination prefix under store.devsh.eu. This smoke is intentionally restricted to ditt/dummy/.')
@@ -1269,11 +1275,6 @@ data:
                   writeFile file: 'publish-url.txt', text: result.url + '\\n'
                   return result
                 }
-
-                properties([
-                  disableConcurrentBuilds(),
-                  buildDiscarder(logRotator(daysToKeepStr: '31', numToKeepStr: '100', artifactDaysToKeepStr: '31', artifactNumToKeepStr: '100'))
-                ])
 
                 def storePrefix = validateDummyPrefix(params.STORE_PREFIX)
 
