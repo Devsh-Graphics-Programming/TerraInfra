@@ -44,6 +44,8 @@ proxmox:
       git_object_cache:
         api_url: http://10.254.254.254:18082
         git_base_url: git://10.254.254.254:9418
+        git_client_url: http://10.254.254.254:18081/MinGit.zip
+        git_client_sha256: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
         stores:
           - id: shared-media-public
             repo: shared-media-public.git
@@ -67,6 +69,7 @@ proxmox:
           - nvidia-driver
           - vc-redist-x64
           - java-runtime
+          - git-client
           - vulkan-runtime
       gpu_devices:
         - id: example-rtx-2070-0

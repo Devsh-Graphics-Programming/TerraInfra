@@ -344,6 +344,16 @@ def host_git_object_cache(host):
         return None
     api_url = require_public_url(cache.get("api_url"), "git_object_cache.api_url", {"http", "https"})
     git_base_url = require_public_url(cache.get("git_base_url"), "git_object_cache.git_base_url", {"git", "http", "https", "ssh"})
+    git_client_url = None
+    if cache.get("git_client_url"):
+        git_client_url = require_public_url(cache.get("git_client_url"), "git_object_cache.git_client_url", {"http", "https"})
+    git_client_sha256 = str(cache.get("git_client_sha256") or "").strip().lower()
+    if git_client_sha256 and not re.fullmatch(r"[0-9a-f]{64}", git_client_sha256):
+        raise RunnerCtlError(
+            HTTPStatus.INTERNAL_SERVER_ERROR,
+            "invalid-inventory",
+            "git_object_cache.git_client_sha256 must be a SHA-256 hex digest.",
+        )
     stores = require_list(cache.get("stores", []), "git_object_cache.stores")
     if not stores:
         raise RunnerCtlError(HTTPStatus.INTERNAL_SERVER_ERROR, "invalid-inventory", "git_object_cache.stores must not be empty.")
@@ -369,7 +379,12 @@ def host_git_object_cache(host):
                 "description": str(item.get("description") or "").strip(),
             }
         )
-    return {"api_url": api_url, "git_base_url": git_base_url, "stores": public_stores}
+    result = {"api_url": api_url, "git_base_url": git_base_url, "stores": public_stores}
+    if git_client_url:
+        result["git_client_url"] = git_client_url
+    if git_client_sha256:
+        result["git_client_sha256"] = git_client_sha256
+    return result
 
 
 def normalize_store_prefix(value, field_name="prefix"):

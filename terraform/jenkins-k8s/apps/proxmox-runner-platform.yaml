@@ -61,6 +61,8 @@ data:
             "git_object_cache": {
               "api_url": "http://10.254.254.254:18082",
               "git_base_url": "git://10.254.254.254:9418",
+              "git_client_url": "http://10.254.254.254:18081/MinGit.zip",
+              "git_client_sha256": "04f937e1f0918b17b9be6f2294cb2bb66e96e1d9832d1c298e2de088a1d0e668",
               "stores": [
                 {
                   "id": "nabla-media-public",

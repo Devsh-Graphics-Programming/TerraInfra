@@ -457,6 +457,12 @@ worktrees on the Proxmox host. Split reusable public media stores from
 workload-specific private stores so future jobs can reuse public media without
 depending on DITT-specific data.
 
+Windows runtime templates should include Git when jobs need Git cache
+materialization. A host can also expose a `git_client_url` plus
+`git_client_sha256` in `git_object_cache` so older templates can download a
+verified MinGit fallback from the same runner-local artifact server during the
+transition.
+
 Private upstream repositories should use read-only deploy keys or another
 read-only credential configured only on the Proxmox runner host. The committed
 cache config may reference SSH host aliases, but it must not contain key

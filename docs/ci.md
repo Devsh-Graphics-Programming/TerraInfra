@@ -84,6 +84,8 @@ The zip payload must contain:
 - any scene/media files referenced by `scene-list.txt`.
 
 Full suites use the runner-farm Git object cache from the runner lease metadata. The cache is served from the runner VLAN and stores only bare Git object repositories, not checkouts. The Windows runner asks the cache API to fetch immutable commits, then performs its own checkout from the local Git daemon.
+Runner images should include Git. During image rollouts, `git_client_url` and
+`git_client_sha256` may provide a host-local MinGit fallback for older templates.
 
 Current object stores are split by reuse and sensitivity:
 

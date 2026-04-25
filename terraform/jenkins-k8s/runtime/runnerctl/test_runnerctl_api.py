@@ -50,6 +50,8 @@ SAMPLE_INVENTORY = {
                 "git_object_cache": {
                     "api_url": "http://10.254.254.254:18082",
                     "git_base_url": "git://10.254.254.254:9418",
+                    "git_client_url": "http://10.254.254.254:18081/MinGit.zip",
+                    "git_client_sha256": "04f937e1f0918b17b9be6f2294cb2bb66e96e1d9832d1c298e2de088a1d0e668",
                     "stores": [
                         {
                             "id": "nabla-media-public",
@@ -443,6 +445,7 @@ class CreateLeaseTests(unittest.TestCase):
             record = lease_store.get(result["lease_id"])
             self.assertEqual(record["jenkins_host_alias_ip"], "10.254.254.254")
             self.assertEqual(record["git_object_cache"]["stores"][0]["git_url"], "git://10.254.254.254:9418/nabla-media-public.git")
+            self.assertEqual(record["git_object_cache"]["git_client_sha256"], "04f937e1f0918b17b9be6f2294cb2bb66e96e1d9832d1c298e2de088a1d0e668")
             self.assertEqual(result["git_object_cache"]["stores"][1]["id"], "ditt-reference-scenes")
             self.assertIn("lease_total_ms", record["timings"])
 
@@ -498,6 +501,7 @@ class CreateLeaseTests(unittest.TestCase):
             self.assertFalse(record["pool_member"])
             self.assertEqual(record["jenkins_host_alias_ip"], "10.254.254.254")
             self.assertEqual(record["git_object_cache"]["api_url"], "http://10.254.254.254:18082")
+            self.assertEqual(record["git_object_cache"]["git_client_url"], "http://10.254.254.254:18081/MinGit.zip")
 
     def test_create_lease_rejects_second_exclusive_gpu_runner(self):
         with tempfile.TemporaryDirectory() as directory:
