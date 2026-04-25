@@ -1441,6 +1441,12 @@ data:
 
           pipelineJob('ci/ditt/ex40-scene-smoke') {
             description('Runs EX40 from an uploaded or URL-provided runtime package on a Windows GPU runner, materializes a suite from the host-side scene cache, and publishes a public or private smoke report.')
+            logRotator {
+              daysToKeep(31)
+              numToKeep(100)
+              artifactDaysToKeep(31)
+              artifactNumToKeep(100)
+            }
             parameters {
               choiceParam('SUITE', ['public-smoke', 'private-smoke'], 'Scene suite to materialize from the cache.')
               stringParam('SCENES_COMMIT', '', 'Scene cache commit SHA. This selects the immutable cache object path.')
@@ -1452,15 +1458,12 @@ data:
               stringParam('SHARD_INDEX', '0', 'Zero-based shard index for this run.')
               booleanParam('FAIL_ON_RENDER_FAILURE', false, 'Fail the Jenkins build when the EX40 comparison report contains failed scenes.')
               booleanParam('PUBLISH', true, 'Publish the generated report to store.devsh.eu.')
-              fileParam {
+            }
+            configure { project ->
+              def parameterDefinitions = project / 'properties' / 'hudson.model.ParametersDefinitionProperty' / 'parameterDefinitions'
+              parameterDefinitions << 'io.jenkins.plugins.file_parameters.StashedFileParameterDefinition' {
                 name('EX40_PACKAGE_FILE')
                 description('Optional EX40 runtime package zip uploaded from this computer. Use this instead of EX40_PACKAGE_URL for local package smoke runs.')
-              }
-              logRotator {
-                daysToKeep(31)
-                numToKeep(100)
-                artifactDaysToKeep(31)
-                artifactNumToKeep(100)
               }
             }
             definition {
