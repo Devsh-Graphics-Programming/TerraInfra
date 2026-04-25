@@ -33,6 +33,17 @@ def call(Map timings = [:], Map args = [:]) {
     'destroy_vm_ms',
     'release_ms'
   ]
+  def janitorKeys = [
+    'lease_scan_ms',
+    'vm_lookup_ms',
+    'vm_config_ms',
+    'delete_jenkins_node_ms',
+    'destroy_vm_ms',
+    'janitor_ms'
+  ]
+  def refillKeys = [
+    'refill_ms'
+  ]
   def keys
   if (args.keys) {
     keys = args.keys
@@ -40,8 +51,12 @@ def call(Map timings = [:], Map args = [:]) {
     keys = poolKeys
   } else if (mode == 'release') {
     keys = releaseKeys
+  } else if (mode == 'janitor') {
+    keys = janitorKeys
+  } else if (mode == 'refill') {
+    keys = refillKeys
   } else if (mode == 'all') {
-    keys = (coldCurrentKeys + poolKeys + releaseKeys).unique()
+    keys = (coldCurrentKeys + poolKeys + releaseKeys + janitorKeys + refillKeys).unique()
   } else {
     keys = hotPoolRecord ? hotCurrentKeys : coldCurrentKeys
   }

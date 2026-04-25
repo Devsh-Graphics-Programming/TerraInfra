@@ -103,6 +103,18 @@ helper prints the allocator phases as sanitized operational data. Hot-pool jobs
 also print the separate pool-build provenance timings so current lease latency
 does not get mixed with the out-of-band VM refill cost.
 
+Consumer jobs can add a readiness budget without changing the allocator
+contract:
+
+```groovy
+withRunner(
+  labels: ['windows', 'gpu', 'nvidia', 'vulkan', 'runtime-only'],
+  maxReadySeconds: 10
+) {
+  powershell 'nvidia-smi'
+}
+```
+
 The lease response should include only non-secret operational data:
 
 ```json
@@ -348,6 +360,11 @@ through the pool status endpoint. The values are durations and runner state
 only. They do not include credentials, Proxmox token material, guest command
 secrets, or raw provider response bodies.
 
+Janitor and pool refill responses also include sanitized timings. This is used
+by smoke jobs to show whether time was spent scanning lease state, checking VM
+metadata, deleting Jenkins nodes, destroying VMs, or building a replacement hot
+pool member.
+
 ## Jenkins Integration
 
 Current Jenkins jobs:
@@ -360,6 +377,7 @@ Current Jenkins jobs:
 - `ci/runners/smoke/proxmox-consumer-preflight`
 - `ci/runners/smoke/proxmox-hot-pool-lifecycle`
 - `ci/runners/smoke/proxmox-runtime-lifecycle`
+- `ci/runners/status/proxmox-pool-status`
 - `ci/runners/examples/windows-gpu-hello`
 
 Current farm access model:

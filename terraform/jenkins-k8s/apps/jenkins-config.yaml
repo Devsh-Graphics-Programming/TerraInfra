@@ -124,6 +124,11 @@ data:
             description('Minimal consumer pipelines for ephemeral runtime runners.')
           }
 
+          folder('ci/runners/status') {
+            displayName('Status')
+            description('Read-only runner platform status and diagnostics.')
+          }
+
           pipelineJob('system/smoke') {
             description('Verifies the controller can load configuration and run a lightweight pipeline.')
             definition {
@@ -369,6 +374,7 @@ data:
                   agent none
                   options {
                     timestamps()
+                    disableConcurrentBuilds()
                     buildDiscarder(logRotator(daysToKeepStr: '31', numToKeepStr: '100', artifactDaysToKeepStr: '31', artifactNumToKeepStr: '100'))
                   }
                   stages {
@@ -447,6 +453,7 @@ data:
                   agent none
                   options {
                     timestamps()
+                    disableConcurrentBuilds()
                     buildDiscarder(logRotator(daysToKeepStr: '31', numToKeepStr: '100', artifactDaysToKeepStr: '31', artifactNumToKeepStr: '100'))
                   }
                   stages {
@@ -662,6 +669,7 @@ data:
                   agent none
                   options {
                     timestamps()
+                    disableConcurrentBuilds()
                     buildDiscarder(logRotator(daysToKeepStr: '31', numToKeepStr: '100', artifactDaysToKeepStr: '31', artifactNumToKeepStr: '100'))
                   }
                   stages {
@@ -732,6 +740,57 @@ data:
                         }
                       }
                     }
+                  }
+                }''')
+              }
+            }
+          }
+
+          pipelineJob('ci/runners/status/proxmox-pool-status') {
+            description('Read-only status view for runner hot pools, active leases, health cache age, Jenkins agent preconnect state, and build provenance timings.')
+            parameters {
+              stringParam('RUNNER_CLASS_FILTER', '', 'Optional runner class filter. Empty means all runner classes.')
+            }
+            definition {
+              cps {
+                sandbox()
+                script('''properties([
+                  buildDiscarder(logRotator(daysToKeepStr: '31', numToKeepStr: '100', artifactDaysToKeepStr: '31', artifactNumToKeepStr: '100'))
+                ])
+
+                timestamps {
+                  stage('Read pool') {
+                    def filter = params.RUNNER_CLASS_FILTER?.trim()
+                    def status = runnerPoolStatus()
+                    echo('Runner pool API response time: ' + status.runnerctl_http_ms + ' ms.')
+                    def pools = status.pools ?: []
+                    if (filter) {
+                      pools = pools.findAll { it.runner_class == filter }
+                    }
+                    if (pools.isEmpty()) {
+                      error('No runner pool matched filter ' + (filter ?: '<all>') + '.')
+                    }
+                    pools.each { pool ->
+                      echo('Runner pool: class=' + pool.runner_class + ', warm_pool=' + writeJSON(returnText: true, json: pool.warm_pool ?: [:]) + ', counts=' + writeJSON(returnText: true, json: pool.counts ?: [:]) + '.')
+                      (pool.members ?: []).each { member ->
+                        def timingText = runnerDescribeTimings(member.timings ?: [:], [mode: 'pool'])
+                        echo(
+                          'Runner pool member: state=' + member.state +
+                          ', pool_member=' + member.pool_member +
+                          ', allocation_mode=' + member.allocation_mode +
+                          ', host=' + member.host_id +
+                          ', node=' + member.node +
+                          ', vmid=' + member.vmid +
+                          ', has_agent=' + member.has_jenkins_agent +
+                          ', age=' + member.age_seconds + 's' +
+                          ', expires_in=' + member.expires_in_seconds + 's' +
+                          ', health_cache_age=' + member.health_cache_age_seconds + 's' +
+                          (timingText ? ', timings: ' + timingText : '') +
+                          '.'
+                        )
+                      }
+                    }
+                    echo(writeJSON(returnText: true, json: status))
                   }
                 }''')
               }
@@ -814,7 +873,7 @@ data:
                     runnerWaitForPoolReady(runnerClass: runnerClass, minReady: minReady, timeoutSeconds: 300, pollSeconds: 5)
                   }
 
-                  withRunner(labels: labels, leaseTtlMinutes: leaseTtlMinutes) { runner ->
+                  withRunner(labels: labels, leaseTtlMinutes: leaseTtlMinutes, maxReadySeconds: maxReadySeconds) { runner ->
                     observedReadyMs = runner.ready_wall_ms
                     stage('Runtime probe') {
                       powershell(
@@ -883,6 +942,7 @@ data:
                   agent none
                   options {
                     timestamps()
+                    disableConcurrentBuilds()
                     buildDiscarder(logRotator(daysToKeepStr: '31', numToKeepStr: '100', artifactDaysToKeepStr: '31', artifactNumToKeepStr: '100'))
                   }
                   stages {
@@ -1061,7 +1121,7 @@ data:
                 ])
 
                 timestamps {
-                  withRunner(labels: ['windows', 'gpu', 'nvidia', 'vulkan', 'runtime-only'], leaseTtlMinutes: 30) { runner ->
+                  withRunner(labels: ['windows', 'gpu', 'nvidia', 'vulkan', 'runtime-only'], leaseTtlMinutes: 30, maxReadySeconds: 10) { runner ->
                     stage('Hello') {
                       writeFile file: 'runner-summary.txt', text: 'label=' + runner.label + '\\nnode=' + env.NODE_NAME + '\\nworkspace=' + pwd() + '\\nready_wall_ms=' + runner.ready_wall_ms + '\\nnode_enter_ms=' + runner.node_enter_ms + '\\n'
                       powershell 'Write-Host "Hello from ephemeral Windows GPU runner"'

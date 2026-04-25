@@ -55,6 +55,7 @@ Current jobs:
 - `ci/runners/smoke/proxmox-consumer-preflight`: runs the final consumer-facing readiness gate before real workloads: safe janitor, hot-pool refill, label-based lease through `withRunner`, Windows runtime probe, GPU/Vulkan sanity, artifacts, release, and a wall-time readiness budget.
 - `ci/runners/smoke/proxmox-hot-pool-lifecycle`: refills the hot pool, leases an already running and healthy Windows GPU runner, verifies the cached hot-pool health guard, and releases it.
 - `ci/runners/smoke/proxmox-runtime-lifecycle`: runs the real template lifecycle `resolve allocation -> lease -> boot -> guest-agent and GPU health -> release` through the pod-local `runnerctl` sidecar endpoint.
+- `ci/runners/status/proxmox-pool-status`: read-only status view for hot-pool counts, active members, health cache age, preconnected agent state, and pool-build timings.
 - `ci/runners/examples/windows-gpu-hello`: leases an ephemeral Windows GPU Jenkins node by labels, runs native Pipeline steps on `node(runner.label)`, archives a small proof, and releases the node and VM.
 - `ci/ditt/store-smoke`: validates `store.devsh.eu` public/private report endpoint behavior without Proxmox credentials.
 - `ci/ditt/ex40-report-plan`: validates EX40 report publish parameters and stays in dry-run mode until the runtime backend is connected.

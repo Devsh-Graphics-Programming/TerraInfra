@@ -1975,6 +1975,7 @@ def lease_record_janitor_reason(inventory, record, now, stale_after_seconds):
 
 
 def run_janitor(client_registry, lease_store, inventory, request_data, jenkins_client=None):
+    janitor_started_ms = monotonic_ms()
     dry_run = request_bool(request_data, "dry_run", False)
     now = now_epoch()
     janitor = inventory.get("janitor", {})
@@ -1982,8 +1983,19 @@ def run_janitor(client_registry, lease_store, inventory, request_data, jenkins_c
     stale_after_seconds = max(60, stale_after_minutes * 60)
     cleaned = []
     skipped = []
+    timings = {
+        "lease_scan_ms": 0,
+        "vm_lookup_ms": 0,
+        "vm_config_ms": 0,
+        "delete_jenkins_node_ms": 0,
+        "destroy_vm_ms": 0,
+    }
 
-    for lease_id, record in sorted(lease_store.all().items()):
+    lease_scan_started_ms = monotonic_ms()
+    lease_items = sorted(lease_store.all().items())
+    timings["lease_scan_ms"] = elapsed_ms(lease_scan_started_ms)
+
+    for lease_id, record in lease_items:
         try:
             reason = lease_record_janitor_reason(inventory, record, now, stale_after_seconds)
         except RunnerCtlError as exc:
@@ -1996,27 +2008,40 @@ def run_janitor(client_registry, lease_store, inventory, request_data, jenkins_c
         client = client_registry.client_for_host(inventory, host)
         node = require_pattern(record.get("node", ""), SAFE_NAME_PATTERN, "node")
         vmid = require_int(record.get("vmid", ""), "vmid", minimum=100, maximum=999999999)
+        item_timings = {}
+        vm_lookup_started_ms = monotonic_ms()
         active_vmids = client.qemu_vmids(node)
+        item_timings["vm_lookup_ms"] = elapsed_ms(vm_lookup_started_ms)
+        timings["vm_lookup_ms"] += item_timings["vm_lookup_ms"]
         vm_exists = vmid in active_vmids
         if vm_exists:
             required_tags = set(janitor.get("require_tags", []))
+            vm_config_started_ms = monotonic_ms()
             vm_config = client.vm_config(node, vmid)
+            item_timings["vm_config_ms"] = elapsed_ms(vm_config_started_ms)
+            timings["vm_config_ms"] += item_timings["vm_config_ms"]
             actual_tags = set(str(vm_config.get("tags", "")).split(";"))
             missing_tags = sorted(required_tags - actual_tags)
             if missing_tags:
-                skipped.append({"lease_id": lease_id, "reason": "missing-required-tags", "missing_tags": missing_tags})
+                skipped.append({"lease_id": lease_id, "reason": "missing-required-tags", "missing_tags": missing_tags, "timings": item_timings})
                 continue
         agent_deleted = False
         destroyed = False
         if not dry_run:
             agent = record.get("jenkins_agent") or {}
             if jenkins_client is not None and agent.get("node_name"):
+                delete_agent_started_ms = monotonic_ms()
                 try:
                     agent_deleted = jenkins_client.delete_agent_node(agent["node_name"])
                 except RunnerCtlError:
                     agent_deleted = False
+                item_timings["delete_jenkins_node_ms"] = elapsed_ms(delete_agent_started_ms)
+                timings["delete_jenkins_node_ms"] += item_timings["delete_jenkins_node_ms"]
             if vm_exists:
+                destroy_started_ms = monotonic_ms()
                 destroyed = client.safe_destroy(node, vmid)
+                item_timings["destroy_vm_ms"] = elapsed_ms(destroy_started_ms)
+                timings["destroy_vm_ms"] += item_timings["destroy_vm_ms"]
             lease_store.delete(lease_id)
         cleaned.append(
             {
@@ -2029,9 +2054,11 @@ def run_janitor(client_registry, lease_store, inventory, request_data, jenkins_c
                 "reason": reason,
                 "destroyed_vm": destroyed,
                 "deleted_jenkins_node": agent_deleted,
+                "timings": item_timings,
             }
         )
 
+    timings["janitor_ms"] = elapsed_ms(janitor_started_ms)
     return {
         "result": "success",
         "dry_run": dry_run,
@@ -2039,6 +2066,7 @@ def run_janitor(client_registry, lease_store, inventory, request_data, jenkins_c
         "skipped": skipped,
         "cleaned_count": len(cleaned),
         "skipped_count": len(skipped),
+        "timings": timings,
     }
 
 
@@ -2220,6 +2248,7 @@ def resolve_pool_targets(inventory, request_data):
 
 
 def refill_hot_pool(client_registry, lease_store, inventory, request_data, jenkins_client=None):
+    refill_started_ms = monotonic_ms()
     janitor_result = run_janitor(client_registry, lease_store, inventory, {}, jenkins_client=jenkins_client)
     targets = resolve_pool_targets(inventory, request_data)
     results = []
@@ -2279,7 +2308,7 @@ def refill_hot_pool(client_registry, lease_store, inventory, request_data, jenki
                 "status": class_status,
             }
         )
-    return {"result": "success", "janitor": janitor_result, "pools": results}
+    return {"result": "success", "janitor": janitor_result, "pools": results, "timings": {"refill_ms": elapsed_ms(refill_started_ms)}}
 
 
 def hot_pool_status(lease_store, inventory):

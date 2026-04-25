@@ -28,7 +28,7 @@ spec:
       labels:
         app.kubernetes.io/name: jenkins
       annotations:
-        devsh.eu/config-revision: "2026-04-24-ephemeral-jenkins-runners-v25"
+        devsh.eu/config-revision: "2026-04-25-runner-side-quests-v26"
     spec:
       enableServiceLinks: false
       securityContext:
@@ -165,7 +165,7 @@ spec:
             - name: RUNNERCTL_HOT_POOL_ENABLED
               value: "true"
             - name: RUNNERCTL_HOT_POOL_RECONCILE_INTERVAL_SECONDS
-              value: "60"
+              value: "30"
             - name: RUNNERCTL_HOT_POOL_INITIAL_DELAY_SECONDS
               value: "10"
             - name: RUNNERCTL_HOT_POOL_HEALTH_CACHE_TTL_SECONDS
