@@ -18,6 +18,7 @@ data:
     pipeline-utility-steps
     pipeline-graph-view
     pipeline-stage-view
+    file-parameters
     dark-theme
     lockable-resources
     github
@@ -1165,7 +1166,9 @@ data:
                             error 'REPORT_PREFIX must be a relative object prefix without traversal.'
                           }
                           if (!(prefix.startsWith('ditt/public/') || prefix.startsWith('ditt/private/'))) {
-                            error 'REPORT_PREFIX must stay under ditt/public/ or ditt/private/.'
+                            if (!prefix.startsWith('ditt/dummy/')) {
+                              error 'REPORT_PREFIX must stay under ditt/public/, ditt/private/, or ditt/dummy/.'
+                            }
                           }
                           echo('Validated store prefix ' + prefix + '.')
                         }
@@ -1188,6 +1191,228 @@ data:
                           def response = httpRequest httpMode: 'GET', url: 'https://store.devsh.eu/ditt/private/', validResponseCodes: '401'
                           echo('Private store requires authentication. HTTP ' + response.status + '.')
                         }
+                      }
+                    }
+                  }
+                }''')
+              }
+            }
+          }
+
+          pipelineJob('ci/ditt/ex40-dummy-smoke') {
+            description('Runs EX40 from an uploaded or URL-provided runtime package on a Windows GPU runner, renders a tiny built-in dummy scene, and publishes the report to store.devsh.eu/ditt/dummy/.')
+            parameters {
+              stringParam('EX40_PACKAGE_URL', '', 'Optional HTTPS URL of an EX40 runtime package zip. Leave empty when uploading EX40_PACKAGE_FILE.')
+              stringParam('STORE_PREFIX', 'ditt/dummy/', 'Destination prefix under store.devsh.eu. This smoke is intentionally restricted to ditt/dummy/.')
+              booleanParam('PUBLISH', true, 'Publish the generated dummy report to store.devsh.eu.')
+            }
+            configure { project ->
+              def parameterDefinitions = project / 'properties' / 'hudson.model.ParametersDefinitionProperty' / 'parameterDefinitions'
+              parameterDefinitions << 'io.jenkins.plugins.file_parameters.StashedFileParameterDefinition' {
+                name('EX40_PACKAGE_FILE')
+                description('Optional EX40 runtime package zip uploaded from this computer. Use this instead of EX40_PACKAGE_URL for local package smoke runs.')
+              }
+            }
+            definition {
+              cps {
+                sandbox()
+                script('''def validateDummyPrefix(String value) {
+                  def prefix = value?.trim() ?: 'ditt/dummy/'
+                  prefix = prefix.replace('\\\\', '/')
+                  if (!prefix.endsWith('/')) {
+                    prefix += '/'
+                  }
+                  if (prefix.startsWith('/') || prefix.contains('..') || prefix.contains('//')) {
+                    error 'STORE_PREFIX must be a relative object prefix without traversal.'
+                  }
+                  if (!prefix.startsWith('ditt/dummy/')) {
+                    error 'STORE_PREFIX for this smoke must stay under ditt/dummy/.'
+                  }
+                  if (!(prefix ==~ /[A-Za-z0-9][A-Za-z0-9._\\/-]*\\//)) {
+                    error 'STORE_PREFIX contains unsupported characters.'
+                  }
+                  return prefix
+                }
+
+                def contentTypeFor(String path) {
+                  def lower = path.toLowerCase()
+                  if (lower.endsWith('.html')) { return 'text/html; charset=utf-8' }
+                  if (lower.endsWith('.css')) { return 'text/css; charset=utf-8' }
+                  if (lower.endsWith('.js')) { return 'application/javascript; charset=utf-8' }
+                  if (lower.endsWith('.json')) { return 'application/json; charset=utf-8' }
+                  if (lower.endsWith('.txt') || lower.endsWith('.log')) { return 'text/plain; charset=utf-8' }
+                  if (lower.endsWith('.exr')) { return 'image/aces' }
+                  return 'application/octet-stream'
+                }
+
+                def publishDirectoryToStore(String prefix, String root) {
+                  def normalizedRoot = root.replace('\\\\', '/')
+                  def files = findFiles(glob: normalizedRoot + '/**').findAll { !it.directory }
+                  if (files.isEmpty()) {
+                    error 'Publish directory is empty.'
+                  }
+                  def prefixWithSlash = normalizedRoot.endsWith('/') ? normalizedRoot : normalizedRoot + '/'
+                  def requestFiles = files.collect { item ->
+                    def relative = item.path.replace('\\\\', '/').substring(prefixWithSlash.length())
+                    [
+                      path: relative,
+                      content_type: contentTypeFor(relative),
+                      content_base64: readFile(file: item.path, encoding: 'Base64')
+                    ]
+                  }
+                  def result = runnerctlPost('/api/v1/store/publish', [
+                    prefix: prefix,
+                    cache_control: 'no-store',
+                    files: requestFiles
+                  ])
+                  echo('Published ' + result.file_count + ' files (' + result.bytes + ' bytes) to ' + result.url)
+                  writeFile file: 'publish-url.txt', text: result.url + '\\n'
+                  return result
+                }
+
+                properties([
+                  disableConcurrentBuilds(),
+                  buildDiscarder(logRotator(daysToKeepStr: '31', numToKeepStr: '100', artifactDaysToKeepStr: '31', artifactNumToKeepStr: '100'))
+                ])
+
+                def storePrefix = validateDummyPrefix(params.STORE_PREFIX)
+
+                timestamps {
+                  withRunner(labels: ['windows', 'gpu', 'nvidia', 'vulkan', 'runtime-only'], leaseTtlMinutes: 45, maxReadySeconds: 10) { runner ->
+                    withFileParameter(name: 'EX40_PACKAGE_FILE', allowNoFile: true) {
+                      stage('Validate request') {
+                        def packageUrl = params.EX40_PACKAGE_URL?.trim()
+                        if (packageUrl && !packageUrl.startsWith('https://')) {
+                          error 'EX40_PACKAGE_URL must be HTTPS.'
+                        }
+                        echo('Store prefix: ' + storePrefix)
+                        echo('Runner label: ' + runner.label + ', ready_wall_ms=' + runner.ready_wall_ms)
+                      }
+                      stage('Acquire package') {
+                        writeFile file: 'acquire-package.ps1', text: [
+                          '$ErrorActionPreference = "Stop"',
+                          '$packagePath = Join-Path $env:WORKSPACE "ex40-package.zip"',
+                          '$extractRoot = Join-Path $env:WORKSPACE "package"',
+                          'Remove-Item -LiteralPath $packagePath -Force -ErrorAction SilentlyContinue',
+                          'if (Test-Path -LiteralPath $extractRoot) { Remove-Item -LiteralPath $extractRoot -Recurse -Force }',
+                          'if ($env:EX40_PACKAGE_FILE -and (Test-Path -LiteralPath $env:EX40_PACKAGE_FILE)) {',
+                          '  Copy-Item -LiteralPath $env:EX40_PACKAGE_FILE -Destination $packagePath -Force',
+                          '  Write-Host ("Using uploaded EX40 package file: {0}" -f $env:EX40_PACKAGE_FILE_FILENAME)',
+                          '} elseif ($env:EX40_PACKAGE_URL) {',
+                          '  if (-not ($env:EX40_PACKAGE_URL -match "^https://")) { throw "EX40_PACKAGE_URL must be HTTPS." }',
+                          '  Write-Host ("Downloading EX40 package from {0}" -f $env:EX40_PACKAGE_URL)',
+                          '  Invoke-WebRequest -Uri $env:EX40_PACKAGE_URL -OutFile $packagePath -UseBasicParsing',
+                          '} else {',
+                          '  throw "Provide EX40_PACKAGE_FILE or EX40_PACKAGE_URL."',
+                          '}',
+                          '$packageSize = (Get-Item -LiteralPath $packagePath).Length',
+                          'Write-Host ("EX40 package size: {0} bytes" -f $packageSize)',
+                          'Expand-Archive -LiteralPath $packagePath -DestinationPath $extractRoot -Force',
+                          '$exe = Get-ChildItem -LiteralPath $extractRoot -Recurse -File -Filter "40_pathtracer*.exe" | Select-Object -First 1',
+                          'if (-not $exe) { throw "40_pathtracer executable was not found in the package." }',
+                          '$runtimeDll = Get-ChildItem -LiteralPath $extractRoot -Recurse -File -Filter "Nabla_*.dll" | Select-Object -First 1',
+                          'if (-not $runtimeDll) { throw "Nabla runtime DLL was not found in the package." }',
+                          '$dxcDll = Get-ChildItem -LiteralPath $extractRoot -Recurse -File -Filter "dxcompiler.dll" | Select-Object -First 1',
+                          'if (-not $dxcDll) { throw "DXC runtime DLL was not found in the package." }',
+                          '$reportTemplate = Join-Path $exe.DirectoryName "report"',
+                          'if (-not (Test-Path -LiteralPath $reportTemplate)) { throw "Report template directory was not found next to the executable." }',
+                          '$info = [pscustomobject]@{ exe = $exe.FullName; bin = $exe.DirectoryName; runtime = $runtimeDll.DirectoryName; dxc = $dxcDll.DirectoryName; reportTemplate = $reportTemplate; packageSize = $packageSize }',
+                          '$info | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $env:WORKSPACE "package-info.json") -Encoding UTF8',
+                          'Write-Host ("EX40 executable: {0}" -f $exe.FullName)'
+                        ].join('\\n')
+                        powershell '.\\acquire-package.ps1'
+                      }
+                      stage('Create dummy scene') {
+                        writeFile file: 'dummy-scene.xml', text: [
+                          '<?xml version="1.0" encoding="utf-8"?>',
+                          '<scene version="0.5.0">',
+                          '  <integrator type="direct" id="cameraintegrator"/>',
+                          '  <sensor type="perspective">',
+                          '    <transform name="toWorld">',
+                          '      <lookat origin="0, 2.5, 2.5" target="0, 0, 0.3" up="0, 0, 1"/>',
+                          '    </transform>',
+                          '    <float name="fov" value="45"/>',
+                          '    <string name="fovAxis" value="y"/>',
+                          '    <sampler type="hammersley">',
+                          '      <integer name="sampleCount" value="1"/>',
+                          '    </sampler>',
+                          '    <film type="hdrfilm">',
+                          '      <integer name="width" value="32"/>',
+                          '      <integer name="height" value="32"/>',
+                          '      <rfilter type="box"/>',
+                          '    </film>',
+                          '  </sensor>',
+                          '  <emitter type="directional">',
+                          '    <vector name="direction" x="1" y="-3" z="2"/>',
+                          '    <rgb name="irradiance" value="4,4,4"/>',
+                          '  </emitter>',
+                          '  <shape type="sphere">',
+                          '    <transform name="toWorld">',
+                          '      <translate x="0" y="0" z="0.5"/>',
+                          '    </transform>',
+                          '    <float name="radius" value="0.5"/>',
+                          '    <bsdf type="diffuse">',
+                          '      <rgb name="reflectance" value="0.8,0.8,0.8"/>',
+                          '    </bsdf>',
+                          '  </shape>',
+                          '  <shape type="rectangle">',
+                          '    <transform name="toWorld">',
+                          '      <scale x="2" y="2" z="1"/>',
+                          '    </transform>',
+                          '    <bsdf type="diffuse">',
+                          '      <rgb name="reflectance" value="0.4,0.45,0.5"/>',
+                          '    </bsdf>',
+                          '  </shape>',
+                          '</scene>'
+                        ].join('\\n') + '\\n'
+                      }
+                      stage('Render dummy') {
+                        writeFile file: 'run-dummy.ps1', text: [
+                          '$ErrorActionPreference = "Stop"',
+                          '$info = Get-Content -LiteralPath (Join-Path $env:WORKSPACE "package-info.json") | ConvertFrom-Json',
+                          '$publishRoot = Join-Path $env:WORKSPACE "publish"',
+                          '$renders = Join-Path $publishRoot "renders"',
+                          'if (Test-Path -LiteralPath $publishRoot) { Remove-Item -LiteralPath $publishRoot -Recurse -Force }',
+                          'New-Item -ItemType Directory -Path $renders -Force | Out-Null',
+                          'Copy-Item -Path (Join-Path $info.reportTemplate "*") -Destination $publishRoot -Recurse -Force',
+                          '$env:PATH = $info.runtime + ";" + $info.dxc + ";" + $env:PATH',
+                          '$scene = Join-Path $env:WORKSPACE "dummy-scene.xml"',
+                          '$log = Join-Path $env:WORKSPACE "ex40.log"',
+                          'Push-Location -LiteralPath $info.bin',
+                          'try {',
+                          '  & $info.exe --scene $scene --headless --process-sensors RenderAllThenTerminate --output-dir $renders --report-dir $publishRoot 2>&1 | Tee-Object -FilePath $log',
+                          '  if ($LASTEXITCODE -ne 0) { throw "EX40 failed with exit code $LASTEXITCODE." }',
+                          '} finally {',
+                          '  Pop-Location',
+                          '}'
+                        ].join('\\n')
+                        powershell '.\\run-dummy.ps1'
+                      }
+                      stage('Validate report') {
+                        writeFile file: 'validate-report.ps1', text: [
+                          '$ErrorActionPreference = "Stop"',
+                          '$publishRoot = Join-Path $env:WORKSPACE "publish"',
+                          '$required = @("index.html", "summary.json", "css/report.css", "js/report.js", "renders/01_dummy_scene/Render_dummy_scene.exr")',
+                          'foreach ($relative in $required) {',
+                          '  $path = Join-Path $publishRoot $relative',
+                          '  if (-not (Test-Path -LiteralPath $path)) { throw "Missing publish file: $relative" }',
+                          '}',
+                          '$summary = Get-Content -LiteralPath (Join-Path $publishRoot "summary.json") | ConvertFrom-Json',
+                          'if ([int]$summary.num_of_tests -lt 1) { throw "Summary contains no rendered tests." }',
+                          'Write-Host ("Dummy report status={0}, tests={1}, failures={2}" -f $summary.pass_status, $summary.num_of_tests, $summary.failure_count)'
+                        ].join('\\n')
+                        powershell '.\\validate-report.ps1'
+                      }
+                      stage('Publish report') {
+                        if (params.PUBLISH) {
+                          def result = publishDirectoryToStore(storePrefix, 'publish')
+                          currentBuild.description = result.url
+                        } else {
+                          echo 'Publishing disabled by PUBLISH=false.'
+                        }
+                      }
+                      stage('Artifacts') {
+                        archiveArtifacts artifacts: 'package-info.json,ex40.log,publish-url.txt,publish/**', allowEmptyArchive: true, fingerprint: false
                       }
                     }
                   }

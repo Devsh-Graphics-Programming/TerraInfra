@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 
 import base64
+import datetime
+import hashlib
+import hmac
 import http.cookiejar
 import ipaddress
 import json
+import mimetypes
 import os
 import re
 import ssl
@@ -26,6 +30,8 @@ LABEL_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_.-]*$")
 SAFE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 ENV_NAME_PATTERN = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 LEASE_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
+STORE_PATH_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
+CONTENT_TYPE_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*(; ?[A-Za-z0-9_.-]+=[A-Za-z0-9_.-]+)*$")
 ACTIVE_RUNNER_STATES = {"creating", "ready", "leased", "booting", "healthy", "agent-online"}
 READY_POOL_STATES = {"ready"}
 HOT_POOL_TAGS_READY = "runnerctl;lifecycle-ephemeral;hot-pool;ready"
@@ -289,6 +295,328 @@ def optional_ipv4_address(value, field_name):
             {"field": field_name},
         )
     return str(parsed)
+
+
+def normalize_store_prefix(value, field_name="prefix"):
+    text = str(value or "").strip()
+    if not text:
+        raise RunnerCtlError(
+            HTTPStatus.BAD_REQUEST,
+            "invalid-request",
+            f"{field_name} is required.",
+            {"field": field_name},
+        )
+    text = text.replace("\\", "/")
+    if text.startswith("/") or "//" in text:
+        raise RunnerCtlError(
+            HTTPStatus.BAD_REQUEST,
+            "invalid-request",
+            f"{field_name} must be a relative object prefix.",
+            {"field": field_name},
+        )
+    if not text.endswith("/"):
+        text += "/"
+    parts = text.split("/")[:-1]
+    if not parts or any(part in {"", ".", ".."} for part in parts):
+        raise RunnerCtlError(
+            HTTPStatus.BAD_REQUEST,
+            "invalid-request",
+            f"{field_name} must not contain empty or traversal segments.",
+            {"field": field_name},
+        )
+    if not STORE_PATH_PATTERN.fullmatch(text):
+        raise RunnerCtlError(
+            HTTPStatus.BAD_REQUEST,
+            "invalid-request",
+            f"{field_name} contains unsupported characters.",
+            {"field": field_name},
+        )
+    return text
+
+
+def normalize_store_file_path(value, field_name="path"):
+    text = str(value or "").strip()
+    if not text:
+        raise RunnerCtlError(
+            HTTPStatus.BAD_REQUEST,
+            "invalid-request",
+            f"{field_name} is required.",
+            {"field": field_name},
+        )
+    text = text.replace("\\", "/")
+    if text.startswith("/") or text.endswith("/") or "//" in text:
+        raise RunnerCtlError(
+            HTTPStatus.BAD_REQUEST,
+            "invalid-request",
+            f"{field_name} must be a relative file path.",
+            {"field": field_name},
+        )
+    parts = text.split("/")
+    if any(part in {"", ".", ".."} for part in parts):
+        raise RunnerCtlError(
+            HTTPStatus.BAD_REQUEST,
+            "invalid-request",
+            f"{field_name} must not contain empty or traversal segments.",
+            {"field": field_name},
+        )
+    if not STORE_PATH_PATTERN.fullmatch(text):
+        raise RunnerCtlError(
+            HTTPStatus.BAD_REQUEST,
+            "invalid-request",
+            f"{field_name} contains unsupported characters.",
+            {"field": field_name},
+        )
+    return text
+
+
+def store_allowed_prefixes():
+    raw_value = os.getenv("RUNNERCTL_STORE_ALLOWED_PREFIXES", "ditt/dummy/")
+    prefixes = [normalize_store_prefix(item, "RUNNERCTL_STORE_ALLOWED_PREFIXES") for item in raw_value.split(",") if item.strip()]
+    if not prefixes:
+        raise RunnerCtlError(
+            HTTPStatus.INTERNAL_SERVER_ERROR,
+            "store-config-missing",
+            "Store publish allowed prefixes are not configured.",
+        )
+    return prefixes
+
+
+def require_store_prefix_allowed(prefix):
+    allowed_prefixes = store_allowed_prefixes()
+    if not any(prefix.startswith(allowed) for allowed in allowed_prefixes):
+        raise RunnerCtlError(
+            HTTPStatus.FORBIDDEN,
+            "store-prefix-forbidden",
+            "Store publish prefix is not allowed.",
+            {"prefix": prefix, "allowed_prefixes": allowed_prefixes},
+        )
+
+
+def content_type_for_store_path(path, supplied):
+    if supplied:
+        text = str(supplied).strip()
+        if CONTENT_TYPE_PATTERN.fullmatch(text):
+            return text
+        raise RunnerCtlError(
+            HTTPStatus.BAD_REQUEST,
+            "invalid-request",
+            "Invalid content type.",
+            {"path": path},
+        )
+    return mimetypes.guess_type(path)[0] or "application/octet-stream"
+
+
+def store_public_url(prefix):
+    public_base = os.getenv("RUNNERCTL_STORE_PUBLIC_BASE_URL", "https://store.devsh.eu/")
+    if not public_base.endswith("/"):
+        public_base += "/"
+    return urllib.parse.urljoin(public_base, prefix)
+
+
+def store_publish_max_bytes():
+    raw_value = os.getenv("RUNNERCTL_STORE_MAX_UPLOAD_BYTES", str(64 * 1024 * 1024))
+    try:
+        return max(1, int(raw_value))
+    except ValueError:
+        return 64 * 1024 * 1024
+
+
+def store_config_from_env():
+    config = {
+        "endpoint": os.getenv("RUNNERCTL_STORE_S3_ENDPOINT", "https://s3.fr-par.scw.cloud"),
+        "region": os.getenv("RUNNERCTL_STORE_S3_REGION", "fr-par"),
+        "bucket": os.getenv("RUNNERCTL_STORE_S3_BUCKET", ""),
+        "access_key": os.getenv("RUNNERCTL_STORE_AWS_ACCESS_KEY_ID", os.getenv("AWS_ACCESS_KEY_ID", "")),
+        "secret_key": os.getenv("RUNNERCTL_STORE_AWS_SECRET_ACCESS_KEY", os.getenv("AWS_SECRET_ACCESS_KEY", "")),
+    }
+    missing = [key for key in ("bucket", "access_key", "secret_key") if not config[key]]
+    if missing:
+        raise RunnerCtlError(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "store-config-missing",
+            "Store publish credentials are not configured.",
+            {"missing": missing},
+        )
+    return config
+
+
+def aws_sigv4_signing_key(secret_key, date_stamp, region, service):
+    key_date = hmac.new(("AWS4" + secret_key).encode("utf-8"), date_stamp.encode("utf-8"), hashlib.sha256).digest()
+    key_region = hmac.new(key_date, region.encode("utf-8"), hashlib.sha256).digest()
+    key_service = hmac.new(key_region, service.encode("utf-8"), hashlib.sha256).digest()
+    return hmac.new(key_service, b"aws4_request", hashlib.sha256).digest()
+
+
+def build_s3_put_request(config, key, content, content_type, cache_control, request_datetime=None):
+    parsed_endpoint = urllib.parse.urlparse(config["endpoint"])
+    if parsed_endpoint.scheme != "https" or not parsed_endpoint.netloc:
+        raise RunnerCtlError(
+            HTTPStatus.INTERNAL_SERVER_ERROR,
+            "store-config-invalid",
+            "Store S3 endpoint must be an HTTPS URL.",
+        )
+    host = f"{config['bucket']}.{parsed_endpoint.netloc}"
+    canonical_uri = "/" + urllib.parse.quote(key, safe="/~")
+    url = f"{parsed_endpoint.scheme}://{host}{canonical_uri}"
+    now = request_datetime or datetime.datetime.now(datetime.timezone.utc)
+    amz_date = now.strftime("%Y%m%dT%H%M%SZ")
+    date_stamp = now.strftime("%Y%m%d")
+    payload_hash = hashlib.sha256(content).hexdigest()
+    header_values = {
+        "cache-control": cache_control,
+        "content-type": content_type,
+        "host": host,
+        "x-amz-content-sha256": payload_hash,
+        "x-amz-date": amz_date,
+    }
+    canonical_headers = "".join(f"{name}:{header_values[name].strip()}\n" for name in sorted(header_values))
+    signed_headers = ";".join(sorted(header_values))
+    canonical_request = "\n".join(["PUT", canonical_uri, "", canonical_headers, signed_headers, payload_hash])
+    credential_scope = f"{date_stamp}/{config['region']}/s3/aws4_request"
+    string_to_sign = "\n".join(
+        [
+            "AWS4-HMAC-SHA256",
+            amz_date,
+            credential_scope,
+            hashlib.sha256(canonical_request.encode("utf-8")).hexdigest(),
+        ]
+    )
+    signing_key = aws_sigv4_signing_key(config["secret_key"], date_stamp, config["region"], "s3")
+    signature = hmac.new(signing_key, string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
+    authorization = (
+        f"AWS4-HMAC-SHA256 Credential={config['access_key']}/{credential_scope}, "
+        f"SignedHeaders={signed_headers}, Signature={signature}"
+    )
+    headers = {
+        "Authorization": authorization,
+        "Cache-Control": cache_control,
+        "Content-Type": content_type,
+        "Host": host,
+        "X-Amz-Content-Sha256": payload_hash,
+        "X-Amz-Date": amz_date,
+    }
+    return urllib.request.Request(url, data=content, headers=headers, method="PUT")
+
+
+class S3StorePublisher:
+    def __init__(self, config, opener=urllib.request.urlopen):
+        self.config = config
+        self.opener = opener
+
+    def put_object(self, key, content, content_type, cache_control):
+        request = build_s3_put_request(self.config, key, content, content_type, cache_control)
+        try:
+            with self.opener(request, timeout=60) as response:
+                status = getattr(response, "status", 200)
+                if status < 200 or status >= 300:
+                    raise RunnerCtlError(
+                        HTTPStatus.BAD_GATEWAY,
+                        "store-upload-failed",
+                        "Store upload failed.",
+                        {"key": key, "upstream_status": status},
+                    )
+        except urllib.error.HTTPError as exc:
+            raise RunnerCtlError(
+                HTTPStatus.BAD_GATEWAY,
+                "store-upload-failed",
+                "Store upload failed.",
+                {"key": key, "upstream_status": exc.code},
+            ) from exc
+        except urllib.error.URLError as exc:
+            raise RunnerCtlError(
+                HTTPStatus.BAD_GATEWAY,
+                "store-upload-failed",
+                "Store upload request failed.",
+                {"key": key},
+            ) from exc
+
+
+def publish_store_bundle(request_data, opener=urllib.request.urlopen):
+    prefix = normalize_store_prefix(request_data.get("prefix", ""))
+    require_store_prefix_allowed(prefix)
+    files = require_list(request_data.get("files", []), "files")
+    if not files:
+        raise RunnerCtlError(
+            HTTPStatus.BAD_REQUEST,
+            "invalid-request",
+            "files must contain at least one file.",
+            {"field": "files"},
+        )
+    if len(files) > 200:
+        raise RunnerCtlError(
+            HTTPStatus.BAD_REQUEST,
+            "invalid-request",
+            "files contains too many entries.",
+            {"field": "files", "maximum": 200},
+        )
+
+    cache_control = str(request_data.get("cache_control") or "no-store").strip()
+    if "\r" in cache_control or "\n" in cache_control:
+        raise RunnerCtlError(
+            HTTPStatus.BAD_REQUEST,
+            "invalid-request",
+            "cache_control contains unsupported characters.",
+            {"field": "cache_control"},
+        )
+
+    max_bytes = store_publish_max_bytes()
+    total_bytes = 0
+    prepared_files = []
+    seen_paths = set()
+    for index, item in enumerate(files):
+        if not isinstance(item, dict):
+            raise RunnerCtlError(
+                HTTPStatus.BAD_REQUEST,
+                "invalid-request",
+                "Each files entry must be an object.",
+                {"index": index},
+            )
+        relative_path = normalize_store_file_path(item.get("path", ""), f"files[{index}].path")
+        if relative_path in seen_paths:
+            raise RunnerCtlError(
+                HTTPStatus.BAD_REQUEST,
+                "invalid-request",
+                "Duplicate store file path.",
+                {"path": relative_path},
+            )
+        seen_paths.add(relative_path)
+        try:
+            content = base64.b64decode(str(item.get("content_base64", "")), validate=True)
+        except (ValueError, TypeError) as exc:
+            raise RunnerCtlError(
+                HTTPStatus.BAD_REQUEST,
+                "invalid-request",
+                "File content must be valid base64.",
+                {"path": relative_path},
+            ) from exc
+        total_bytes += len(content)
+        if total_bytes > max_bytes:
+            raise RunnerCtlError(
+                HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                "store-payload-too-large",
+                "Store publish payload is too large.",
+                {"maximum_bytes": max_bytes},
+            )
+        prepared_files.append(
+            {
+                "key": prefix + relative_path,
+                "path": relative_path,
+                "content": content,
+                "content_type": content_type_for_store_path(relative_path, item.get("content_type")),
+            }
+        )
+
+    publisher = S3StorePublisher(store_config_from_env(), opener=opener)
+    for item in prepared_files:
+        publisher.put_object(item["key"], item["content"], item["content_type"], cache_control)
+
+    return {
+        "result": "published",
+        "prefix": prefix,
+        "url": store_public_url(prefix),
+        "file_count": len(prepared_files),
+        "bytes": total_bytes,
+    }
 
 
 def jenkins_public_hostname(public_url):
@@ -2980,6 +3308,10 @@ class RunnerCtlHandler(BaseHTTPRequestHandler):
             if self.path == "/api/v1/proxmox/smoke/warm":
                 inventory = self._inventory()
                 result = run_warm_smoke(self._clients(), inventory, request_data)
+                self._write_json(HTTPStatus.OK, {"status": "ok", **result})
+                return
+            if self.path == "/api/v1/store/publish":
+                result = publish_store_bundle(request_data)
                 self._write_json(HTTPStatus.OK, {"status": "ok", **result})
                 return
             self._write_json(HTTPStatus.NOT_FOUND, {"status": "error", "code": "not-found", "message": "Unknown endpoint."})

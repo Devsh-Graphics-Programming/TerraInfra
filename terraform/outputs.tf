@@ -23,6 +23,18 @@ output "store_bucket_host" {
   description = "Object Storage host used by the static store proxy"
 }
 
+output "jenkins_store_publisher_access_key" {
+  value       = scaleway_iam_api_key.store_publisher.access_key
+  description = "Access key for the Jenkins static store publisher"
+  sensitive   = true
+}
+
+output "jenkins_store_publisher_secret_key" {
+  value       = scaleway_iam_api_key.store_publisher.secret_key
+  description = "Secret key for the Jenkins static store publisher"
+  sensitive   = true
+}
+
 output "jenkins_node_ip" {
   value       = scaleway_instance_ip.jenkins.address
   description = "Public IP of the standalone Jenkins controller node"

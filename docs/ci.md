@@ -58,8 +58,9 @@ Current jobs:
 - `ci/runners/status/proxmox-pool-status`: read-only status view for hot-pool counts, active members, health cache age, preconnected agent state, and pool-build timings.
 - `ci/runners/examples/windows-gpu-hello`: leases an ephemeral Windows GPU Jenkins node by labels, runs native Pipeline steps on `node(runner.label)`, archives a small proof, and releases the node and VM.
 - `ci/ditt/store-smoke`: validates `store.devsh.eu` public/private report endpoint behavior without Proxmox credentials.
+- `ci/ditt/ex40-dummy-smoke`: accepts an uploaded EX40 runtime package or HTTPS package URL, leases a Windows GPU runtime runner, renders a tiny inline dummy scene, validates the report bundle, and publishes it to `https://store.devsh.eu/ditt/dummy/`.
 - `ci/ditt/ex40-report-plan`: validates EX40 report publish parameters and stays in dry-run mode until the runtime backend is connected.
 
-Proxmox API credentials stay in the `proxmox-runner-api` Kubernetes Secret and Jenkins API credentials stay in the `jenkins-admin` Kubernetes Secret. Both are consumed by the `runnerctl` sidecar, not by JCasC job definitions. Future publish credentials should be added as SOPS-encrypted Kubernetes Secret values first. Do not add plaintext credentials to job definitions or workflow inputs.
+Proxmox API credentials stay in the `proxmox-runner-api` Kubernetes Secret and Jenkins API credentials stay in the `jenkins-admin` Kubernetes Secret. Both are consumed by the `runnerctl` sidecar, not by JCasC job definitions. Store publish credentials stay in the optional `jenkins-store-publisher` Kubernetes Secret and are consumed only by `runnerctl`, so Windows runners receive no Object Storage keys. Do not add plaintext credentials to job definitions or workflow inputs.
 
 Runner platform design is documented in `docs/proxmox-runners.md`. DITT and EX40 jobs should consume that generic layer by labels, not by Proxmox node names, VM IDs, storage names, PCI IDs, or mutable pet templates.

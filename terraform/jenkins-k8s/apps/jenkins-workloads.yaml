@@ -28,7 +28,7 @@ spec:
       labels:
         app.kubernetes.io/name: jenkins
       annotations:
-        devsh.eu/config-revision: "2026-04-25-runner-side-quests-v35"
+        devsh.eu/config-revision: "2026-04-25-ditt-dummy-smoke-v1"
     spec:
       enableServiceLinks: false
       securityContext:
@@ -151,6 +151,9 @@ spec:
                 name: proxmox-runner-api
             - secretRef:
                 name: jenkins-admin
+            - secretRef:
+                name: jenkins-store-publisher
+                optional: true
           env:
             - name: PYTHONUNBUFFERED
               value: "1"
@@ -182,6 +185,18 @@ spec:
               value: 'C:\runner\jenkins-agent'
             - name: RUNNERCTL_JENKINS_AGENT_TIMEOUT_SECONDS
               value: "120"
+            - name: RUNNERCTL_STORE_PUBLIC_BASE_URL
+              value: https://store.devsh.eu/
+            - name: RUNNERCTL_STORE_S3_ENDPOINT
+              value: https://s3.fr-par.scw.cloud
+            - name: RUNNERCTL_STORE_S3_REGION
+              value: fr-par
+            - name: RUNNERCTL_STORE_S3_BUCKET
+              value: devsh-store-prod
+            - name: RUNNERCTL_STORE_ALLOWED_PREFIXES
+              value: ditt/dummy/
+            - name: RUNNERCTL_STORE_MAX_UPLOAD_BYTES
+              value: "67108864"
           command:
             - python3
             - /opt/runnerctl/runnerctl_api.py

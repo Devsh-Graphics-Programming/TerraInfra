@@ -1,8 +1,10 @@
 import base64
 import json
+import os
 import threading
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 import runnerctl_api
@@ -204,6 +206,75 @@ class HelpersTests(unittest.TestCase):
     def test_choose_free_vmid_skips_used_values(self):
         vmid = runnerctl_api.choose_free_vmid({"start": 2000, "end": 2002}, {2000, 2001})
         self.assertEqual(vmid, 2002)
+
+    def test_normalize_store_prefix_accepts_dummy_prefix(self):
+        self.assertEqual(runnerctl_api.normalize_store_prefix("ditt/dummy"), "ditt/dummy/")
+
+    def test_normalize_store_file_path_rejects_traversal(self):
+        with self.assertRaises(runnerctl_api.RunnerCtlError) as raised:
+            runnerctl_api.normalize_store_file_path("../index.html")
+        self.assertEqual(raised.exception.code, "invalid-request")
+
+    def test_build_s3_put_request_uses_virtual_host_style_url(self):
+        request = runnerctl_api.build_s3_put_request(
+            {
+                "endpoint": "https://s3.fr-par.scw.cloud",
+                "region": "fr-par",
+                "bucket": "devsh-store-prod",
+                "access_key": "test-access",
+                "secret_key": "test-secret",
+            },
+            "ditt/dummy/index.html",
+            b"hello",
+            "text/html",
+            "no-store",
+            request_datetime=runnerctl_api.datetime.datetime(2026, 4, 25, 10, 0, 0, tzinfo=runnerctl_api.datetime.timezone.utc),
+        )
+        self.assertEqual(request.full_url, "https://devsh-store-prod.s3.fr-par.scw.cloud/ditt/dummy/index.html")
+        self.assertIn("AWS4-HMAC-SHA256", request.headers["Authorization"])
+        self.assertNotIn("test-secret", request.headers["Authorization"])
+
+    def test_publish_store_bundle_uploads_prepared_files(self):
+        class FakeResponse:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+        calls = []
+
+        def fake_open(request, timeout):
+            calls.append((request, timeout))
+            return FakeResponse()
+
+        env = {
+            "RUNNERCTL_STORE_ALLOWED_PREFIXES": "ditt/dummy/",
+            "RUNNERCTL_STORE_S3_BUCKET": "devsh-store-prod",
+            "RUNNERCTL_STORE_AWS_ACCESS_KEY_ID": "test-access",
+            "RUNNERCTL_STORE_AWS_SECRET_ACCESS_KEY": "test-secret",
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            result = runnerctl_api.publish_store_bundle(
+                {
+                    "prefix": "ditt/dummy/",
+                    "files": [
+                        {
+                            "path": "index.html",
+                            "content_base64": base64.b64encode(b"hello").decode("ascii"),
+                            "content_type": "text/html",
+                        }
+                    ],
+                },
+                opener=fake_open,
+            )
+
+        self.assertEqual(result["result"], "published")
+        self.assertEqual(result["url"], "https://store.devsh.eu/ditt/dummy/")
+        self.assertEqual(result["file_count"], 1)
+        self.assertEqual(calls[0][0].full_url, "https://devsh-store-prod.s3.fr-par.scw.cloud/ditt/dummy/index.html")
 
 
 class LeaseStoreTests(unittest.TestCase):
