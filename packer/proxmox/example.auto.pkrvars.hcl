@@ -25,4 +25,5 @@ require_nvidia_driver      = true
 nvidia_driver_url          = "https://example-artifacts.invalid/windows/nvidia-driver.exe"
 vc_redist_x64_url          = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
 java_runtime_url           = "https://api.adoptium.net/v3/installer/latest/21/ga/windows/x64/jre/hotspot/normal/eclipse"
+git_client_url             = "https://example-artifacts.invalid/windows/git-client.exe"
 vulkan_runtime_url         = "https://example-artifacts.invalid/windows/vulkan-runtime.exe"

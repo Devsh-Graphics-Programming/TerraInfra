@@ -143,6 +143,41 @@ function Find-Java {
     return $null
 }
 
+function Find-Git {
+    $command = Get-Command git.exe -ErrorAction SilentlyContinue
+    if ($command) {
+        return $command.Source
+    }
+
+    $searchRoots = @($env:ProgramFiles, "C:\Tools")
+    $programFilesX86 = [Environment]::GetEnvironmentVariable("ProgramFiles(x86)")
+    if ($programFilesX86) {
+        $searchRoots += $programFilesX86
+    }
+
+    $candidate = Get-ChildItem -Path $searchRoots -Recurse -Filter git.exe -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -match "\\(cmd|bin)\\git\.exe$" } |
+        Select-Object -First 1
+    if ($candidate) {
+        return $candidate.FullName
+    }
+
+    return $null
+}
+
+function Add-MachinePathEntry {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $Path
+    )
+
+    $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+    $entries = @($machinePath -split ";" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    if ($entries -notcontains $Path) {
+        [Environment]::SetEnvironmentVariable("Path", (($entries + $Path) -join ";"), "Machine")
+    }
+}
+
 function Find-NvidiaSmi {
     $knownPath = Join-Path $env:ProgramFiles "NVIDIA Corporation\NVSMI\nvidia-smi.exe"
     if (Test-Path $knownPath) {
@@ -221,6 +256,46 @@ if ($javaInstaller) {
         throw "java.exe was not found after Java runtime installation."
     }
     Write-Host "Java runtime validation passed: $javaExe"
+}
+
+$gitClientUrl = Get-EnvText -Name "GIT_CLIENT_URL"
+$gitClientArgs = Get-EnvText -Name "GIT_CLIENT_ARGS"
+if ([string]::IsNullOrWhiteSpace($gitClientArgs)) {
+    $gitClientArgs = "/VERYSILENT /NORESTART /NOCANCEL /SP-"
+}
+$gitClientFileExtension = Get-EnvText -Name "GIT_CLIENT_FILE_EXTENSION"
+if ([string]::IsNullOrWhiteSpace($gitClientFileExtension)) {
+    $gitClientFileExtension = ".exe"
+}
+$gitInstaller = Save-Installer -Name "git_client" -Url $gitClientUrl -ArtifactPatterns @("Git-*-64-bit.exe", "MinGit-*-64-bit.zip", "*git*.exe", "*git*.zip") -FileExtension $gitClientFileExtension
+if ($gitInstaller) {
+    $gitExtension = [IO.Path]::GetExtension($gitInstaller).ToLowerInvariant()
+    if ($gitExtension -eq ".zip") {
+        $gitRoot = "C:\Tools\Git"
+        if (Test-Path $gitRoot) {
+            Remove-Item -LiteralPath $gitRoot -Recurse -Force
+        }
+        New-Item -ItemType Directory -Force -Path $gitRoot | Out-Null
+        Expand-Archive -LiteralPath $gitInstaller -DestinationPath $gitRoot -Force
+        $gitCmd = Get-ChildItem -Path $gitRoot -Recurse -File -Filter git.exe -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match "\\cmd\\git\.exe$" } |
+            Select-Object -First 1
+        if ($gitCmd) {
+            Add-MachinePathEntry -Path $gitCmd.DirectoryName
+        }
+    } else {
+        Invoke-Installer -Name "Git client" -Path $gitInstaller -Arguments $gitClientArgs -TimeoutMinutes $runtimeComponentTimeoutMinutes
+    }
+    Update-ProcessPath
+    $gitExe = Find-Git
+    if (-not $gitExe) {
+        throw "git.exe was not found after Git client installation."
+    }
+    & $gitExe --version | Write-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw "git.exe validation failed with exit code $LASTEXITCODE."
+    }
+    Write-Host "Git client validation passed: $gitExe"
 }
 
 $vulkanRuntimeUrl = Get-EnvText -Name "VULKAN_RUNTIME_URL"

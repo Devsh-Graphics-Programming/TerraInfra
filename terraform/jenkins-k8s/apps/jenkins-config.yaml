@@ -1440,7 +1440,7 @@ data:
           }
 
           pipelineJob('ci/ditt/ex40-scene-smoke') {
-            description('Runs EX40 from an uploaded or URL-provided runtime package on a Windows GPU runner, materializes a suite from the host-side scene cache, and publishes a public or private smoke report.')
+            description('Runs EX40 from an uploaded or URL-provided runtime package on a Windows GPU runner, materializes smoke zip suites or full Git-backed suites from the runner-farm object cache, and publishes the report.')
             logRotator {
               daysToKeep(31)
               numToKeep(100)
@@ -1448,10 +1448,14 @@ data:
               artifactNumToKeep(100)
             }
             parameters {
-              choiceParam('SUITE', ['public-smoke', 'private-smoke'], 'Scene suite to materialize from the cache.')
-              stringParam('SCENES_COMMIT', '', 'Scene cache commit SHA. This selects the immutable cache object path.')
-              stringParam('SCENE_CACHE_BASE_URL', 'http://10.254.254.254:18081/ditt-scenes', 'Internal host-side scene cache base URL. Plain HTTP is allowed only for the runner VLAN cache address.')
-              stringParam('SCENE_CACHE_URL', '', 'Optional explicit scene cache zip URL. Leave empty to use SCENE_CACHE_BASE_URL/SCENES_COMMIT/SUITE.zip.')
+              choiceParam('SUITE', ['public-smoke', 'private-smoke', 'public', 'private'], 'Scene suite to materialize. Smoke suites use zip cache. Full suites use runner-farm Git object cache.')
+              stringParam('SCENES_COMMIT', '', 'Smoke scene cache commit SHA. Used only for public-smoke and private-smoke.')
+              stringParam('SCENE_CACHE_BASE_URL', 'http://10.254.254.254:18081/ditt-scenes', 'Internal smoke zip cache base URL. Used only for smoke suites.')
+              stringParam('SCENE_CACHE_URL', '', 'Optional explicit smoke scene cache zip URL. Leave empty to use SCENE_CACHE_BASE_URL/SCENES_COMMIT/SUITE.zip.')
+              stringParam('MEDIA_COMMIT', '0f7ad42b33abe3143a5d69c4d14b26cf3e538c88', 'Nabla examples media commit for the public full suite.')
+              stringParam('PUBLIC_REFERENCES_COMMIT', '043f8a0aa074f134b3230d56f27ed7d0c645f6b3', 'Nabla CI commit containing public reference renders.')
+              stringParam('DITT_SCENES_COMMIT', 'fe7cd7bf9b462e3bb5ef46e1e0658ed08899f5ee', 'DITT reference scenes commit for the private full suite.')
+              stringParam('PRIVATE_REFERENCES_COMMIT', '201d9726ce69c6807fc5c326b3388315ecb2797b', 'DITT reference renders commit for the private full suite.')
               stringParam('EX40_PACKAGE_URL', '', 'Optional HTTPS URL of an EX40 runtime package zip. Leave empty when uploading EX40_PACKAGE_FILE.')
               stringParam('STORE_PREFIX', '', 'Destination prefix under store.devsh.eu. Empty selects ditt/public/smoke/latest/ or ditt/private/smoke/latest/.')
               stringParam('SHARD_COUNT', '1', 'Number of scene shards. Use 1 until multiple GPU runners are intentionally enabled.')
@@ -1471,10 +1475,14 @@ data:
                 sandbox()
                 script('''def normalizeSuite(String value) {
                   def suite = value?.trim()
-                  if (!(suite in ['public-smoke', 'private-smoke'])) {
-                    error 'SUITE must be public-smoke or private-smoke.'
+                  if (!(suite in ['public-smoke', 'private-smoke', 'public', 'private'])) {
+                    error 'SUITE must be public-smoke, private-smoke, public, or private.'
                   }
                   return suite
+                }
+
+                def isSmokeSuite(String suite) {
+                  return suite in ['public-smoke', 'private-smoke']
                 }
 
                 def requireSha(String value) {
@@ -1515,7 +1523,13 @@ data:
                   if (suite == 'public-smoke') {
                     return 'ditt/public/smoke/latest/'
                   }
-                  return 'ditt/private/smoke/latest/'
+                  if (suite == 'public') {
+                    return 'ditt/public/latest/'
+                  }
+                  if (suite == 'private-smoke') {
+                    return 'ditt/private/smoke/latest/'
+                  }
+                  return 'ditt/private/latest/'
                 }
 
                 def packageUrl = params.EX40_PACKAGE_URL?.trim()
@@ -1530,7 +1544,6 @@ data:
                 timestamps {
                   stage('Validate request') {
                     suite = normalizeSuite(params.SUITE)
-                    scenesCommit = requireSha(params.SCENES_COMMIT)
                     shardCount = requireNumber(params.SHARD_COUNT, 'SHARD_COUNT', 1, 64)
                     shardIndex = requireNumber(params.SHARD_INDEX, 'SHARD_INDEX', 0, 63)
                     if (shardIndex >= shardCount) {
@@ -1539,19 +1552,31 @@ data:
                     if (packageUrl && !packageUrl.startsWith('https://')) {
                       error 'EX40_PACKAGE_URL must be HTTPS.'
                     }
-                    def baseUrl = params.SCENE_CACHE_BASE_URL?.trim()
-                    if (params.SCENE_CACHE_URL?.trim()) {
-                      sceneCacheUrl = validateSceneCacheUrl(params.SCENE_CACHE_URL)
-                    } else {
-                      if (!baseUrl) {
-                        error 'SCENE_CACHE_BASE_URL is required when SCENE_CACHE_URL is empty.'
+                    if (isSmokeSuite(suite)) {
+                      scenesCommit = requireSha(params.SCENES_COMMIT)
+                      def baseUrl = params.SCENE_CACHE_BASE_URL?.trim()
+                      if (params.SCENE_CACHE_URL?.trim()) {
+                        sceneCacheUrl = validateSceneCacheUrl(params.SCENE_CACHE_URL)
+                      } else {
+                        if (!baseUrl) {
+                          error 'SCENE_CACHE_BASE_URL is required when SCENE_CACHE_URL is empty.'
+                        }
+                        sceneCacheUrl = validateSceneCacheUrl(baseUrl.replaceAll('/+$', '') + '/' + scenesCommit + '/' + suite + '.zip')
                       }
-                      sceneCacheUrl = validateSceneCacheUrl(baseUrl.replaceAll('/+$', '') + '/' + scenesCommit + '/' + suite + '.zip')
+                    } else {
+                      sceneCacheUrl = ''
+                      if (suite == 'public') {
+                        requireSha(params.MEDIA_COMMIT)
+                        requireSha(params.PUBLIC_REFERENCES_COMMIT)
+                      } else {
+                        requireSha(params.DITT_SCENES_COMMIT)
+                        requireSha(params.PRIVATE_REFERENCES_COMMIT)
+                      }
                     }
                     def rawPrefix = params.STORE_PREFIX?.trim() ?: defaultPrefixForSuite(suite)
-                    def allowedPrefixes = suite == 'public-smoke' ? ['ditt/public/'] : ['ditt/private/']
+                    def allowedPrefixes = suite in ['public-smoke', 'public'] ? ['ditt/public/'] : ['ditt/private/']
                     storePrefix = storeNormalizePrefix(rawPrefix, allowedPrefixes)
-                    echo('Suite: ' + suite + ', scenes_commit=' + scenesCommit + ', shard=' + shardIndex + '/' + shardCount + ', store_prefix=' + storePrefix)
+                    echo('Suite: ' + suite + ', shard=' + shardIndex + '/' + shardCount + ', store_prefix=' + storePrefix)
                   }
 
                   withRunner(labels: ['windows', 'gpu', 'nvidia', 'vulkan', 'runtime-only'], leaseTtlMinutes: 90, maxReadySeconds: 120) { runner ->
@@ -1600,26 +1625,37 @@ data:
                           powershell './acquire-package.ps1'
                         }
                         stage('Materialize scenes') {
-                          writeFile file: 'materialize-scenes.ps1', text: [
-                            '$ErrorActionPreference = "Stop"',
-                            '$packagePath = Join-Path $env:WORKSPACE "scene-cache.zip"',
-                            '$sceneRoot = Join-Path $env:WORKSPACE "scene-cache"',
-                            'Remove-Item -LiteralPath $packagePath -Force -ErrorAction SilentlyContinue',
-                            'if (Test-Path -LiteralPath $sceneRoot) { Remove-Item -LiteralPath $sceneRoot -Recurse -Force }',
-                            'Write-Host ("Downloading scene cache suite={0}, commit={1}" -f $env:SCENE_SUITE, $env:SCENES_COMMIT)',
-                            'Invoke-WebRequest -Uri $env:SCENE_CACHE_URL -OutFile $packagePath -UseBasicParsing',
-                            '$packageSize = (Get-Item -LiteralPath $packagePath).Length',
-                            'Write-Host ("Scene cache package size: {0} bytes" -f $packageSize)',
-                            'Expand-Archive -LiteralPath $packagePath -DestinationPath $sceneRoot -Force',
-                            '$sceneList = Join-Path $sceneRoot "scene-list.txt"',
-                            'if (-not (Test-Path -LiteralPath $sceneList)) { throw "scene-list.txt was not found in the scene cache package." }',
-                            '$manifestPath = Join-Path $sceneRoot "manifest.json"',
-                            '$referenceDir = Join-Path $sceneRoot "references"',
-                            '$resolvedReferenceDir = if (Test-Path -LiteralPath $referenceDir) { $referenceDir } else { "" }',
-                            '$info = [pscustomobject]@{ suite = $env:SCENE_SUITE; commit = $env:SCENES_COMMIT; root = $sceneRoot; sceneList = $sceneList; manifest = if (Test-Path -LiteralPath $manifestPath) { $manifestPath } else { "" }; referenceDir = $resolvedReferenceDir; packageSize = $packageSize }',
-                            '$info | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $env:WORKSPACE "scene-cache-info.json") -Encoding UTF8'
-                          ].join('\\n')
-                          powershell './materialize-scenes.ps1'
+                          if (suite in ['public', 'private']) {
+                            dittMaterializeSceneData(
+                              suite: suite,
+                              gitObjectCache: runner.git_object_cache,
+                              mediaCommit: params.MEDIA_COMMIT,
+                              publicReferencesCommit: params.PUBLIC_REFERENCES_COMMIT,
+                              dittScenesCommit: params.DITT_SCENES_COMMIT,
+                              privateReferencesCommit: params.PRIVATE_REFERENCES_COMMIT
+                            )
+                          } else {
+                            writeFile file: 'materialize-scenes.ps1', text: [
+                              '$ErrorActionPreference = "Stop"',
+                              '$packagePath = Join-Path $env:WORKSPACE "scene-cache.zip"',
+                              '$sceneRoot = Join-Path $env:WORKSPACE "scene-cache"',
+                              'Remove-Item -LiteralPath $packagePath -Force -ErrorAction SilentlyContinue',
+                              'if (Test-Path -LiteralPath $sceneRoot) { Remove-Item -LiteralPath $sceneRoot -Recurse -Force }',
+                              'Write-Host ("Downloading scene cache suite={0}, commit={1}" -f $env:SCENE_SUITE, $env:SCENES_COMMIT)',
+                              'Invoke-WebRequest -Uri $env:SCENE_CACHE_URL -OutFile $packagePath -UseBasicParsing',
+                              '$packageSize = (Get-Item -LiteralPath $packagePath).Length',
+                              'Write-Host ("Scene cache package size: {0} bytes" -f $packageSize)',
+                              'Expand-Archive -LiteralPath $packagePath -DestinationPath $sceneRoot -Force',
+                              '$sceneList = Join-Path $sceneRoot "scene-list.txt"',
+                              'if (-not (Test-Path -LiteralPath $sceneList)) { throw "scene-list.txt was not found in the scene cache package." }',
+                              '$manifestPath = Join-Path $sceneRoot "manifest.json"',
+                              '$referenceDir = Join-Path $sceneRoot "references"',
+                              '$resolvedReferenceDir = if (Test-Path -LiteralPath $referenceDir) { $referenceDir } else { "" }',
+                              '$info = [pscustomobject]@{ suite = $env:SCENE_SUITE; commit = $env:SCENES_COMMIT; root = $sceneRoot; sceneList = $sceneList; manifest = if (Test-Path -LiteralPath $manifestPath) { $manifestPath } else { "" }; referenceDir = $resolvedReferenceDir; packageSize = $packageSize }',
+                              '$info | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $env:WORKSPACE "scene-cache-info.json") -Encoding UTF8'
+                            ].join('\\n')
+                            powershell './materialize-scenes.ps1'
+                          }
                         }
                         stage('Select shard') {
                           writeFile file: 'select-scenes.ps1', text: [
@@ -1706,7 +1742,7 @@ data:
                           }
                         }
                         stage('Artifacts') {
-                          archiveArtifacts artifacts: 'package-info.json,scene-cache-info.json,resolved-scenes.json,selected-scenes.txt,ex40.log,publish/**', allowEmptyArchive: true, fingerprint: false
+                          archiveArtifacts artifacts: 'package-info.json,scene-cache-info.json,scene-git-request.json,git-object-cache.json,resolved-scenes.json,selected-scenes.txt,ex40.log,publish/**', allowEmptyArchive: true, fingerprint: false
                         }
                       }
                     }

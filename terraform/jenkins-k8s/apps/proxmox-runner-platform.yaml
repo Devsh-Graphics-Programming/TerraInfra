@@ -58,6 +58,36 @@ data:
               "vlan_tag": 69,
               "jenkins_host_alias_ip": "10.254.254.254"
             },
+            "git_object_cache": {
+              "api_url": "http://10.254.254.254:18082",
+              "git_base_url": "git://10.254.254.254:9418",
+              "stores": [
+                {
+                  "id": "nabla-media-public",
+                  "repo": "nabla-media-public.git",
+                  "scope": "public",
+                  "description": "Shared Nabla examples media object store"
+                },
+                {
+                  "id": "nabla-ci-public",
+                  "repo": "nabla-ci-public.git",
+                  "scope": "public",
+                  "description": "Nabla CI public reference data"
+                },
+                {
+                  "id": "ditt-reference-scenes",
+                  "repo": "ditt-reference-scenes.git",
+                  "scope": "private",
+                  "description": "DITT private scene data"
+                },
+                {
+                  "id": "ditt-reference-renders",
+                  "repo": "ditt-reference-renders.git",
+                  "scope": "private",
+                  "description": "DITT private reference renders"
+                }
+              ]
+            },
             "vmid_ranges": {
               "runner": {
                 "start": 2000,
@@ -75,6 +105,7 @@ data:
                 "nvidia-driver",
                 "vc-redist-x64",
                 "java-runtime",
+                "git-client",
                 "vulkan-runtime"
               ]
             },

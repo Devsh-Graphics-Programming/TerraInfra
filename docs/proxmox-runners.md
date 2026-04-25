@@ -435,6 +435,10 @@ The durable host-side tunnel install assets live in the repo:
 - `scripts/proxmox-runners/proxmox-runner-tunnel.env.example`
 - `scripts/proxmox-runners/install-proxmox-runner-artifact-server.sh`
 - `scripts/proxmox-runners/proxmox-runner-artifact-server.env.example`
+- `scripts/proxmox-runners/install-proxmox-runner-git-cache.sh`
+- `scripts/proxmox-runners/proxmox-runner-git-cache.py`
+- `scripts/proxmox-runners/proxmox-runner-git-cache.env.example`
+- `scripts/proxmox-runners/proxmox-runner-git-cache.repos.example.json`
 
 These assets are intended for Proxmox hosts that stay outside k3s/Flux but must
 still follow the same repo-driven operational contract. The installer expects
@@ -444,6 +448,19 @@ systemd unit plus an env file without committing secrets.
 The artifact server is for large non-committed runtime installers such as GPU
 drivers and redistributables. Packer should pull those from a host-local URL
 instead of uploading large installers through WinRM.
+
+The Git object cache is for large scene, media, and reference repositories used
+by ephemeral runners. It keeps bare Git object stores near the Proxmox runner
+farm, exposes a small runner-VLAN API for fetching immutable commits, and serves
+read-only Git protocol URLs for Windows runner checkouts. It must not materialize
+worktrees on the Proxmox host. Split reusable public media stores from
+workload-specific private stores so future jobs can reuse public media without
+depending on DITT-specific data.
+
+Private upstream repositories should use read-only deploy keys or another
+read-only credential configured only on the Proxmox runner host. The committed
+cache config may reference SSH host aliases, but it must not contain key
+material, tokens, or credentialed HTTPS URLs.
 
 ## First Real Implementation Order
 

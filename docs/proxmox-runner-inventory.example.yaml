@@ -41,6 +41,18 @@ proxmox:
         bridge: example-vmbr
         vlan_tag: 69
         jenkins_host_alias_ip: 10.254.254.254
+      git_object_cache:
+        api_url: http://10.254.254.254:18082
+        git_base_url: git://10.254.254.254:9418
+        stores:
+          - id: shared-media-public
+            repo: shared-media-public.git
+            scope: public
+            description: Shared examples media object store
+          - id: workload-private-scenes
+            repo: workload-private-scenes.git
+            scope: private
+            description: Workload-specific private scene object store
       vmid_ranges:
         runner:
           start: 2000

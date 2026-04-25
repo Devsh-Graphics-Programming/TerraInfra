@@ -195,6 +195,21 @@ variable "runtime_component_timeout_minutes" {
   default = 10
 }
 
+variable "git_client_url" {
+  type    = string
+  default = ""
+}
+
+variable "git_client_args" {
+  type    = string
+  default = "/VERYSILENT /NORESTART /NOCANCEL /SP-"
+}
+
+variable "git_client_file_extension" {
+  type    = string
+  default = ".exe"
+}
+
 variable "vulkan_runtime_url" {
   type    = string
   default = ""

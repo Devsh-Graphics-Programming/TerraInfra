@@ -31,6 +31,7 @@ SAFE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 ENV_NAME_PATTERN = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 LEASE_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 STORE_PATH_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
+GIT_CACHE_REPO_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*\.git$")
 CONTENT_TYPE_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*(; ?[A-Za-z0-9_.-]+=[A-Za-z0-9_.-]+)*$")
 ACTIVE_RUNNER_STATES = {"creating", "ready", "leased", "booting", "healthy", "agent-online"}
 READY_POOL_STATES = {"ready"}
@@ -295,6 +296,80 @@ def optional_ipv4_address(value, field_name):
             {"field": field_name},
         )
     return str(parsed)
+
+
+def require_public_url(value, field_name, allowed_schemes):
+    text = str(value or "").strip()
+    parsed = urllib.parse.urlparse(text)
+    if parsed.scheme not in allowed_schemes or not parsed.netloc or parsed.username or parsed.password or parsed.fragment:
+        raise RunnerCtlError(
+            HTTPStatus.INTERNAL_SERVER_ERROR,
+            "invalid-inventory",
+            f"Invalid URL for {field_name}.",
+            {"field": field_name},
+        )
+    return text.rstrip("/")
+
+
+def normalize_git_cache_repo_path(value, field_name):
+    text = str(value or "").strip().replace("\\", "/")
+    if text.startswith("/") or text.endswith("/") or "//" in text:
+        raise RunnerCtlError(
+            HTTPStatus.INTERNAL_SERVER_ERROR,
+            "invalid-inventory",
+            f"{field_name} must be a relative Git repository path.",
+            {"field": field_name},
+        )
+    parts = text.split("/")
+    if any(part in {"", ".", ".."} for part in parts):
+        raise RunnerCtlError(
+            HTTPStatus.INTERNAL_SERVER_ERROR,
+            "invalid-inventory",
+            f"{field_name} must not contain traversal segments.",
+            {"field": field_name},
+        )
+    if not GIT_CACHE_REPO_PATTERN.fullmatch(text):
+        raise RunnerCtlError(
+            HTTPStatus.INTERNAL_SERVER_ERROR,
+            "invalid-inventory",
+            f"{field_name} must end with .git and contain only safe path characters.",
+            {"field": field_name},
+        )
+    return text
+
+
+def host_git_object_cache(host):
+    cache = host.get("git_object_cache")
+    if not cache:
+        return None
+    api_url = require_public_url(cache.get("api_url"), "git_object_cache.api_url", {"http", "https"})
+    git_base_url = require_public_url(cache.get("git_base_url"), "git_object_cache.git_base_url", {"git", "http", "https", "ssh"})
+    stores = require_list(cache.get("stores", []), "git_object_cache.stores")
+    if not stores:
+        raise RunnerCtlError(HTTPStatus.INTERNAL_SERVER_ERROR, "invalid-inventory", "git_object_cache.stores must not be empty.")
+    public_stores = []
+    seen_ids = set()
+    for item in stores:
+        if not isinstance(item, dict):
+            raise RunnerCtlError(HTTPStatus.INTERNAL_SERVER_ERROR, "invalid-inventory", "git_object_cache.stores entries must be objects.")
+        store_id = require_pattern(item.get("id", ""), ID_PATTERN, "git_object_cache.stores.id")
+        if store_id in seen_ids:
+            raise RunnerCtlError(HTTPStatus.INTERNAL_SERVER_ERROR, "invalid-inventory", "git_object_cache store ids must be unique.")
+        seen_ids.add(store_id)
+        repo_path = normalize_git_cache_repo_path(item.get("repo", ""), "git_object_cache.stores.repo")
+        scope = str(item.get("scope") or "private").strip().lower()
+        if scope not in {"public", "private"}:
+            raise RunnerCtlError(HTTPStatus.INTERNAL_SERVER_ERROR, "invalid-inventory", "git_object_cache store scope is invalid.")
+        public_stores.append(
+            {
+                "id": store_id,
+                "repo": repo_path,
+                "scope": scope,
+                "git_url": f"{git_base_url}/{repo_path}",
+                "description": str(item.get("description") or "").strip(),
+            }
+        )
+    return {"api_url": api_url, "git_base_url": git_base_url, "stores": public_stores}
 
 
 def normalize_store_prefix(value, field_name="prefix"):
@@ -758,6 +833,9 @@ def build_candidate(host, template, runner_class):
     host_alias_ip = optional_ipv4_address(network.get("jenkins_host_alias_ip"), "network.jenkins_host_alias_ip")
     if host_alias_ip:
         candidate["jenkins_host_alias_ip"] = host_alias_ip
+    git_cache = host_git_object_cache(host)
+    if git_cache:
+        candidate["git_object_cache"] = git_cache
     if placement.get("gpu_device"):
         candidate["gpu_device"] = placement["gpu_device"]
     return candidate
@@ -774,6 +852,7 @@ def public_candidate(candidate):
         "bridge": candidate["bridge"],
         "vlan_tag": candidate["vlan_tag"],
         "jenkins_host_alias_ip": candidate.get("jenkins_host_alias_ip"),
+        "git_object_cache": candidate.get("git_object_cache"),
     }
 
 
@@ -1415,6 +1494,8 @@ def public_lease_result(record, allocation_mode, timings=None):
         "allocation_mode": allocation_mode,
         "ready": record.get("state") in {"ready", "leased", "healthy"} and allocation_mode == "hot-pool",
     }
+    if record.get("git_object_cache"):
+        result["git_object_cache"] = record["git_object_cache"]
     timing_data = merge_timings(record.get("timings"), timings)
     if timing_data:
         result["timings"] = timing_data
@@ -1535,6 +1616,7 @@ def acquire_ready_pool_member(client_registry, lease_store, inventory, resolved,
                     "policy": build_policy_record(resolved),
                     "health_checks": resolved["health_checks"],
                     "jenkins_host_alias_ip": candidate.get("jenkins_host_alias_ip"),
+                    "git_object_cache": candidate.get("git_object_cache"),
                 },
             )
             timings = merge_timings(
@@ -1647,6 +1729,7 @@ def create_lease(client_registry, lease_store, inventory, request_data):
                     "policy": build_policy_record(resolved),
                     "health_checks": resolved["health_checks"],
                     "jenkins_host_alias_ip": candidate.get("jenkins_host_alias_ip"),
+                    "git_object_cache": candidate.get("git_object_cache"),
                     "timings": {
                         "clone_ms": clone_ms,
                         "configure_ms": configure_ms,
@@ -2258,6 +2341,8 @@ def public_agent_lease_result(record, prepare_result):
         "health": prepare_result.get("health", {}),
         "health_cached": bool(prepare_result.get("health_cached", False)),
     }
+    if record.get("git_object_cache"):
+        result["git_object_cache"] = record["git_object_cache"]
     timings = merge_timings(prepare_result.get("timings"), record.get("timings"))
     if timings:
         result["timings"] = timings
@@ -2709,6 +2794,7 @@ def build_ready_pool_member(client_registry, lease_store, inventory, resolved, c
         "policy": build_policy_record(resolved),
         "health_checks": resolved["health_checks"],
         "jenkins_host_alias_ip": candidate.get("jenkins_host_alias_ip"),
+        "git_object_cache": candidate.get("git_object_cache"),
     }
     lease_store.put(pool_id, record)
 

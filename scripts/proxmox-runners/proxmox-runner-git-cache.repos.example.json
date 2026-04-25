@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "repositories": [
+    {
+      "id": "nabla-media-public",
+      "path": "nabla-media-public.git",
+      "remote": "https://github.com/Devsh-Graphics-Programming/Nabla-Example-And-Tests-Media.git",
+      "visibility": "public",
+      "description": "Shared Nabla examples media object store"
+    },
+    {
+      "id": "nabla-ci-public",
+      "path": "nabla-ci-public.git",
+      "remote": "https://github.com/Devsh-Graphics-Programming/Nabla-CI.git",
+      "visibility": "public",
+      "description": "Nabla CI public reference data"
+    },
+    {
+      "id": "ditt-reference-scenes",
+      "path": "ditt-reference-scenes.git",
+      "remote": "git@github-ditt-scenes:Devsh-Graphics-Programming/Ditt-Reference-Scenes.git",
+      "visibility": "private",
+      "description": "DITT private scene data"
+    },
+    {
+      "id": "ditt-reference-renders",
+      "path": "ditt-reference-renders.git",
+      "remote": "git@github-ditt-renders:Devsh-Graphics-Programming/Ditt-Reference-Renders.git",
+      "visibility": "private",
+      "description": "DITT private reference renders"
+    }
+  ]
+}

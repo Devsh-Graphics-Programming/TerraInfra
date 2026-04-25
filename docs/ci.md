@@ -59,18 +59,18 @@ Current jobs:
 - `ci/runners/examples/windows-gpu-hello`: leases an ephemeral Windows GPU Jenkins node by labels, runs native Pipeline steps on `node(runner.label)`, archives a small proof, and releases the node and VM.
 - `ci/ditt/store-smoke`: validates `store.devsh.eu` public/private report endpoint behavior without Proxmox credentials.
 - `ci/ditt/ex40-dummy-smoke`: accepts an uploaded EX40 runtime package or HTTPS package URL, leases a Windows GPU runtime runner, renders a tiny inline dummy scene, validates the report bundle, and publishes it to `https://store.devsh.eu/ditt/dummy/`.
-- `ci/ditt/ex40-scene-smoke`: accepts an uploaded EX40 runtime package or HTTPS package URL, materializes a `public-smoke` or `private-smoke` scene suite from the host-side scene cache, renders the selected shard on a Windows GPU runtime runner, and publishes the report under `ditt/public/` or `ditt/private/`.
+- `ci/ditt/ex40-scene-smoke`: accepts an uploaded EX40 runtime package or HTTPS package URL, materializes `public-smoke` and `private-smoke` from the small smoke zip cache or `public` and `private` from the runner-farm Git object cache, renders the selected shard on a Windows GPU runtime runner, and publishes the report under `ditt/public/` or `ditt/private/`.
 - `ci/ditt/ex40-report-plan`: validates EX40 report publish parameters and stays in dry-run mode until the runtime backend is connected.
 
 Proxmox API credentials stay in the `proxmox-runner-api` Kubernetes Secret and Jenkins API credentials stay in the `jenkins-admin` Kubernetes Secret. Both are consumed by the `runnerctl` sidecar, not by JCasC job definitions. Store publish credentials stay in the optional `jenkins-store-publisher` Kubernetes Secret and are consumed only by `runnerctl`, so Windows runners receive no Object Storage keys. Do not add plaintext credentials to job definitions or workflow inputs.
 
 Runner platform design is documented in `docs/proxmox-runners.md`. DITT and EX40 jobs should consume that generic layer by labels, not by Proxmox node names, VM IDs, storage names, PCI IDs, or mutable pet templates.
 
-## EX40 Scene Cache Contract
+## EX40 Scene Data Contract
 
-The scene smoke job keeps the EX40 runtime package separate from scenes and media. `EX40_PACKAGE_FILE` or `EX40_PACKAGE_URL` supplies only the executable package. Scene data comes from a host-side cache URL keyed by `SCENES_COMMIT` and `SUITE`.
+The EX40 scene job keeps the runtime package separate from scenes and media. `EX40_PACKAGE_FILE` or `EX40_PACKAGE_URL` supplies only the executable package. Scene and reference data are materialized on the Windows runner from a cache near the Proxmox runner farm.
 
-The default cache URL shape is:
+Smoke suites use the small host-side zip cache:
 
 ```text
 http://10.254.254.254:18081/ditt-scenes/<SCENES_COMMIT>/<SUITE>.zip
@@ -83,4 +83,13 @@ The zip payload must contain:
 - `references/`: optional reference EXRs. When present, the job passes it as `--reference-dir`.
 - any scene/media files referenced by `scene-list.txt`.
 
-The Windows runner does not need Git or scene repository credentials. The host-side cache owns scene history and materialization. Jenkins only passes a commit SHA, suite name, shard index, and runtime package.
+Full suites use the runner-farm Git object cache from the runner lease metadata. The cache is served from the runner VLAN and stores only bare Git object repositories, not checkouts. The Windows runner asks the cache API to fetch immutable commits, then performs its own checkout from the local Git daemon.
+
+Current object stores are split by reuse and sensitivity:
+
+- `nabla-media-public`: shared public media used by Nabla examples beyond DITT.
+- `nabla-ci-public`: public reference data from the Nabla CI repository.
+- `ditt-reference-scenes`: DITT scene data.
+- `ditt-reference-renders`: DITT reference renders.
+
+Jenkins does not upload media, scenes, or reference renders. It only passes commit SHAs, suite name, shard index, and the small EX40 runtime package. Object cache remotes and any read-only credentials are host-side configuration and must not be committed.
