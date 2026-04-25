@@ -159,6 +159,9 @@ The janitor must be hard-scoped:
 - orphaned Proxmox VMs are only eligible for cleanup when they are inside the
   configured runner VMID range, carry the required runner tags, and their name
   starts with `runnerctl-`
+- interrupted clones that died before final runner tags were applied can also
+  be cleaned when they are inside the runner VMID range, carry the `runnerctl`
+  tag, and their name starts with `runnerctl-`
 
 It must never touch unrelated production infrastructure.
 

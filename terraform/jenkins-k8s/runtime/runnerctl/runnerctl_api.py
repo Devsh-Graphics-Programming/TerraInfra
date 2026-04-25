@@ -2240,7 +2240,15 @@ def run_janitor(client_registry, lease_store, inventory, request_data, jenkins_c
             timings["vm_config_ms"] += item_timings["vm_config_ms"]
             actual_tags = set(tag for tag in str(vm_config.get("tags", "")).split(";") if tag)
             missing_tags = sorted(required_tags - actual_tags)
-            if missing_tags:
+            name = str(vm_config.get("name") or "")
+            if not name:
+                vm_status_started_ms = monotonic_ms()
+                vm_status = client.vm_status(node, vmid)
+                item_timings["vm_status_ms"] = elapsed_ms(vm_status_started_ms)
+                timings["vm_status_ms"] += item_timings["vm_status_ms"]
+                name = str(vm_status.get("name") or "")
+            runnerctl_named_orphan = name.startswith("runnerctl-") and "runnerctl" in actual_tags
+            if missing_tags and not runnerctl_named_orphan:
                 skipped.append(
                     {
                         "host_id": host_id,
@@ -2252,13 +2260,6 @@ def run_janitor(client_registry, lease_store, inventory, request_data, jenkins_c
                     }
                 )
                 continue
-            name = str(vm_config.get("name") or "")
-            if not name:
-                vm_status_started_ms = monotonic_ms()
-                vm_status = client.vm_status(node, vmid)
-                item_timings["vm_status_ms"] = elapsed_ms(vm_status_started_ms)
-                timings["vm_status_ms"] += item_timings["vm_status_ms"]
-                name = str(vm_status.get("name") or "")
             if not name.startswith("runnerctl-"):
                 skipped.append(
                     {

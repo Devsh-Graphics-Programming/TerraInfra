@@ -871,6 +871,23 @@ class CreateLeaseTests(unittest.TestCase):
             self.assertEqual(result["skipped"][0]["reason"], "orphan-name-not-runnerctl")
             self.assertEqual(client.destroy_requests, [])
 
+    def test_janitor_removes_pretagged_orphan_runner_vm(self):
+        with tempfile.TemporaryDirectory() as directory:
+            lease_store = runnerctl_api.LeaseStore(Path(directory) / "leases.json")
+            client = FakeProxmoxClient()
+            client.vmids = {9002, 2000}
+            client.vm_configs = {
+                2000: {
+                    "name": "runnerctl-hot-win-gpu-nvidia-99999999",
+                    "tags": "gpu;nvidia;runnerctl;template;windows",
+                }
+            }
+            registry = FakeProxmoxRegistry(client)
+            result = runnerctl_api.run_janitor(registry, lease_store, SAMPLE_INVENTORY, {})
+            self.assertEqual(result["cleaned_count"], 1)
+            self.assertEqual(result["cleaned"][0]["reason"], "orphan-runner-vm")
+            self.assertEqual(client.destroy_requests, [("pve-rtx-01", 2000)])
+
 
 if __name__ == "__main__":
     unittest.main()
