@@ -36,6 +36,7 @@ def call(Map timings = [:], Map args = [:]) {
   def janitorKeys = [
     'lease_scan_ms',
     'vm_lookup_ms',
+    'vm_status_ms',
     'vm_config_ms',
     'delete_jenkins_node_ms',
     'destroy_vm_ms',

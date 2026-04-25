@@ -2050,6 +2050,7 @@ def run_janitor(client_registry, lease_store, inventory, request_data, jenkins_c
     timings = {
         "lease_scan_ms": 0,
         "vm_lookup_ms": 0,
+        "vm_status_ms": 0,
         "vm_config_ms": 0,
         "delete_jenkins_node_ms": 0,
         "destroy_vm_ms": 0,
@@ -2121,6 +2122,112 @@ def run_janitor(client_registry, lease_store, inventory, request_data, jenkins_c
                 "timings": item_timings,
             }
         )
+
+    referenced_vmids_by_host = {}
+    for _, record in lease_items:
+        host_id = record.get("host_id")
+        if not host_id:
+            continue
+        try:
+            vmid = int(record.get("vmid"))
+        except (TypeError, ValueError):
+            continue
+        referenced_vmids_by_host.setdefault(host_id, set()).add(vmid)
+
+    required_tags = set(janitor.get("require_tags", []))
+    range_ref = janitor.get("vmid_range", "runner")
+    for host in inventory.get("proxmox", {}).get("hosts", []):
+        if not bool(host.get("enabled", True)):
+            continue
+        host_id = host.get("id")
+        node = require_pattern(host.get("node", ""), SAFE_NAME_PATTERN, "node")
+        try:
+            vmid_range = host_vmid_range(host, range_ref)
+        except RunnerCtlError as exc:
+            skipped.append({"host_id": host_id, "reason": exc.code})
+            continue
+        client = client_registry.client_for_host(inventory, host)
+        vm_lookup_started_ms = monotonic_ms()
+        active_vmids = client.qemu_vmids(node)
+        vm_lookup_ms = elapsed_ms(vm_lookup_started_ms)
+        timings["vm_lookup_ms"] += vm_lookup_ms
+        referenced_vmids = referenced_vmids_by_host.get(host_id, set())
+        orphan_vmids = sorted(
+            vmid
+            for vmid in active_vmids
+            if vmid_range["start"] <= int(vmid) <= vmid_range["end"] and int(vmid) not in referenced_vmids
+        )
+        for vmid in orphan_vmids:
+            item_timings = {"vm_lookup_ms": vm_lookup_ms}
+            vm_config_started_ms = monotonic_ms()
+            vm_config = client.vm_config(node, vmid)
+            item_timings["vm_config_ms"] = elapsed_ms(vm_config_started_ms)
+            timings["vm_config_ms"] += item_timings["vm_config_ms"]
+            actual_tags = set(tag for tag in str(vm_config.get("tags", "")).split(";") if tag)
+            missing_tags = sorted(required_tags - actual_tags)
+            if missing_tags:
+                skipped.append(
+                    {
+                        "host_id": host_id,
+                        "node": node,
+                        "vmid": vmid,
+                        "reason": "orphan-missing-required-tags",
+                        "missing_tags": missing_tags,
+                        "timings": item_timings,
+                    }
+                )
+                continue
+            name = str(vm_config.get("name") or "")
+            if not name:
+                vm_status_started_ms = monotonic_ms()
+                vm_status = client.vm_status(node, vmid)
+                item_timings["vm_status_ms"] = elapsed_ms(vm_status_started_ms)
+                timings["vm_status_ms"] += item_timings["vm_status_ms"]
+                name = str(vm_status.get("name") or "")
+            if not name.startswith("runnerctl-"):
+                skipped.append(
+                    {
+                        "host_id": host_id,
+                        "node": node,
+                        "vmid": vmid,
+                        "reason": "orphan-name-not-runnerctl",
+                        "name": name,
+                        "timings": item_timings,
+                    }
+                )
+                continue
+            template_value = str(vm_config.get("template", "")).strip().lower()
+            if template_value in {"1", "true", "yes"}:
+                skipped.append(
+                    {
+                        "host_id": host_id,
+                        "node": node,
+                        "vmid": vmid,
+                        "reason": "orphan-template-vm",
+                        "timings": item_timings,
+                    }
+                )
+                continue
+            destroyed = False
+            if not dry_run:
+                destroy_started_ms = monotonic_ms()
+                destroyed = client.safe_destroy(node, vmid)
+                item_timings["destroy_vm_ms"] = elapsed_ms(destroy_started_ms)
+                timings["destroy_vm_ms"] += item_timings["destroy_vm_ms"]
+            cleaned.append(
+                {
+                    "lease_id": None,
+                    "runner_class": None,
+                    "host_id": host_id,
+                    "node": node,
+                    "vmid": vmid,
+                    "state": "orphan",
+                    "reason": "orphan-runner-vm",
+                    "destroyed_vm": destroyed,
+                    "deleted_jenkins_node": False,
+                    "timings": item_timings,
+                }
+            )
 
     timings["janitor_ms"] = elapsed_ms(janitor_started_ms)
     return {

@@ -216,6 +216,7 @@ class FakeProxmoxClient:
         self.tag_requests = []
         self.vmids = {9002}
         self.config_tags = "runnerctl;lifecycle-ephemeral;leased"
+        self.vm_configs = {}
 
     def qemu_vmids(self, node):
         return set(self.vmids)
@@ -242,10 +243,12 @@ class FakeProxmoxClient:
         return True
 
     def vm_status(self, node, vmid):
-        return {"status": "running"}
+        return {"status": "running", "name": f"runnerctl-test-{vmid}"}
 
     def vm_config(self, node, vmid):
-        return {"tags": self.config_tags}
+        config = {"name": f"runnerctl-test-{vmid}", "tags": self.config_tags}
+        config.update(self.vm_configs.get(int(vmid), {}))
+        return config
 
     def agent_ping(self, node, vmid):
         self.agent_ping_requests.append((node, vmid))
@@ -826,6 +829,41 @@ class CreateLeaseTests(unittest.TestCase):
             self.assertEqual(result["cleaned"][0]["reason"], "stale-pool-member")
             self.assertEqual(client.destroy_requests, [("pve-rtx-01", 2000)])
             self.assertIsNone(lease_store.get(lease_id))
+
+    def test_janitor_removes_orphan_runner_vm(self):
+        with tempfile.TemporaryDirectory() as directory:
+            lease_store = runnerctl_api.LeaseStore(Path(directory) / "leases.json")
+            client = FakeProxmoxClient()
+            client.vmids = {9002, 2000}
+            client.vm_configs = {
+                2000: {
+                    "name": "runnerctl-hot-win-gpu-nvidia-33333333",
+                    "tags": "runnerctl;lifecycle-ephemeral;hot-pool;creating",
+                }
+            }
+            registry = FakeProxmoxRegistry(client)
+            result = runnerctl_api.run_janitor(registry, lease_store, SAMPLE_INVENTORY, {})
+            self.assertEqual(result["cleaned_count"], 1)
+            self.assertEqual(result["cleaned"][0]["reason"], "orphan-runner-vm")
+            self.assertEqual(result["cleaned"][0]["state"], "orphan")
+            self.assertEqual(client.destroy_requests, [("pve-rtx-01", 2000)])
+
+    def test_janitor_skips_orphan_vm_without_runner_name(self):
+        with tempfile.TemporaryDirectory() as directory:
+            lease_store = runnerctl_api.LeaseStore(Path(directory) / "leases.json")
+            client = FakeProxmoxClient()
+            client.vmids = {9002, 2000}
+            client.vm_configs = {
+                2000: {
+                    "name": "manual-vm",
+                    "tags": "runnerctl;lifecycle-ephemeral",
+                }
+            }
+            registry = FakeProxmoxRegistry(client)
+            result = runnerctl_api.run_janitor(registry, lease_store, SAMPLE_INVENTORY, {})
+            self.assertEqual(result["cleaned_count"], 0)
+            self.assertEqual(result["skipped"][0]["reason"], "orphan-name-not-runnerctl")
+            self.assertEqual(client.destroy_requests, [])
 
 
 if __name__ == "__main__":

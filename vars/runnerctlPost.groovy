@@ -11,7 +11,11 @@ def call(String path, Map body) {
   def result = readJSON(text: response.content, returnPojo: true)
   result.runnerctl_http_ms = System.currentTimeMillis() - started
   if (response.status != 200 || result.status != 'ok') {
-    error('runnerctl ' + path + ' failed: ' + (result.message ?: 'unexpected error'))
+    def message = result.message ?: 'unexpected error'
+    if (result.details) {
+      message += ', details=' + writeJSON(returnText: true, json: result.details)
+    }
+    error('runnerctl ' + path + ' failed: ' + message)
   }
   return result
 }

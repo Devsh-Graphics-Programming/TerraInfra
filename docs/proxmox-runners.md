@@ -156,6 +156,9 @@ The janitor must be hard-scoped:
 - only stale leases older than the configured TTL window
 - interrupted hot-pool members stuck in an in-progress state are treated as
   stale after a short dedicated pool-member window
+- orphaned Proxmox VMs are only eligible for cleanup when they are inside the
+  configured runner VMID range, carry the required runner tags, and their name
+  starts with `runnerctl-`
 
 It must never touch unrelated production infrastructure.
 
