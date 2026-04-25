@@ -28,7 +28,7 @@ spec:
       labels:
         app.kubernetes.io/name: jenkins
       annotations:
-        devsh.eu/config-revision: "2026-04-25-ditt-dummy-smoke-v3"
+        devsh.eu/config-revision: "2026-04-25-ditt-dummy-smoke-v4"
     spec:
       enableServiceLinks: false
       securityContext:
