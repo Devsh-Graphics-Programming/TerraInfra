@@ -1320,7 +1320,7 @@ data:
                           '$info | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $env:WORKSPACE "package-info.json") -Encoding UTF8',
                           'Write-Host ("EX40 executable: {0}" -f $exe.FullName)'
                         ].join('\\n')
-                        powershell '.\\acquire-package.ps1'
+                        powershell './acquire-package.ps1'
                       }
                       stage('Create dummy scene') {
                         writeFile file: 'dummy-scene.xml', text: [
@@ -1386,7 +1386,7 @@ data:
                           '  Pop-Location',
                           '}'
                         ].join('\\n')
-                        powershell '.\\run-dummy.ps1'
+                        powershell './run-dummy.ps1'
                       }
                       stage('Validate report') {
                         writeFile file: 'validate-report.ps1', text: [
@@ -1401,7 +1401,7 @@ data:
                           'if ([int]$summary.num_of_tests -lt 1) { throw "Summary contains no rendered tests." }',
                           'Write-Host ("Dummy report status={0}, tests={1}, failures={2}" -f $summary.pass_status, $summary.num_of_tests, $summary.failure_count)'
                         ].join('\\n')
-                        powershell '.\\validate-report.ps1'
+                        powershell './validate-report.ps1'
                       }
                       stage('Publish report') {
                         if (params.PUBLISH) {
