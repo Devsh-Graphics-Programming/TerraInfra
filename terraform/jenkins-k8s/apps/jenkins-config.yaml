@@ -1645,7 +1645,8 @@ data:
                             '}',
                             'if ($selected.Count -eq 0) { throw "Shard selected no scenes." }',
                             '$selectedPath = Join-Path $env:WORKSPACE "selected-scenes.txt"',
-                            '$selected | Set-Content -LiteralPath $selectedPath -Encoding UTF8',
+                            '$utf8NoBom = New-Object System.Text.UTF8Encoding($false)',
+                            '[System.IO.File]::WriteAllLines($selectedPath, [string[]]$selected, $utf8NoBom)',
                             '$resolved = [pscustomobject]@{ suite = $info.suite; commit = $info.commit; shardIndex = $shardIndex; shardCount = $shardCount; selectedSceneCount = $selected.Count; totalSceneCount = $commands.Count; sceneList = $selectedPath; referenceDir = $info.referenceDir }',
                             '$resolved | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $env:WORKSPACE "resolved-scenes.json") -Encoding UTF8',
                             'Write-Host ("Selected {0}/{1} scenes for shard {2}/{3}." -f $selected.Count, $commands.Count, $shardIndex, $shardCount)'
@@ -1674,7 +1675,9 @@ data:
                             '  if ($LASTEXITCODE -ne 0) { throw "EX40 failed with exit code $LASTEXITCODE." }',
                             '} finally {',
                             '  Pop-Location',
-                            '}'
+                            '}',
+                            '$logText = Get-Content -LiteralPath $log -Raw',
+                            'if ($logText -match "\\[ERROR\\]|Failed to Load|Could not create scene") { throw "EX40 log contains scene load or runtime errors." }'
                           ].join('\\n')
                           powershell './run-scenes.ps1'
                         }
