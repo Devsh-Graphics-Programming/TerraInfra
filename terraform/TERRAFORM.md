@@ -25,6 +25,9 @@
 | [scaleway_block_volume.chat_data](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/block_volume) | resource |
 | [scaleway_block_volume.jenkins_data](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/block_volume) | resource |
 | [scaleway_block_volume.observability_data](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/block_volume) | resource |
+| [scaleway_iam_api_key.store_publisher](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/iam_api_key) | resource |
+| [scaleway_iam_application.store_publisher](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/iam_application) | resource |
+| [scaleway_iam_policy.store_publisher_object_storage](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/iam_policy) | resource |
 | [scaleway_instance_ip.chat](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_ip) | resource |
 | [scaleway_instance_ip.jenkins](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_ip) | resource |
 | [scaleway_instance_ip.observability](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_ip) | resource |
@@ -38,6 +41,7 @@
 | [scaleway_object_bucket.store](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/object_bucket) | resource |
 | [scaleway_object_bucket_acl.luks_keys](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/object_bucket_acl) | resource |
 | [scaleway_object_bucket_policy.store](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/object_bucket_policy) | resource |
+| [scaleway_account_project.current](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/data-sources/account_project) | data source |
 | [scaleway_iam_api_key.store_owner](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/data-sources/iam_api_key) | data source |
 
 ## Inputs
@@ -83,6 +87,8 @@
 | <a name="output_data_volume_id"></a> [data\_volume\_id](#output\_data\_volume\_id) | ID of the environment's data volume |
 | <a name="output_jenkins_data_volume_id"></a> [jenkins\_data\_volume\_id](#output\_jenkins\_data\_volume\_id) | ID of the standalone Jenkins controller data volume |
 | <a name="output_jenkins_node_ip"></a> [jenkins\_node\_ip](#output\_jenkins\_node\_ip) | Public IP of the standalone Jenkins controller node |
+| <a name="output_jenkins_store_publisher_access_key"></a> [jenkins\_store\_publisher\_access\_key](#output\_jenkins\_store\_publisher\_access\_key) | Access key for the Jenkins static store publisher |
+| <a name="output_jenkins_store_publisher_secret_key"></a> [jenkins\_store\_publisher\_secret\_key](#output\_jenkins\_store\_publisher\_secret\_key) | Secret key for the Jenkins static store publisher |
 | <a name="output_k3s_node_1_ip"></a> [k3s\_node\_1\_ip](#output\_k3s\_node\_1\_ip) | Public IP of k3s node |
 | <a name="output_manual_snapshot_ids"></a> [manual\_snapshot\_ids](#output\_manual\_snapshot\_ids) | IDs of managed manual snapshots (empty when none are configured) |
 | <a name="output_observability_data_volume_id"></a> [observability\_data\_volume\_id](#output\_observability\_data\_volume\_id) | ID of the dedicated observability data volume |
