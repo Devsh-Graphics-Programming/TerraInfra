@@ -1960,6 +1960,16 @@ def lease_record_janitor_reason(inventory, record, now, stale_after_seconds):
         return "expired"
     if state == "ready":
         return None
+    janitor = inventory.get("janitor", {})
+    pool_member_stale_after_minutes = int(janitor.get("stale_pool_member_after_minutes", 5))
+    pool_member_stale_after_seconds = max(60, pool_member_stale_after_minutes * 60)
+    if bool(record.get("pool_member", False)) and state in {"creating", "booting", "healthy"}:
+        try:
+            created_at = int(record.get("created_at", 0))
+        except (TypeError, ValueError):
+            created_at = 0
+        if created_at > 0 and now - created_at >= pool_member_stale_after_seconds:
+            return "stale-pool-member"
     timestamps = []
     for key in ("leased_at", "prepared_at", "healthy_at", "created_at"):
         try:

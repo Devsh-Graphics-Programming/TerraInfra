@@ -789,6 +789,40 @@ class CreateLeaseTests(unittest.TestCase):
             self.assertEqual(client.destroy_requests, [])
             self.assertIsNotNone(lease_store.get(lease_id))
 
+    def test_janitor_removes_stale_pool_member(self):
+        with tempfile.TemporaryDirectory() as directory:
+            lease_store = runnerctl_api.LeaseStore(Path(directory) / "leases.json")
+            lease_id = "3" * 32
+            lease_store.put(
+                lease_id,
+                {
+                    "lease_id": lease_id,
+                    "runner_class": "win-gpu-nvidia",
+                    "labels": ["gpu", "nvidia", "windows"],
+                    "host_id": "example-rtx-node",
+                    "node": "pve-rtx-01",
+                    "vmid": 2000,
+                    "template_vmid": 9002,
+                    "clone_name": "runnerctl-hot-win-gpu-nvidia-33333333",
+                    "created_at": 1,
+                    "expires_at": 9999999999,
+                    "state": "creating",
+                    "pool_member": True,
+                    "allocation_mode": "hot-pool",
+                    "connection": {"type": "winrm"},
+                    "policy": {"destroy_after_job": True},
+                    "health_checks": ["guest-agent"],
+                },
+            )
+            client = FakeProxmoxClient()
+            client.vmids = {9002, 2000}
+            registry = FakeProxmoxRegistry(client)
+            result = runnerctl_api.run_janitor(registry, lease_store, SAMPLE_INVENTORY, {})
+            self.assertEqual(result["cleaned_count"], 1)
+            self.assertEqual(result["cleaned"][0]["reason"], "stale-pool-member")
+            self.assertEqual(client.destroy_requests, [("pve-rtx-01", 2000)])
+            self.assertIsNone(lease_store.get(lease_id))
+
 
 if __name__ == "__main__":
     unittest.main()

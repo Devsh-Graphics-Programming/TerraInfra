@@ -154,6 +154,8 @@ The janitor must be hard-scoped:
 - only the configured VMID range
 - only resources tagged by the runner platform
 - only stale leases older than the configured TTL window
+- interrupted hot-pool members stuck in an in-progress state are treated as
+  stale after a short dedicated pool-member window
 
 It must never touch unrelated production infrastructure.
 

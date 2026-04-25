@@ -16,7 +16,7 @@ def call(Map args = [:]) {
     int ready = ((pool.counts ?: [:]).ready ?: 0) as int
     echo('Runner pool status: class=' + runnerClass + ', ready=' + ready + ', target=' + minReady + ', counts=' + writeJSON(returnText: true, json: pool.counts ?: [:]) + '.')
     pool.members.each { member ->
-      echo('Runner pool member: state=' + member.state + ', host=' + member.host_id + ', node=' + member.node + ', vmid=' + member.vmid + ', has_agent=' + member.has_jenkins_agent + ', expires_in=' + member.expires_in_seconds + 's.')
+      echo('Runner pool member: state=' + member.state + ', host=' + member.host_id + ', node=' + member.node + ', vmid=' + member.vmid + ', has_agent=' + member.has_jenkins_agent + ', age=' + member.age_seconds + 's, expires_in=' + member.expires_in_seconds + 's.')
     }
     if (ready >= minReady) {
       return pool
