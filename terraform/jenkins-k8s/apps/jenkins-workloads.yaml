@@ -28,7 +28,7 @@ spec:
       labels:
         app.kubernetes.io/name: jenkins
       annotations:
-        devsh.eu/config-revision: "2026-04-25-ex40-scene-smoke-v10"
+        devsh.eu/config-revision: "2026-04-25-ex40-scene-smoke-v11"
     spec:
       enableServiceLinks: false
       securityContext:
@@ -105,8 +105,8 @@ spec:
               path: /login
               port: http
             periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 6
+            timeoutSeconds: 20
+            failureThreshold: 12
           livenessProbe:
             httpGet:
               path: /login
@@ -207,10 +207,10 @@ spec:
                 - -c
                 - |
                   import urllib.request
-                  urllib.request.urlopen("http://127.0.0.1:18080/healthz", timeout=5).read()
+                  urllib.request.urlopen("http://127.0.0.1:18080/healthz", timeout=15).read()
             periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 6
+            timeoutSeconds: 20
+            failureThreshold: 12
           livenessProbe:
             exec:
               command:
@@ -218,11 +218,11 @@ spec:
                 - -c
                 - |
                   import urllib.request
-                  urllib.request.urlopen("http://127.0.0.1:18080/healthz", timeout=5).read()
+                  urllib.request.urlopen("http://127.0.0.1:18080/healthz", timeout=15).read()
             initialDelaySeconds: 10
             periodSeconds: 30
-            timeoutSeconds: 5
-            failureThreshold: 6
+            timeoutSeconds: 20
+            failureThreshold: 12
           volumeMounts:
             - name: runner-platform
               mountPath: /var/jenkins_runner
