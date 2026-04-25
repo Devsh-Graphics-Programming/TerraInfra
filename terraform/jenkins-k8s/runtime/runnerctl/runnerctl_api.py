@@ -1472,7 +1472,7 @@ if ($hostAliasIp -and $jenkinsHost) {{
 }}
 $resolvedAddresses = @()
 $lastDnsError = $null
-for ($attempt = 1; $attempt -le 12; $attempt++) {{
+for ($attempt = 1; $attempt -le 4; $attempt++) {{
   try {{
     $resolvedAddresses = @([System.Net.Dns]::GetHostAddresses($jenkinsHost) | ForEach-Object {{ $_.IPAddressToString }})
     if ($resolvedAddresses.Count -gt 0) {{ break }}
@@ -1480,7 +1480,7 @@ for ($attempt = 1; $attempt -le 12; $attempt++) {{
     $lastDnsError = $_.Exception.Message
   }}
   Clear-DnsClientCache -ErrorAction SilentlyContinue
-  Start-Sleep -Seconds 2
+  Start-Sleep -Seconds 1
 }}
 if ($resolvedAddresses.Count -gt 0) {{
   Write-Output ("runnerctl: dns={{0}}" -f ($resolvedAddresses -join ','))
@@ -1494,15 +1494,18 @@ if ($resolvedAddresses.Count -gt 0) {{
 }}
 $agentJarUrl = $baseUrl.TrimEnd('/') + '/jnlpJars/agent.jar'
 $lastDownloadError = $null
-for ($attempt = 1; $attempt -le 6; $attempt++) {{
+$downloadAttempts = 4
+for ($attempt = 1; $attempt -le $downloadAttempts; $attempt++) {{
   try {{
-    Invoke-WebRequest -Uri $agentJarUrl -OutFile $jar -UseBasicParsing
+    Invoke-WebRequest -Uri $agentJarUrl -OutFile $jar -UseBasicParsing -TimeoutSec 10
     $lastDownloadError = $null
     break
   }} catch {{
     $lastDownloadError = $_.Exception.Message
     Write-Output ("runnerctl: agentJarDownloadError attempt={{0}} message={{1}}" -f $attempt, $lastDownloadError)
-    Start-Sleep -Seconds 5
+    if ($attempt -lt $downloadAttempts) {{
+      Start-Sleep -Seconds 2
+    }}
   }}
 }}
 if ($lastDownloadError) {{

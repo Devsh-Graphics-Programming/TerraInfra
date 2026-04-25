@@ -463,6 +463,7 @@ class CreateLeaseTests(unittest.TestCase):
             self.assertIn("runnerctl: hostAliasPresent={0}", script)
             self.assertIn("runnerctl: dnsFallback=hosts-file-present", script)
             self.assertIn("runnerctl: agentJarDownloadError attempt={0}", script)
+            self.assertIn("-TimeoutSec 10", script)
             self.assertNotIn('"0 1 # runnerctl-jenkins"', script)
             self.assertNotIn("$entryPattern", script)
             self.assertIn("state={0}, last_result={1}", script)
