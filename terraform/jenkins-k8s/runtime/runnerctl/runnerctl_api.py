@@ -1421,36 +1421,50 @@ function Test-RunnerctlHostsAlias {{
   return $false
 }}
 if ($hostAliasIp -and $jenkinsHost) {{
-  $hostsPath = Join-Path $env:WINDIR 'System32/drivers/etc/hosts'
-  $sysnativeHostsPath = Join-Path $env:WINDIR 'Sysnative/drivers/etc/hosts'
-  if (Test-Path (Split-Path $sysnativeHostsPath -Parent)) {{
-    $hostsPath = $sysnativeHostsPath
-  }}
-  Write-Output ("runnerctl: hostsPath={{0}}" -f $hostsPath)
-  $existingHosts = @()
-  if (Test-Path $hostsPath) {{
-    $existingHosts = @(Get-Content -Path $hostsPath -ErrorAction Stop)
-  }}
-  $filteredHosts = @()
-  foreach ($line in $existingHosts) {{
-    $entry = ($line -split '#', 2)[0].Trim()
-    $dropLine = $line -match '# runnerctl-jenkins'
-    if ($entry) {{
-      $parts = $entry -split '\\s+'
-      if (($parts.Count -ge 2) -and ($parts[1..($parts.Count - 1)] -contains $jenkinsHost)) {{
-        $dropLine = $true
-      }}
-    }}
-    if (-not $dropLine) {{
-      $filteredHosts += $line
-    }}
-  }}
+  $candidateHostsPaths = @(
+    (Join-Path $env:WINDIR 'System32/drivers/etc/hosts'),
+    (Join-Path $env:WINDIR 'Sysnative/drivers/etc/hosts')
+  ) | Select-Object -Unique
+  Write-Output ("runnerctl: hostsPaths={{0}}" -f ($candidateHostsPaths -join ','))
   $hostEntry = "{{0}} {{1}} # runnerctl-jenkins" -f $hostAliasIp, $jenkinsHost
-  [System.IO.File]::WriteAllLines($hostsPath, [string[]]($filteredHosts + $hostEntry), [Text.Encoding]::ASCII)
-  $hostAliasPresent = Test-RunnerctlHostsAlias -Path $hostsPath -Address $hostAliasIp -HostName $jenkinsHost
+  $writtenHostsPaths = @()
+  foreach ($hostsPath in $candidateHostsPaths) {{
+    try {{
+      $hostsParent = Split-Path $hostsPath -Parent
+      if (-not (Test-Path $hostsParent)) {{
+        Write-Output ("runnerctl: hostAliasWriteSkipped path={{0}} reason=parent-missing" -f $hostsPath)
+        continue
+      }}
+      $existingHosts = @()
+      if (Test-Path $hostsPath) {{
+        $existingHosts = @(Get-Content -Path $hostsPath -ErrorAction Stop)
+      }}
+      $filteredHosts = @()
+      foreach ($line in $existingHosts) {{
+        $entry = ($line -split '#', 2)[0].Trim()
+        $dropLine = $line -match '# runnerctl-jenkins'
+        if ($entry) {{
+          $parts = $entry -split '\\s+'
+          if (($parts.Count -ge 2) -and ($parts[1..($parts.Count - 1)] -contains $jenkinsHost)) {{
+            $dropLine = $true
+          }}
+        }}
+        if (-not $dropLine) {{
+          $filteredHosts += $line
+        }}
+      }}
+      [System.IO.File]::WriteAllLines($hostsPath, [string[]]($filteredHosts + $hostEntry), [Text.Encoding]::ASCII)
+      if (Test-RunnerctlHostsAlias -Path $hostsPath -Address $hostAliasIp -HostName $jenkinsHost) {{
+        $writtenHostsPaths += $hostsPath
+      }}
+    }} catch {{
+      Write-Output ("runnerctl: hostAliasWriteError path={{0}} message={{1}}" -f $hostsPath, $_.Exception.Message)
+    }}
+  }}
+  $hostAliasPresent = $writtenHostsPaths.Count -gt 0
   Clear-DnsClientCache -ErrorAction SilentlyContinue
   & ipconfig /flushdns | Out-Null
-  Write-Output ("runnerctl: hostAliasWritten={{0}}" -f $hostEntry)
+  Write-Output ("runnerctl: hostAliasWritten={{0}}; paths={{1}}" -f $hostEntry, ($writtenHostsPaths -join ','))
   Write-Output ("runnerctl: hostAliasPresent={{0}}" -f $hostAliasPresent)
   if (-not $hostAliasPresent) {{
     throw 'Jenkins host alias was not written to the hosts file.'
