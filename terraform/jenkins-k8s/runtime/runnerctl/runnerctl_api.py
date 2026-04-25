@@ -1406,6 +1406,19 @@ $baseUrl = {powershell_string(jenkins_client.public_url)}
 $jenkinsHost = {powershell_string(public_host)}
 $hostAliasIp = {powershell_string(host_alias_ip or "")}
 Write-Output ("runnerctl: jenkinsHost={{0}}; hostAliasIp={{1}}" -f $jenkinsHost, $(if ($hostAliasIp) {{ $hostAliasIp }} else {{ '<empty>' }}))
+function Test-RunnerctlHostsAlias {{
+  param([string]$Path, [string]$Address, [string]$HostName)
+  if (-not (Test-Path $Path)) {{ return $false }}
+  foreach ($line in (Get-Content -Path $Path -ErrorAction Stop)) {{
+    $entry = ($line -split '#', 2)[0].Trim()
+    if (-not $entry) {{ continue }}
+    $parts = $entry -split '\\s+'
+    if ($parts.Count -lt 2) {{ continue }}
+    if ($parts[0] -ne $Address) {{ continue }}
+    if ($parts[1..($parts.Count - 1)] -contains $HostName) {{ return $true }}
+  }}
+  return $false
+}}
 if ($hostAliasIp -and $jenkinsHost) {{
   $hostsPath = Join-Path $env:WINDIR 'System32/drivers/etc/hosts'
   $sysnativeHostsPath = Join-Path $env:WINDIR 'Sysnative/drivers/etc/hosts'
@@ -1413,28 +1426,69 @@ if ($hostAliasIp -and $jenkinsHost) {{
     $hostsPath = $sysnativeHostsPath
   }}
   Write-Output ("runnerctl: hostsPath={{0}}" -f $hostsPath)
-  $escapedHost = [Regex]::Escape($jenkinsHost)
-  $escapedIp = [Regex]::Escape($hostAliasIp)
-  $entryPattern = '^\\s*' + $escapedIp + '\\s+' + $escapedHost + '(\\s|$)'
-  $hostPattern = '^\\s*\\d{{1,3}}(\\.\\d{{1,3}}){{3}}\\s+' + $escapedHost + '(\\s|$)'
   $existingHosts = @()
   if (Test-Path $hostsPath) {{
     $existingHosts = @(Get-Content -Path $hostsPath -ErrorAction Stop)
   }}
-  $filteredHosts = @($existingHosts | Where-Object {{ ($_ -notmatch $hostPattern) -and ($_ -notmatch '# runnerctl-jenkins') }})
-  [System.IO.File]::WriteAllLines($hostsPath, [string[]]$filteredHosts, [Text.Encoding]::ASCII)
-  Add-Content -Path $hostsPath -Value ("{{0}} {{1}} # runnerctl-jenkins" -f $hostAliasIp, $jenkinsHost) -Encoding ASCII
+  $filteredHosts = @()
+  foreach ($line in $existingHosts) {{
+    $entry = ($line -split '#', 2)[0].Trim()
+    $dropLine = $line -match '# runnerctl-jenkins'
+    if ($entry) {{
+      $parts = $entry -split '\\s+'
+      if (($parts.Count -ge 2) -and ($parts[1..($parts.Count - 1)] -contains $jenkinsHost)) {{
+        $dropLine = $true
+      }}
+    }}
+    if (-not $dropLine) {{
+      $filteredHosts += $line
+    }}
+  }}
+  $hostEntry = "{{0}} {{1}} # runnerctl-jenkins" -f $hostAliasIp, $jenkinsHost
+  [System.IO.File]::WriteAllLines($hostsPath, [string[]]($filteredHosts + $hostEntry), [Text.Encoding]::ASCII)
+  $hostAliasPresent = Test-RunnerctlHostsAlias -Path $hostsPath -Address $hostAliasIp -HostName $jenkinsHost
   Clear-DnsClientCache -ErrorAction SilentlyContinue
   & ipconfig /flushdns | Out-Null
-  Write-Output ("runnerctl: hostAliasWritten={{0}}" -f $entryPattern)
+  Write-Output ("runnerctl: hostAliasWritten={{0}}" -f $hostEntry)
+  Write-Output ("runnerctl: hostAliasPresent={{0}}" -f $hostAliasPresent)
+  if (-not $hostAliasPresent) {{
+    throw 'Jenkins host alias was not written to the hosts file.'
+  }}
 }}
-try {{
-  $resolvedAddresses = [System.Net.Dns]::GetHostAddresses($jenkinsHost) | ForEach-Object {{ $_.IPAddressToString }}
+$resolvedAddresses = @()
+$lastDnsError = $null
+for ($attempt = 1; $attempt -le 12; $attempt++) {{
+  try {{
+    $resolvedAddresses = @([System.Net.Dns]::GetHostAddresses($jenkinsHost) | ForEach-Object {{ $_.IPAddressToString }})
+    if ($resolvedAddresses.Count -gt 0) {{ break }}
+  }} catch {{
+    $lastDnsError = $_.Exception.Message
+  }}
+  Clear-DnsClientCache -ErrorAction SilentlyContinue
+  Start-Sleep -Seconds 2
+}}
+if ($resolvedAddresses.Count -gt 0) {{
   Write-Output ("runnerctl: dns={{0}}" -f ($resolvedAddresses -join ','))
-}} catch {{
-  Write-Output ("runnerctl: dnsError={{0}}" -f $_.Exception.Message)
+}} else {{
+  Write-Output ("runnerctl: dnsError={{0}}" -f $lastDnsError)
+  throw ("Jenkins hostname did not resolve inside the runner: {{0}}" -f $jenkinsHost)
 }}
-Invoke-WebRequest -Uri ($baseUrl.TrimEnd('/') + '/jnlpJars/agent.jar') -OutFile $jar -UseBasicParsing
+$agentJarUrl = $baseUrl.TrimEnd('/') + '/jnlpJars/agent.jar'
+$lastDownloadError = $null
+for ($attempt = 1; $attempt -le 6; $attempt++) {{
+  try {{
+    Invoke-WebRequest -Uri $agentJarUrl -OutFile $jar -UseBasicParsing
+    $lastDownloadError = $null
+    break
+  }} catch {{
+    $lastDownloadError = $_.Exception.Message
+    Write-Output ("runnerctl: agentJarDownloadError attempt={{0}} message={{1}}" -f $attempt, $lastDownloadError)
+    Start-Sleep -Seconds 5
+  }}
+}}
+if ($lastDownloadError) {{
+  throw ("Failed to download Jenkins remoting jar: {{0}}" -f $lastDownloadError)
+}}
 $javaExe = $null
 $javaCommand = Get-Command java.exe -ErrorAction SilentlyContinue
 if ($javaCommand) {{
