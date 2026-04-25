@@ -1639,7 +1639,7 @@ data:
                             '$selected = @()',
                             'for ($i = 0; $i -lt $commands.Count; $i++) {',
                             '  if (($i % $shardCount) -eq $shardIndex) {',
-                            '    $selected += $commands[$i].Replace(\'${SCENE_ROOT}\', $rootForList)',
+                            '    $selected += $commands[$i].Replace(\'$${SCENE_ROOT}\', $rootForList)',
                             '  }',
                             '}',
                             'if ($selected.Count -eq 0) { throw "Shard selected no scenes." }',
