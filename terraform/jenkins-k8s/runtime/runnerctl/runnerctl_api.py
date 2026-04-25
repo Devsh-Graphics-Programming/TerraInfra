@@ -1405,6 +1405,7 @@ $jar = Join-Path $agentRoot 'agent.jar'
 $baseUrl = {powershell_string(jenkins_client.public_url)}
 $jenkinsHost = {powershell_string(public_host)}
 $hostAliasIp = {powershell_string(host_alias_ip or "")}
+$javaHostsFile = Join-Path $agentRoot 'java-hosts'
 Write-Output ("runnerctl: jenkinsHost={{0}}; hostAliasIp={{1}}" -f $jenkinsHost, $(if ($hostAliasIp) {{ $hostAliasIp }} else {{ '<empty>' }}))
 $hostAliasPresent = $false
 function Test-RunnerctlHostsAlias {{
@@ -1462,6 +1463,21 @@ if ($hostAliasIp -and $jenkinsHost) {{
     }}
   }}
   $hostAliasPresent = $writtenHostsPaths.Count -gt 0
+  Set-Content -Path $javaHostsFile -Value $hostEntry -Encoding ASCII
+  $routeInterface = Get-NetIPInterface -AddressFamily IPv4 |
+    Where-Object {{ $_.ConnectionState -eq 'Connected' -and $_.InterfaceAlias -notlike 'Loopback*' }} |
+    Sort-Object InterfaceMetric |
+    Select-Object -First 1
+  if ($routeInterface) {{
+    $routePrefix = $hostAliasIp + '/32'
+    $existingRoute = Get-NetRoute -DestinationPrefix $routePrefix -InterfaceIndex $routeInterface.InterfaceIndex -ErrorAction SilentlyContinue
+    if (-not $existingRoute) {{
+      New-NetRoute -DestinationPrefix $routePrefix -InterfaceIndex $routeInterface.InterfaceIndex -NextHop '0.0.0.0' -PolicyStore ActiveStore -ErrorAction Stop | Out-Null
+    }}
+    Write-Output ("runnerctl: hostAliasRoute={{0}} interface={{1}}" -f $routePrefix, $routeInterface.InterfaceAlias)
+  }} else {{
+    Write-Output 'runnerctl: hostAliasRouteSkipped=no-connected-ipv4-interface'
+  }}
   Clear-DnsClientCache -ErrorAction SilentlyContinue
   & ipconfig /flushdns | Out-Null
   Write-Output ("runnerctl: hostAliasWritten={{0}}; paths={{1}}" -f $hostEntry, ($writtenHostsPaths -join ','))
@@ -1494,11 +1510,43 @@ if ($resolvedAddresses.Count -gt 0) {{
 }}
 $agentJarUrl = $baseUrl.TrimEnd('/') + '/jnlpJars/agent.jar'
 $lastDownloadError = $null
+$downloaded = $false
+if ($hostAliasIp -and $jenkinsHost) {{
+  $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
+  if ($curl) {{
+    try {{
+      $baseUri = [Uri]$baseUrl
+      $originPort = $baseUri.Port
+      if ($baseUri.IsDefaultPort) {{
+        if ($baseUri.Scheme -eq 'https') {{
+          $originPort = 443
+        }} elseif ($baseUri.Scheme -eq 'http') {{
+          $originPort = 80
+        }}
+      }}
+      $resolve = "{{0}}:{{1}}:{{2}}" -f $baseUri.Host, $originPort, $hostAliasIp
+      & $curl.Source --fail --silent --show-error --location --connect-timeout 10 --max-time 30 --resolve $resolve --output $jar $agentJarUrl
+      if ($LASTEXITCODE -eq 0 -and (Test-Path $jar)) {{
+        $downloaded = $true
+        Write-Output ("runnerctl: agentJarDownload=curl-resolve host={{0}} port={{1}}" -f $baseUri.Host, $originPort)
+      }} else {{
+        $lastDownloadError = "curl.exe failed with exit code $LASTEXITCODE"
+        Write-Output ("runnerctl: agentJarDownloadError attempt=curl message={{0}}" -f $lastDownloadError)
+      }}
+    }} catch {{
+      $lastDownloadError = $_.Exception.Message
+      Write-Output ("runnerctl: agentJarDownloadError attempt=curl message={{0}}" -f $lastDownloadError)
+    }}
+  }} else {{
+    Write-Output 'runnerctl: agentJarDownloadSkipped curl.exe not found'
+  }}
+}}
 $downloadAttempts = 4
-for ($attempt = 1; $attempt -le $downloadAttempts; $attempt++) {{
+for ($attempt = 1; (-not $downloaded) -and $attempt -le $downloadAttempts; $attempt++) {{
   try {{
     Invoke-WebRequest -Uri $agentJarUrl -OutFile $jar -UseBasicParsing -TimeoutSec 10
     $lastDownloadError = $null
+    $downloaded = $true
     break
   }} catch {{
     $lastDownloadError = $_.Exception.Message
@@ -1534,6 +1582,7 @@ $stderr = Join-Path $agentRoot 'agent.stderr.log'
 $javaLiteral = $javaExe.Replace("'", "''")
 $agentRootLiteral = $agentRoot.Replace("'", "''")
 $baseUrlLiteral = ($baseUrl.TrimEnd('/') + '/').Replace("'", "''")
+$javaHostsLiteral = $(if ($hostAliasIp -and (Test-Path $javaHostsFile)) {{ $javaHostsFile.Replace("'", "''") }} else {{ "" }})
 $secretLiteral = {powershell_string(secret)}.Replace("'", "''")
 $nodeNameLiteral = {powershell_string(node_name)}.Replace("'", "''")
 $launcher = Join-Path $agentRoot 'start-agent.ps1'
@@ -1544,7 +1593,11 @@ $launcherContent = @"
 `$jar = Join-Path `$agentRoot 'agent.jar'
 `$stdout = Join-Path `$agentRoot 'agent.stdout.log'
 `$stderr = Join-Path `$agentRoot 'agent.stderr.log'
-`$arguments = @(
+`$arguments = @()
+if ('$javaHostsLiteral') {{
+  `$arguments += '-Djdk.net.hosts.file=$javaHostsLiteral'
+}}
+`$arguments += @(
   '-jar', `$jar,
   '-url', '$baseUrlLiteral',
   '-secret', '$secretLiteral',
