@@ -1406,6 +1406,7 @@ $baseUrl = {powershell_string(jenkins_client.public_url)}
 $jenkinsHost = {powershell_string(public_host)}
 $hostAliasIp = {powershell_string(host_alias_ip or "")}
 Write-Output ("runnerctl: jenkinsHost={{0}}; hostAliasIp={{1}}" -f $jenkinsHost, $(if ($hostAliasIp) {{ $hostAliasIp }} else {{ '<empty>' }}))
+$hostAliasPresent = $false
 function Test-RunnerctlHostsAlias {{
   param([string]$Path, [string]$Address, [string]$HostName)
   if (-not (Test-Path $Path)) {{ return $false }}
@@ -1471,7 +1472,11 @@ if ($resolvedAddresses.Count -gt 0) {{
   Write-Output ("runnerctl: dns={{0}}" -f ($resolvedAddresses -join ','))
 }} else {{
   Write-Output ("runnerctl: dnsError={{0}}" -f $lastDnsError)
-  throw ("Jenkins hostname did not resolve inside the runner: {{0}}" -f $jenkinsHost)
+  if ($hostAliasPresent) {{
+    Write-Output 'runnerctl: dnsFallback=hosts-file-present'
+  }} else {{
+    throw ("Jenkins hostname did not resolve inside the runner: {{0}}" -f $jenkinsHost)
+  }}
 }}
 $agentJarUrl = $baseUrl.TrimEnd('/') + '/jnlpJars/agent.jar'
 $lastDownloadError = $null
