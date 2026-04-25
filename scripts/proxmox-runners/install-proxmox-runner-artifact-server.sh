@@ -52,7 +52,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=${ENV_FILE}
-ExecStart=\${PYTHON_BIN} -m http.server \${LISTEN_PORT} --bind \${LISTEN_HOST} --directory \${ARTIFACT_ROOT}
+ExecStart=${PYTHON_BIN} -m http.server ${LISTEN_PORT} --bind ${LISTEN_HOST} --directory ${ARTIFACT_ROOT}
 Restart=always
 RestartSec=5
 User=root

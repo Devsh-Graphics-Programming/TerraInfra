@@ -59,8 +59,28 @@ Current jobs:
 - `ci/runners/examples/windows-gpu-hello`: leases an ephemeral Windows GPU Jenkins node by labels, runs native Pipeline steps on `node(runner.label)`, archives a small proof, and releases the node and VM.
 - `ci/ditt/store-smoke`: validates `store.devsh.eu` public/private report endpoint behavior without Proxmox credentials.
 - `ci/ditt/ex40-dummy-smoke`: accepts an uploaded EX40 runtime package or HTTPS package URL, leases a Windows GPU runtime runner, renders a tiny inline dummy scene, validates the report bundle, and publishes it to `https://store.devsh.eu/ditt/dummy/`.
+- `ci/ditt/ex40-scene-smoke`: accepts an uploaded EX40 runtime package or HTTPS package URL, materializes a `public-smoke` or `private-smoke` scene suite from the host-side scene cache, renders the selected shard on a Windows GPU runtime runner, and publishes the report under `ditt/public/` or `ditt/private/`.
 - `ci/ditt/ex40-report-plan`: validates EX40 report publish parameters and stays in dry-run mode until the runtime backend is connected.
 
 Proxmox API credentials stay in the `proxmox-runner-api` Kubernetes Secret and Jenkins API credentials stay in the `jenkins-admin` Kubernetes Secret. Both are consumed by the `runnerctl` sidecar, not by JCasC job definitions. Store publish credentials stay in the optional `jenkins-store-publisher` Kubernetes Secret and are consumed only by `runnerctl`, so Windows runners receive no Object Storage keys. Do not add plaintext credentials to job definitions or workflow inputs.
 
 Runner platform design is documented in `docs/proxmox-runners.md`. DITT and EX40 jobs should consume that generic layer by labels, not by Proxmox node names, VM IDs, storage names, PCI IDs, or mutable pet templates.
+
+## EX40 Scene Cache Contract
+
+The scene smoke job keeps the EX40 runtime package separate from scenes and media. `EX40_PACKAGE_FILE` or `EX40_PACKAGE_URL` supplies only the executable package. Scene data comes from a host-side cache URL keyed by `SCENES_COMMIT` and `SUITE`.
+
+The default cache URL shape is:
+
+```text
+http://10.254.254.254:18081/ditt-scenes/<SCENES_COMMIT>/<SUITE>.zip
+```
+
+The zip payload must contain:
+
+- `scene-list.txt`: EX40 `--scene-list` input. Lines may use `${SCENE_ROOT}` as a placeholder for the extracted cache root.
+- `manifest.json`: optional metadata copied into Jenkins artifacts.
+- `references/`: optional reference EXRs. When present, the job passes it as `--reference-dir`.
+- any scene/media files referenced by `scene-list.txt`.
+
+The Windows runner does not need Git or scene repository credentials. The host-side cache owns scene history and materialization. Jenkins only passes a commit SHA, suite name, shard index, and runtime package.

@@ -97,7 +97,7 @@ resource "scaleway_object_bucket_policy" "store" {
         }
       },
       {
-        Sid    = "AllowJenkinsDummySmokePublish"
+        Sid    = "AllowJenkinsDittReportPublish"
         Effect = "Allow"
         Principal = {
           SCW = "application_id:${scaleway_iam_application.store_publisher.id}"
@@ -107,6 +107,8 @@ resource "scaleway_object_bucket_policy" "store" {
         ]
         Resource = [
           "${scaleway_object_bucket.store.name}/ditt/dummy/*",
+          "${scaleway_object_bucket.store.name}/ditt/public/*",
+          "${scaleway_object_bucket.store.name}/ditt/private/*",
         ]
       },
     ]

@@ -1439,6 +1439,287 @@ data:
             }
           }
 
+          pipelineJob('ci/ditt/ex40-scene-smoke') {
+            description('Runs EX40 from an uploaded or URL-provided runtime package on a Windows GPU runner, materializes a suite from the host-side scene cache, and publishes a public or private smoke report.')
+            parameters {
+              choiceParam('SUITE', ['public-smoke', 'private-smoke'], 'Scene suite to materialize from the cache.')
+              stringParam('SCENES_COMMIT', '', 'Scene cache commit SHA. This selects the immutable cache object path.')
+              stringParam('SCENE_CACHE_BASE_URL', 'http://10.254.254.254:18081/ditt-scenes', 'Internal host-side scene cache base URL. Plain HTTP is allowed only for the runner VLAN cache address.')
+              stringParam('SCENE_CACHE_URL', '', 'Optional explicit scene cache zip URL. Leave empty to use SCENE_CACHE_BASE_URL/SCENES_COMMIT/SUITE.zip.')
+              stringParam('EX40_PACKAGE_URL', '', 'Optional HTTPS URL of an EX40 runtime package zip. Leave empty when uploading EX40_PACKAGE_FILE.')
+              stringParam('STORE_PREFIX', '', 'Destination prefix under store.devsh.eu. Empty selects ditt/public/smoke/latest/ or ditt/private/smoke/latest/.')
+              stringParam('SHARD_COUNT', '1', 'Number of scene shards. Use 1 until multiple GPU runners are intentionally enabled.')
+              stringParam('SHARD_INDEX', '0', 'Zero-based shard index for this run.')
+              booleanParam('FAIL_ON_RENDER_FAILURE', false, 'Fail the Jenkins build when the EX40 comparison report contains failed scenes.')
+              booleanParam('PUBLISH', true, 'Publish the generated report to store.devsh.eu.')
+              fileParam {
+                name('EX40_PACKAGE_FILE')
+                description('Optional EX40 runtime package zip uploaded from this computer. Use this instead of EX40_PACKAGE_URL for local package smoke runs.')
+              }
+              logRotator {
+                daysToKeep(31)
+                numToKeep(100)
+                artifactDaysToKeep(31)
+                artifactNumToKeep(100)
+              }
+            }
+            definition {
+              cps {
+                sandbox()
+                script('''def normalizeSuite(String value) {
+                  def suite = value?.trim()
+                  if (!(suite in ['public-smoke', 'private-smoke'])) {
+                    error 'SUITE must be public-smoke or private-smoke.'
+                  }
+                  return suite
+                }
+
+                def requireSha(String value) {
+                  def text = value?.trim()
+                  if (!(text ==~ /[0-9a-fA-F]{7,40}/)) {
+                    error 'SCENES_COMMIT must be a 7 to 40 character hexadecimal commit SHA.'
+                  }
+                  return text.toLowerCase()
+                }
+
+                def requireNumber(String value, String name, int minValue, int maxValue) {
+                  def text = value?.trim()
+                  if (!(text ==~ /[0-9]+/)) {
+                    error name + ' must be numeric.'
+                  }
+                  def parsed = text as int
+                  if (parsed < minValue || parsed > maxValue) {
+                    error name + ' is outside the allowed range.'
+                  }
+                  return parsed
+                }
+
+                def validateSceneCacheUrl(String value) {
+                  def url = value?.trim()
+                  if (!url) {
+                    error 'Scene cache URL is required.'
+                  }
+                  if (url.startsWith('https://')) {
+                    return url
+                  }
+                  if (url.startsWith('http://10.254.254.254:')) {
+                    return url
+                  }
+                  error 'SCENE_CACHE_URL must be HTTPS or the internal runner VLAN scene cache URL.'
+                }
+
+                def defaultPrefixForSuite(String suite) {
+                  if (suite == 'public-smoke') {
+                    return 'ditt/public/smoke/latest/'
+                  }
+                  return 'ditt/private/smoke/latest/'
+                }
+
+                def packageUrl = params.EX40_PACKAGE_URL?.trim()
+                def suite = null
+                def scenesCommit = null
+                def sceneCacheUrl = null
+                def storePrefix = null
+                def shardCount = null
+                def shardIndex = null
+                def storePublishRequest = null
+
+                timestamps {
+                  stage('Validate request') {
+                    suite = normalizeSuite(params.SUITE)
+                    scenesCommit = requireSha(params.SCENES_COMMIT)
+                    shardCount = requireNumber(params.SHARD_COUNT, 'SHARD_COUNT', 1, 64)
+                    shardIndex = requireNumber(params.SHARD_INDEX, 'SHARD_INDEX', 0, 63)
+                    if (shardIndex >= shardCount) {
+                      error 'SHARD_INDEX must be smaller than SHARD_COUNT.'
+                    }
+                    if (packageUrl && !packageUrl.startsWith('https://')) {
+                      error 'EX40_PACKAGE_URL must be HTTPS.'
+                    }
+                    def baseUrl = params.SCENE_CACHE_BASE_URL?.trim()
+                    if (params.SCENE_CACHE_URL?.trim()) {
+                      sceneCacheUrl = validateSceneCacheUrl(params.SCENE_CACHE_URL)
+                    } else {
+                      if (!baseUrl) {
+                        error 'SCENE_CACHE_BASE_URL is required when SCENE_CACHE_URL is empty.'
+                      }
+                      sceneCacheUrl = validateSceneCacheUrl(baseUrl.replaceAll('/+$', '') + '/' + scenesCommit + '/' + suite + '.zip')
+                    }
+                    def rawPrefix = params.STORE_PREFIX?.trim() ?: defaultPrefixForSuite(suite)
+                    def allowedPrefixes = suite == 'public-smoke' ? ['ditt/public/'] : ['ditt/private/']
+                    storePrefix = storeNormalizePrefix(rawPrefix, allowedPrefixes)
+                    echo('Suite: ' + suite + ', scenes_commit=' + scenesCommit + ', shard=' + shardIndex + '/' + shardCount + ', store_prefix=' + storePrefix)
+                  }
+
+                  withRunner(labels: ['windows', 'gpu', 'nvidia', 'vulkan', 'runtime-only'], leaseTtlMinutes: 90, maxReadySeconds: 10) { runner ->
+                    withFileParameter(name: 'EX40_PACKAGE_FILE', allowNoFile: true) {
+                      withEnv([
+                        'EX40_PACKAGE_URL=' + (packageUrl ?: ''),
+                        'SCENE_SUITE=' + suite,
+                        'SCENES_COMMIT=' + scenesCommit,
+                        'SCENE_CACHE_URL=' + sceneCacheUrl,
+                        'SHARD_COUNT=' + shardCount.toString(),
+                        'SHARD_INDEX=' + shardIndex.toString(),
+                        'FAIL_ON_RENDER_FAILURE=' + params.FAIL_ON_RENDER_FAILURE.toString()
+                      ]) {
+                        stage('Acquire package') {
+                          writeFile file: 'acquire-package.ps1', text: [
+                            '$ErrorActionPreference = "Stop"',
+                            '$packagePath = Join-Path $env:WORKSPACE "ex40-package.zip"',
+                            '$extractRoot = Join-Path $env:WORKSPACE "package"',
+                            'Remove-Item -LiteralPath $packagePath -Force -ErrorAction SilentlyContinue',
+                            'if (Test-Path -LiteralPath $extractRoot) { Remove-Item -LiteralPath $extractRoot -Recurse -Force }',
+                            'if ($env:EX40_PACKAGE_FILE -and (Test-Path -LiteralPath $env:EX40_PACKAGE_FILE)) {',
+                            '  Copy-Item -LiteralPath $env:EX40_PACKAGE_FILE -Destination $packagePath -Force',
+                            '  Write-Host ("Using uploaded EX40 package file: {0}" -f $env:EX40_PACKAGE_FILE_FILENAME)',
+                            '} elseif ($env:EX40_PACKAGE_URL) {',
+                            '  if (-not ($env:EX40_PACKAGE_URL -match "^https://")) { throw "EX40_PACKAGE_URL must be HTTPS." }',
+                            '  Write-Host "Downloading EX40 package from HTTPS URL."',
+                            '  Invoke-WebRequest -Uri $env:EX40_PACKAGE_URL -OutFile $packagePath -UseBasicParsing',
+                            '} else {',
+                            '  throw "Provide EX40_PACKAGE_FILE or EX40_PACKAGE_URL."',
+                            '}',
+                            '$packageSize = (Get-Item -LiteralPath $packagePath).Length',
+                            'Write-Host ("EX40 package size: {0} bytes" -f $packageSize)',
+                            'Expand-Archive -LiteralPath $packagePath -DestinationPath $extractRoot -Force',
+                            '$exe = Get-ChildItem -LiteralPath $extractRoot -Recurse -File -Filter "40_pathtracer*.exe" | Select-Object -First 1',
+                            'if (-not $exe) { throw "40_pathtracer executable was not found in the package." }',
+                            '$runtimeDll = Get-ChildItem -LiteralPath $extractRoot -Recurse -File -Filter "Nabla_*.dll" | Select-Object -First 1',
+                            'if (-not $runtimeDll) { throw "Nabla runtime DLL was not found in the package." }',
+                            '$dxcDll = Get-ChildItem -LiteralPath $extractRoot -Recurse -File -Filter "dxcompiler.dll" | Select-Object -First 1',
+                            'if (-not $dxcDll) { throw "DXC runtime DLL was not found in the package." }',
+                            '$reportTemplate = Join-Path $exe.DirectoryName "report"',
+                            'if (-not (Test-Path -LiteralPath $reportTemplate)) { throw "Report template directory was not found next to the executable." }',
+                            '$info = [pscustomobject]@{ exe = $exe.FullName; bin = $exe.DirectoryName; runtime = $runtimeDll.DirectoryName; dxc = $dxcDll.DirectoryName; reportTemplate = $reportTemplate; packageSize = $packageSize }',
+                            '$info | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $env:WORKSPACE "package-info.json") -Encoding UTF8',
+                            'Write-Host ("EX40 executable: {0}" -f $exe.FullName)'
+                          ].join('\\n')
+                          powershell './acquire-package.ps1'
+                        }
+                        stage('Materialize scenes') {
+                          writeFile file: 'materialize-scenes.ps1', text: [
+                            '$ErrorActionPreference = "Stop"',
+                            '$packagePath = Join-Path $env:WORKSPACE "scene-cache.zip"',
+                            '$sceneRoot = Join-Path $env:WORKSPACE "scene-cache"',
+                            'Remove-Item -LiteralPath $packagePath -Force -ErrorAction SilentlyContinue',
+                            'if (Test-Path -LiteralPath $sceneRoot) { Remove-Item -LiteralPath $sceneRoot -Recurse -Force }',
+                            'Write-Host ("Downloading scene cache suite={0}, commit={1}" -f $env:SCENE_SUITE, $env:SCENES_COMMIT)',
+                            'Invoke-WebRequest -Uri $env:SCENE_CACHE_URL -OutFile $packagePath -UseBasicParsing',
+                            '$packageSize = (Get-Item -LiteralPath $packagePath).Length',
+                            'Write-Host ("Scene cache package size: {0} bytes" -f $packageSize)',
+                            'Expand-Archive -LiteralPath $packagePath -DestinationPath $sceneRoot -Force',
+                            '$sceneList = Join-Path $sceneRoot "scene-list.txt"',
+                            'if (-not (Test-Path -LiteralPath $sceneList)) { throw "scene-list.txt was not found in the scene cache package." }',
+                            '$manifestPath = Join-Path $sceneRoot "manifest.json"',
+                            '$referenceDir = Join-Path $sceneRoot "references"',
+                            '$resolvedReferenceDir = if (Test-Path -LiteralPath $referenceDir) { $referenceDir } else { "" }',
+                            '$info = [pscustomobject]@{ suite = $env:SCENE_SUITE; commit = $env:SCENES_COMMIT; root = $sceneRoot; sceneList = $sceneList; manifest = if (Test-Path -LiteralPath $manifestPath) { $manifestPath } else { "" }; referenceDir = $resolvedReferenceDir; packageSize = $packageSize }',
+                            '$info | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $env:WORKSPACE "scene-cache-info.json") -Encoding UTF8'
+                          ].join('\\n')
+                          powershell './materialize-scenes.ps1'
+                        }
+                        stage('Select shard') {
+                          writeFile file: 'select-scenes.ps1', text: [
+                            '$ErrorActionPreference = "Stop"',
+                            '$info = Get-Content -LiteralPath (Join-Path $env:WORKSPACE "scene-cache-info.json") | ConvertFrom-Json',
+                            '$commands = @()',
+                            'foreach ($line in Get-Content -LiteralPath $info.sceneList) {',
+                            '  $trimmed = $line.Trim()',
+                            '  if ($trimmed.Length -eq 0) { continue }',
+                            '  if ($trimmed.StartsWith(";") -or $trimmed.StartsWith("#")) { continue }',
+                            '  $commands += $line',
+                            '}',
+                            'if ($commands.Count -eq 0) { throw "Scene list contains no runnable scenes." }',
+                            '$shardCount = [int]$env:SHARD_COUNT',
+                            '$shardIndex = [int]$env:SHARD_INDEX',
+                            '$rootForList = $info.root.Replace("\\", "/")',
+                            '$selected = @()',
+                            'for ($i = 0; $i -lt $commands.Count; $i++) {',
+                            '  if (($i % $shardCount) -eq $shardIndex) {',
+                            '    $selected += $commands[$i].Replace("${SCENE_ROOT}", $rootForList)',
+                            '  }',
+                            '}',
+                            'if ($selected.Count -eq 0) { throw "Shard selected no scenes." }',
+                            '$selectedPath = Join-Path $env:WORKSPACE "selected-scenes.txt"',
+                            '$selected | Set-Content -LiteralPath $selectedPath -Encoding UTF8',
+                            '$resolved = [pscustomobject]@{ suite = $info.suite; commit = $info.commit; shardIndex = $shardIndex; shardCount = $shardCount; selectedSceneCount = $selected.Count; totalSceneCount = $commands.Count; sceneList = $selectedPath; referenceDir = $info.referenceDir }',
+                            '$resolved | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $env:WORKSPACE "resolved-scenes.json") -Encoding UTF8',
+                            'Write-Host ("Selected {0}/{1} scenes for shard {2}/{3}." -f $selected.Count, $commands.Count, $shardIndex, $shardCount)'
+                          ].join('\\n')
+                          powershell './select-scenes.ps1'
+                        }
+                        stage('Render scenes') {
+                          writeFile file: 'run-scenes.ps1', text: [
+                            '$ErrorActionPreference = "Stop"',
+                            '$package = Get-Content -LiteralPath (Join-Path $env:WORKSPACE "package-info.json") | ConvertFrom-Json',
+                            '$scenes = Get-Content -LiteralPath (Join-Path $env:WORKSPACE "resolved-scenes.json") | ConvertFrom-Json',
+                            '$publishRoot = Join-Path $env:WORKSPACE "publish"',
+                            '$renders = Join-Path $publishRoot "renders"',
+                            '$sharedTmp = Join-Path $package.bin "../../tmp"',
+                            'if (Test-Path -LiteralPath $publishRoot) { Remove-Item -LiteralPath $publishRoot -Recurse -Force }',
+                            'New-Item -ItemType Directory -Path $renders -Force | Out-Null',
+                            'New-Item -ItemType Directory -Path $sharedTmp -Force | Out-Null',
+                            'Copy-Item -Path (Join-Path $package.reportTemplate "*") -Destination $publishRoot -Recurse -Force',
+                            '$env:PATH = $package.runtime + ";" + $package.dxc + ";" + $env:PATH',
+                            '$log = Join-Path $env:WORKSPACE "ex40.log"',
+                            '$args = @("--scene-list", $scenes.sceneList, "--process-sensors", "RenderAllThenTerminate", "--headless", "--output-dir", $renders, "--report-dir", $publishRoot)',
+                            'if ($scenes.referenceDir) { $args += @("--reference-dir", $scenes.referenceDir) }',
+                            'Push-Location -LiteralPath $package.bin',
+                            'try {',
+                            '  & $package.exe @args 2>&1 | Tee-Object -FilePath $log',
+                            '  if ($LASTEXITCODE -ne 0) { throw "EX40 failed with exit code $LASTEXITCODE." }',
+                            '} finally {',
+                            '  Pop-Location',
+                            '}'
+                          ].join('\\n')
+                          powershell './run-scenes.ps1'
+                        }
+                        stage('Validate report') {
+                          writeFile file: 'validate-report.ps1', text: [
+                            '$ErrorActionPreference = "Stop"',
+                            '$publishRoot = Join-Path $env:WORKSPACE "publish"',
+                            '$required = @("index.html", "summary.json", "css/report.css", "js/report.js")',
+                            'foreach ($relative in $required) {',
+                            '  $path = Join-Path $publishRoot $relative',
+                            '  if (-not (Test-Path -LiteralPath $path)) { throw "Missing publish file: $relative" }',
+                            '}',
+                            '$summary = Get-Content -LiteralPath (Join-Path $publishRoot "summary.json") | ConvertFrom-Json',
+                            'if ([int]$summary.num_of_tests -lt 1) { throw "Summary contains no rendered tests." }',
+                            '$failureCount = [int]$summary.failure_count',
+                            'Write-Host ("EX40 report status={0}, tests={1}, failures={2}" -f $summary.pass_status, $summary.num_of_tests, $failureCount)',
+                            'if ($env:FAIL_ON_RENDER_FAILURE -eq "true" -and $failureCount -gt 0) { throw "EX40 report contains failed scenes." }'
+                          ].join('\\n')
+                          powershell './validate-report.ps1'
+                        }
+                        stage('Prepare publish') {
+                          if (params.PUBLISH) {
+                            storePublishRequest = storePreparePublishRequest(storePrefix, 'publish')
+                          } else {
+                            echo 'Publishing disabled by PUBLISH=false.'
+                          }
+                        }
+                        stage('Artifacts') {
+                          archiveArtifacts artifacts: 'package-info.json,scene-cache-info.json,resolved-scenes.json,selected-scenes.txt,ex40.log,publish/**', allowEmptyArchive: true, fingerprint: false
+                        }
+                      }
+                    }
+                  }
+                  stage('Publish report') {
+                    if (params.PUBLISH) {
+                      if (!storePublishRequest) {
+                        error 'Store publish payload was not prepared.'
+                      }
+                      def result = storePublishPrepared(storePublishRequest)
+                      currentBuild.description = result.url
+                    } else {
+                      echo 'Publishing disabled by PUBLISH=false.'
+                    }
+                  }
+                }''')
+              }
+            }
+          }
+
           pipelineJob('ci/ditt/ex40-report-plan') {
             description('Validates EX40 report publish parameters before GPU execution is enabled.')
             parameters {

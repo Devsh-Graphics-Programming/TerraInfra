@@ -210,6 +210,18 @@ class HelpersTests(unittest.TestCase):
     def test_normalize_store_prefix_accepts_dummy_prefix(self):
         self.assertEqual(runnerctl_api.normalize_store_prefix("ditt/dummy"), "ditt/dummy/")
 
+    def test_store_allowed_prefixes_accepts_public_and_private_reports(self):
+        env = {
+            "RUNNERCTL_STORE_ALLOWED_PREFIXES": "ditt/dummy/,ditt/public/,ditt/private/",
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            self.assertEqual(
+                runnerctl_api.store_allowed_prefixes(),
+                ["ditt/dummy/", "ditt/public/", "ditt/private/"],
+            )
+            runnerctl_api.require_store_prefix_allowed("ditt/public/smoke/latest/")
+            runnerctl_api.require_store_prefix_allowed("ditt/private/smoke/latest/")
+
     def test_normalize_store_file_path_rejects_traversal(self):
         with self.assertRaises(runnerctl_api.RunnerCtlError) as raised:
             runnerctl_api.normalize_store_file_path("../index.html")

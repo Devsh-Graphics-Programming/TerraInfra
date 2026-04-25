@@ -28,7 +28,7 @@ spec:
       labels:
         app.kubernetes.io/name: jenkins
       annotations:
-        devsh.eu/config-revision: "2026-04-25-ditt-dummy-smoke-v6"
+        devsh.eu/config-revision: "2026-04-25-ex40-scene-smoke-v1"
     spec:
       enableServiceLinks: false
       securityContext:
@@ -194,9 +194,9 @@ spec:
             - name: RUNNERCTL_STORE_S3_BUCKET
               value: devsh-store-prod
             - name: RUNNERCTL_STORE_ALLOWED_PREFIXES
-              value: ditt/dummy/
+              value: ditt/dummy/,ditt/public/,ditt/private/
             - name: RUNNERCTL_STORE_MAX_UPLOAD_BYTES
-              value: "67108864"
+              value: "268435456"
           command:
             - python3
             - /opt/runnerctl/runnerctl_api.py
