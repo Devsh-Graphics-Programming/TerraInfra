@@ -1251,7 +1251,7 @@ data:
                   return 'application/octet-stream'
                 }
 
-                def publishDirectoryToStore(String prefix, String root) {
+                def prepareStorePublishRequest(String prefix, String root) {
                   def normalizedRoot = root.replace('\\\\', '/')
                   def files = findFiles(glob: normalizedRoot + '/**').findAll { !it.directory }
                   if (files.isEmpty()) {
@@ -1266,17 +1266,22 @@ data:
                       content_base64: readFile(file: item.path, encoding: 'Base64')
                     ]
                   }
-                  def result = runnerctlPost('/api/v1/store/publish', [
+                  echo('Prepared ' + requestFiles.size() + ' files for store publish.')
+                  return [
                     prefix: prefix,
                     cache_control: 'no-store',
                     files: requestFiles
-                  ])
+                  ]
+                }
+
+                def publishPreparedDirectoryToStore(Map request) {
+                  def result = runnerctlPost('/api/v1/store/publish', request)
                   echo('Published ' + result.file_count + ' files (' + result.bytes + ' bytes) to ' + result.url)
-                  writeFile file: 'publish-url.txt', text: result.url + '\\n'
                   return result
                 }
 
                 def storePrefix = validateDummyPrefix(params.STORE_PREFIX)
+                def storePublishRequest = null
 
                 timestamps {
                   withRunner(labels: ['windows', 'gpu', 'nvidia', 'vulkan', 'runtime-only'], leaseTtlMinutes: 45, maxReadySeconds: 10) { runner ->
@@ -1406,17 +1411,27 @@ data:
                         ].join('\\n')
                         powershell './validate-report.ps1'
                       }
-                      stage('Publish report') {
+                      stage('Prepare publish') {
                         if (params.PUBLISH) {
-                          def result = publishDirectoryToStore(storePrefix, 'publish')
-                          currentBuild.description = result.url
+                          storePublishRequest = prepareStorePublishRequest(storePrefix, 'publish')
                         } else {
                           echo 'Publishing disabled by PUBLISH=false.'
                         }
                       }
                       stage('Artifacts') {
-                        archiveArtifacts artifacts: 'package-info.json,ex40.log,publish-url.txt,publish/**', allowEmptyArchive: true, fingerprint: false
+                        archiveArtifacts artifacts: 'package-info.json,ex40.log,publish/**', allowEmptyArchive: true, fingerprint: false
                       }
+                    }
+                  }
+                  stage('Publish report') {
+                    if (params.PUBLISH) {
+                      if (!storePublishRequest) {
+                        error 'Store publish payload was not prepared.'
+                      }
+                      def result = publishPreparedDirectoryToStore(storePublishRequest)
+                      currentBuild.description = result.url
+                    } else {
+                      echo 'Publishing disabled by PUBLISH=false.'
                     }
                   }
                 }''')
