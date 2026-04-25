@@ -123,6 +123,27 @@ def merge_timings(*items):
     return merged
 
 
+def run_with_operation_lock(lock, callback):
+    lock_wait_started_ms = monotonic_ms()
+    lock.acquire()
+    lock_wait_ms = elapsed_ms(lock_wait_started_ms)
+    held_started_ms = monotonic_ms()
+    try:
+        result = callback()
+    finally:
+        held_ms = elapsed_ms(held_started_ms)
+        lock.release()
+    if isinstance(result, dict):
+        result["timings"] = merge_timings(
+            result.get("timings"),
+            {
+                "operation_lock_wait_ms": lock_wait_ms,
+                "operation_lock_held_ms": held_ms,
+            },
+        )
+    return result
+
+
 class InventoryStore:
     def __init__(self, path):
         self.path = Path(path)
@@ -2860,20 +2881,41 @@ class RunnerCtlHandler(BaseHTTPRequestHandler):
                 return
             if self.path == "/api/v1/lease":
                 inventory = self._inventory()
-                with self.server.operation_lock:
-                    result = create_lease(self._clients(), self.server.lease_store, inventory, request_data)
+
+                def lease_action():
+                    return create_lease(self._clients(), self.server.lease_store, inventory, request_data)
+                result = run_with_operation_lock(
+                    self.server.operation_lock,
+                    lease_action,
+                )
                 self._write_json(HTTPStatus.OK, {"status": "ok", **result})
                 return
             if self.path == "/api/v1/agent/lease":
                 inventory = self._inventory()
-                with self.server.operation_lock:
-                    result = lease_jenkins_agent(self._clients(), self.server.lease_store, inventory, request_data, self._jenkins())
+
+                def lease_agent_action():
+                    return lease_jenkins_agent(
+                        self._clients(),
+                        self.server.lease_store,
+                        inventory,
+                        request_data,
+                        self._jenkins(),
+                    )
+                result = run_with_operation_lock(
+                    self.server.operation_lock,
+                    lease_agent_action,
+                )
                 self._write_json(HTTPStatus.OK, {"status": "ok", **result})
                 return
             if self.path == "/api/v1/prepare":
                 inventory = self._inventory()
-                with self.server.operation_lock:
-                    result = prepare_lease(self._clients(), self.server.lease_store, inventory, request_data)
+
+                def prepare_action():
+                    return prepare_lease(self._clients(), self.server.lease_store, inventory, request_data)
+                result = run_with_operation_lock(
+                    self.server.operation_lock,
+                    prepare_action,
+                )
                 self._write_json(HTTPStatus.OK, {"status": "ok", **result})
                 return
             if self.path == "/api/v1/health":
@@ -2883,36 +2925,51 @@ class RunnerCtlHandler(BaseHTTPRequestHandler):
                 return
             if self.path == "/api/v1/release":
                 inventory = self._inventory()
-                with self.server.operation_lock:
+
+                def release_action():
                     lease_id = require_pattern(request_data.get("lease_id", ""), LEASE_ID_PATTERN, "lease_id")
                     record = self.server.lease_store.get(lease_id)
                     jenkins_client = self._jenkins() if record and record.get("jenkins_agent") else None
-                    result = release_lease(
+                    return release_lease(
                         self._clients(),
                         self.server.lease_store,
                         inventory,
                         request_data,
                         jenkins_client=jenkins_client,
                     )
+                result = run_with_operation_lock(self.server.operation_lock, release_action)
                 self._write_json(HTTPStatus.OK, {"status": "ok", **result})
                 return
             if self.path == "/api/v1/pool/refill":
                 inventory = self._inventory()
-                with self.server.operation_lock:
+
+                def refill_action():
                     jenkins_client = self._jenkins() if hot_pool_preconnect_agents_enabled() else None
-                    result = refill_hot_pool(
+                    return refill_hot_pool(
                         self._clients(),
                         self.server.lease_store,
                         inventory,
                         request_data,
                         jenkins_client=jenkins_client,
                     )
+                result = run_with_operation_lock(self.server.operation_lock, refill_action)
                 self._write_json(HTTPStatus.OK, {"status": "ok", **result})
                 return
             if self.path == "/api/v1/janitor/run":
                 inventory = self._inventory()
-                with self.server.operation_lock:
-                    result = run_janitor(self._clients(), self.server.lease_store, inventory, request_data, jenkins_client=self._jenkins())
+
+                def janitor_action():
+                    return run_janitor(
+                        self._clients(),
+                        self.server.lease_store,
+                        inventory,
+                        request_data,
+                        jenkins_client=self._jenkins(),
+                    )
+                result = run_with_operation_lock(
+                    self.server.operation_lock,
+                    janitor_action,
+                )
                 self._write_json(HTTPStatus.OK, {"status": "ok", **result})
                 return
             if self.path == "/api/v1/proxmox/smoke":

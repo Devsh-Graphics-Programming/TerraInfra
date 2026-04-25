@@ -1,5 +1,6 @@
 import base64
 import json
+import threading
 import tempfile
 import unittest
 from pathlib import Path
@@ -187,6 +188,18 @@ class HelpersTests(unittest.TestCase):
     def test_require_int_rejects_non_integer(self):
         with self.assertRaises(runnerctl_api.RunnerCtlError):
             runnerctl_api.require_int("abc", "vlan_tag", minimum=1)
+
+    def test_run_with_operation_lock_reports_timings(self):
+        lock = threading.Lock()
+        result = runnerctl_api.run_with_operation_lock(
+            lock,
+            lambda: {"result": "ok", "timings": {"work_ms": 1}},
+        )
+
+        self.assertEqual(result["result"], "ok")
+        self.assertEqual(result["timings"]["work_ms"], 1)
+        self.assertIn("operation_lock_wait_ms", result["timings"])
+        self.assertIn("operation_lock_held_ms", result["timings"])
 
     def test_choose_free_vmid_skips_used_values(self):
         vmid = runnerctl_api.choose_free_vmid({"start": 2000, "end": 2002}, {2000, 2001})

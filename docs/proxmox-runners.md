@@ -101,7 +101,9 @@ withRunner(labels: ['windows', 'gpu', 'nvidia', 'vulkan', 'runtime-only']) { run
 the Jenkins node, and release. When `runnerctl` returns backend timings, the
 helper prints the allocator phases as sanitized operational data. Hot-pool jobs
 also print the separate pool-build provenance timings so current lease latency
-does not get mixed with the out-of-band VM refill cost.
+does not get mixed with the out-of-band VM refill cost. Mutating runnerctl
+operations also report operation-lock wait and hold time, so a slow-looking
+Jenkins stage can be separated into queueing versus real backend work.
 
 Consumer jobs can add a readiness budget without changing the allocator
 contract:

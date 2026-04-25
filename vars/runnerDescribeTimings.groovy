@@ -2,6 +2,8 @@ def call(Map timings = [:], Map args = [:]) {
   def mode = (args.mode ?: 'current').toString()
   def hotPoolRecord = timings.containsKey('pool_member_ready_ms') && timings.pool_member_ready_ms != null
   def hotCurrentKeys = [
+    'operation_lock_wait_ms',
+    'operation_lock_held_ms',
     'agent_lease_total_ms',
     'lease_total_ms',
     'allocator_api_ms',
@@ -29,11 +31,15 @@ def call(Map timings = [:], Map args = [:]) {
     'pool_member_ready_ms'
   ]
   def releaseKeys = [
+    'operation_lock_wait_ms',
+    'operation_lock_held_ms',
     'delete_jenkins_node_ms',
     'destroy_vm_ms',
     'release_ms'
   ]
   def janitorKeys = [
+    'operation_lock_wait_ms',
+    'operation_lock_held_ms',
     'lease_scan_ms',
     'vm_lookup_ms',
     'vm_status_ms',
@@ -43,6 +49,8 @@ def call(Map timings = [:], Map args = [:]) {
     'janitor_ms'
   ]
   def refillKeys = [
+    'operation_lock_wait_ms',
+    'operation_lock_held_ms',
     'refill_ms'
   ]
   def keys
