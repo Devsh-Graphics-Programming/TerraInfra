@@ -28,7 +28,7 @@ spec:
       labels:
         app.kubernetes.io/name: jenkins
       annotations:
-        devsh.eu/config-revision: "2026-04-25-ex40-scene-smoke-v4"
+        devsh.eu/config-revision: "2026-04-25-ex40-scene-smoke-v5"
     spec:
       enableServiceLinks: false
       securityContext:
