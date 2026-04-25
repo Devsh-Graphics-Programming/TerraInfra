@@ -1324,7 +1324,7 @@ data:
                         powershell './acquire-package.ps1'
                       }
                       stage('Create dummy scene') {
-                        writeFile file: 'dummy-scene.xml', text: [
+                        writeFile file: 'dummy_scene.xml', text: [
                           '<?xml version="1.0" encoding="utf-8"?>',
                           '<scene version="0.5.0">',
                           '  <integrator type="direct" id="cameraintegrator"/>',
@@ -1379,7 +1379,7 @@ data:
                           'New-Item -ItemType Directory -Path $sharedTmp -Force | Out-Null',
                           'Copy-Item -Path (Join-Path $info.reportTemplate "*") -Destination $publishRoot -Recurse -Force',
                           '$env:PATH = $info.runtime + ";" + $info.dxc + ";" + $env:PATH',
-                          '$scene = Join-Path $env:WORKSPACE "dummy-scene.xml"',
+                          '$scene = Join-Path $env:WORKSPACE "dummy_scene.xml"',
                           '$log = Join-Path $env:WORKSPACE "ex40.log"',
                           'Push-Location -LiteralPath $info.bin',
                           'try {',
