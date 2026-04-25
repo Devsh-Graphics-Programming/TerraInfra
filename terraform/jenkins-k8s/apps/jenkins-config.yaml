@@ -1554,7 +1554,7 @@ data:
                     echo('Suite: ' + suite + ', scenes_commit=' + scenesCommit + ', shard=' + shardIndex + '/' + shardCount + ', store_prefix=' + storePrefix)
                   }
 
-                  withRunner(labels: ['windows', 'gpu', 'nvidia', 'vulkan', 'runtime-only'], leaseTtlMinutes: 90, maxReadySeconds: 10) { runner ->
+                  withRunner(labels: ['windows', 'gpu', 'nvidia', 'vulkan', 'runtime-only'], leaseTtlMinutes: 90, maxReadySeconds: 120) { runner ->
                     withFileParameter(name: 'EX40_PACKAGE_FILE', allowNoFile: true) {
                       withEnv([
                         'EX40_PACKAGE_URL=' + (packageUrl ?: ''),
