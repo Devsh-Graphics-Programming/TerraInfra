@@ -1677,7 +1677,7 @@ data:
                             '  Pop-Location',
                             '}',
                             '$logText = Get-Content -LiteralPath $log -Raw',
-                            'if ($logText -match "\\[ERROR\\]|Failed to Load|Could not create scene") { throw "EX40 log contains scene load or runtime errors." }'
+                            'if ($logText.Contains("[ERROR]") -or $logText.Contains("Failed to Load") -or $logText.Contains("Could not create scene")) { throw "EX40 log contains scene load or runtime errors." }'
                           ].join('\\n')
                           powershell './run-scenes.ps1'
                         }
