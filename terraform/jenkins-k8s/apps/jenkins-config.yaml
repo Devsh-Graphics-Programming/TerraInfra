@@ -1245,48 +1245,8 @@ data:
                   return prefix
                 }
 
-                def contentTypeFor(String path) {
-                  def lower = path.toLowerCase()
-                  if (lower.endsWith('.html')) { return 'text/html; charset=utf-8' }
-                  if (lower.endsWith('.css')) { return 'text/css; charset=utf-8' }
-                  if (lower.endsWith('.js')) { return 'application/javascript; charset=utf-8' }
-                  if (lower.endsWith('.json')) { return 'application/json; charset=utf-8' }
-                  if (lower.endsWith('.txt') || lower.endsWith('.log')) { return 'text/plain; charset=utf-8' }
-                  if (lower.endsWith('.exr')) { return 'image/aces' }
-                  return 'application/octet-stream'
-                }
-
-                def prepareStorePublishRequest(String prefix, String root) {
-                  def normalizedRoot = root.replace('\\\\', '/')
-                  def files = findFiles(glob: normalizedRoot + '/**').findAll { !it.directory }
-                  if (files.isEmpty()) {
-                    error 'Publish directory is empty.'
-                  }
-                  def prefixWithSlash = normalizedRoot.endsWith('/') ? normalizedRoot : normalizedRoot + '/'
-                  def requestFiles = files.collect { item ->
-                    def relative = item.path.replace('\\\\', '/').substring(prefixWithSlash.length())
-                    [
-                      path: relative,
-                      content_type: contentTypeFor(relative),
-                      content_base64: readFile(file: item.path, encoding: 'Base64')
-                    ]
-                  }
-                  echo('Prepared ' + requestFiles.size() + ' files for store publish.')
-                  return [
-                    prefix: prefix,
-                    cache_control: 'no-store',
-                    files: requestFiles
-                  ]
-                }
-
-                def publishPreparedDirectoryToStore(Map request) {
-                  def result = runnerctlPost('/api/v1/store/publish', request)
-                  echo('Published ' + result.file_count + ' files (' + result.bytes + ' bytes) to ' + result.url)
-                  return result
-                }
-
                 def storePrefix = validateDummyPrefix(params.STORE_PREFIX)
-                def storePublishRequest = null
+                def storePublishArtifact = null
 
                 timestamps {
                   withRunner(labels: ['windows', 'gpu', 'nvidia', 'vulkan', 'runtime-only'], leaseTtlMinutes: 45, maxReadySeconds: 10) { runner ->
@@ -1418,22 +1378,35 @@ data:
                       }
                       stage('Prepare publish') {
                         if (params.PUBLISH) {
-                          storePublishRequest = prepareStorePublishRequest(storePrefix, 'publish')
+                          writeFile file: 'prepare-publish-zip.ps1', text: [
+                            '$ErrorActionPreference = "Stop"',
+                            '$publishRoot = Join-Path $env:WORKSPACE "publish"',
+                            '$zipPath = Join-Path $env:WORKSPACE "publish.zip"',
+                            'if (-not (Test-Path -LiteralPath $publishRoot)) { throw "Publish directory does not exist." }',
+                            'if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }',
+                            '$files = Get-ChildItem -LiteralPath $publishRoot -Recurse -File',
+                            'if (-not $files) { throw "Publish directory is empty." }',
+                            'Compress-Archive -Path (Join-Path $publishRoot "*") -DestinationPath $zipPath -Force',
+                            '$zipSize = (Get-Item -LiteralPath $zipPath).Length',
+                            'Write-Host ("Prepared publish.zip with {0} files, {1} bytes." -f @($files).Count, $zipSize)'
+                          ].join('\\n')
+                          powershell './prepare-publish-zip.ps1'
+                          storePublishArtifact = 'publish.zip'
                         } else {
                           echo 'Publishing disabled by PUBLISH=false.'
                         }
                       }
                       stage('Artifacts') {
-                        archiveArtifacts artifacts: 'package-info.json,ex40.log,publish/**', allowEmptyArchive: true, fingerprint: false
+                        archiveArtifacts artifacts: 'package-info.json,ex40.log,publish.zip,publish/**', allowEmptyArchive: true, fingerprint: false
                       }
                     }
                   }
                   stage('Publish report') {
                     if (params.PUBLISH) {
-                      if (!storePublishRequest) {
-                        error 'Store publish payload was not prepared.'
+                      if (!storePublishArtifact) {
+                        error 'Store publish artifact was not prepared.'
                       }
-                      def result = publishPreparedDirectoryToStore(storePublishRequest)
+                      def result = storePublishReportArtifact(storePrefix, storePublishArtifact, [jobs: 4])
                       currentBuild.description = result.url
                     } else {
                       echo 'Publishing disabled by PUBLISH=false.'
@@ -1777,7 +1750,7 @@ data:
                       if (!storePublishArtifact) {
                         error 'Store publish artifact was not prepared.'
                       }
-                      def result = storePublishArchivedZip(storePrefix, storePublishArtifact)
+                      def result = storePublishReportArtifact(storePrefix, storePublishArtifact, [jobs: 8])
                       currentBuild.description = result.url
                     } else {
                       echo 'Publishing disabled by PUBLISH=false.'
