@@ -400,6 +400,12 @@ class HelpersTests(unittest.TestCase):
 
         self.assertEqual(raised.exception.code, "invalid-request")
 
+    def test_store_file_path_accepts_plus_signs(self):
+        self.assertEqual(
+            runnerctl_api.normalize_store_file_path("references/render_cube_x+/render_cube_x+.exr"),
+            "references/render_cube_x+/render_cube_x+.exr",
+        )
+
     def test_publish_store_report_artifact_uses_report_publish_script(self):
         class FakeJenkinsClient:
             def __init__(self, payload):

@@ -34,7 +34,7 @@ LABEL_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_.-]*$")
 SAFE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 ENV_NAME_PATTERN = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 LEASE_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
-STORE_PATH_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
+STORE_PATH_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/+-]*$")
 GIT_CACHE_REPO_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*\.git$")
 CONTENT_TYPE_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*(; ?[A-Za-z0-9_.-]+=[A-Za-z0-9_.-]+)*$")
 ACTIVE_RUNNER_STATES = {"creating", "ready", "leased", "booting", "healthy", "agent-online"}
