@@ -250,10 +250,7 @@ def call(Map args = [:]) {
                 '$summaryDir = Join-Path $env:WORKSPACE "isolated-summaries"',
                 '$summaryPath = Join-Path $publishRoot "summary.json"',
                 '$log = Join-Path $env:WORKSPACE "ex40.log"',
-                'Add-Type -AssemblyName System.Web.Extensions',
-                '$serializer = New-Object System.Web.Script.Serialization.JavaScriptSerializer',
-                '$serializer.MaxJsonLength = [int]::MaxValue',
-                '$serializer.RecursionLimit = 100',
+                'Write-Host "Starting isolated report merge."',
                 'function Find-JsonArrayRange {',
                 '  param([Parameter(Mandatory = $true)][string] $Json, [Parameter(Mandatory = $true)][string] $Property)',
                 '  $match = [regex]::Match($Json, "`"" + [regex]::Escape($Property) + "`"\\s*:")',
@@ -298,7 +295,7 @@ def call(Map args = [:]) {
                 'function Set-JsonString {',
                 '  param([Parameter(Mandatory = $true)][string] $Json, [Parameter(Mandatory = $true)][string] $Property, [Parameter(Mandatory = $true)][string] $Value)',
                 '  $regex = New-Object System.Text.RegularExpressions.Regex("`"" + [regex]::Escape($Property) + "`"\\s*:\\s*`"[^`"]*`"")',
-                '  return $regex.Replace($Json, "`"$Property`": " + $serializer.Serialize($Value), 1)',
+                '  return $regex.Replace($Json, "`"$Property`": " + ($Value | ConvertTo-Json -Compress), 1)',
                 '}',
                 'function Get-JsonNumber {',
                 '  param([Parameter(Mandatory = $true)][string] $Json, [Parameter(Mandatory = $true)][string] $Property)',
@@ -357,8 +354,7 @@ def call(Map args = [:]) {
                 '$finalJson = Set-JsonString -Json $finalJson -Property "datetime" -Value (Get-Date).ToString("yyyy-MM-dd HH:mm:ss zzz")',
                 'Write-Host ("Writing merged isolated summary.json. tests={0}, failures={1}." -f $mergedTestCount, $mergedFailureCount)',
                 '[System.IO.File]::WriteAllText($summaryPath, $finalJson, $utf8NoBom)',
-                '$logText = if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Raw } else { "" }',
-                'if ($logText.Contains("[ERROR]") -or $logText.Contains("Failed to Load") -or $logText.Contains("Could not create scene")) { Write-Warning "EX40 log contains render or scene errors; continuing because the report captures them." }',
+                'if ((Test-Path -LiteralPath $log) -and (Select-String -LiteralPath $log -SimpleMatch -Quiet -Pattern "[ERROR]", "Failed to Load", "Could not create scene")) { Write-Warning "EX40 log contains render or scene errors; continuing because the report captures them." }',
                 'Write-Host "Merged isolated summary.json is ready."'
               ].join('\n')
             }
