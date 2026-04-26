@@ -371,6 +371,11 @@ def call(Map args = [:]) {
               'if ($env:FAIL_ON_RENDER_FAILURE -eq "true" -and $failureCount -gt 0) { throw "EX40 report contains failed scenes." }'
             ].join('\n')
             powershell './validate-report.ps1'
+            def summary = readJSON(file: 'publish/summary.json', returnPojo: true)
+            def failureCount = (summary.failure_count ?: 0) as int
+            if (!failOnRenderFailure && failureCount > 0) {
+              unstable("EX40 report contains ${failureCount} failed scene(s).")
+            }
           }
 
           stage('Prepare publish') {
@@ -406,7 +411,11 @@ def call(Map args = [:]) {
         if (!storePublishArtifact) {
           error 'Store publish artifact was not prepared.'
         }
-        def result = storePublishReportArtifact(storePrefix, storePublishArtifact, [jobs: args.get('publishJobs', 8)])
+        def result = storePublishReportArtifact(storePrefix, storePublishArtifact, [
+          jobs: args.get('publishJobs', 8),
+          pruneAfterPublish: args.get('pruneAfterPublish', true),
+          deleteAfterPublish: args.get('deletePublishArtifactAfterPublish', true)
+        ])
         currentBuild.description = result.url
       } else {
         echo 'Publishing disabled by PUBLISH=false.'

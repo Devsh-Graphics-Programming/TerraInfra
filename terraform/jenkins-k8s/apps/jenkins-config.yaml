@@ -1209,8 +1209,8 @@ data:
             logRotator {
               daysToKeep(31)
               numToKeep(100)
-              artifactDaysToKeep(31)
-              artifactNumToKeep(100)
+              artifactDaysToKeep(2)
+              artifactNumToKeep(3)
             }
             parameters {
               stringParam('EX40_PACKAGE_URL', '', 'Optional HTTPS URL of an EX40 runtime package zip. Leave empty when uploading EX40_PACKAGE_FILE.')
@@ -1397,7 +1397,7 @@ data:
                         }
                       }
                       stage('Artifacts') {
-                        archiveArtifacts artifacts: 'package-info.json,ex40.log,publish.zip,publish/**', allowEmptyArchive: true, fingerprint: false
+                        archiveArtifacts artifacts: 'package-info.json,ex40.log,publish.zip,publish/index.html,publish/summary.json', allowEmptyArchive: true, fingerprint: false
                       }
                     }
                   }
@@ -1406,7 +1406,7 @@ data:
                       if (!storePublishArtifact) {
                         error 'Store publish artifact was not prepared.'
                       }
-                      def result = storePublishReportArtifact(storePrefix, storePublishArtifact, [jobs: 4])
+                      def result = storePublishReportArtifact(storePrefix, storePublishArtifact, [jobs: 4, pruneAfterPublish: true, deleteAfterPublish: true])
                       currentBuild.description = result.url
                     } else {
                       echo 'Publishing disabled by PUBLISH=false.'
@@ -1422,8 +1422,8 @@ data:
             logRotator {
               daysToKeep(31)
               numToKeep(100)
-              artifactDaysToKeep(31)
-              artifactNumToKeep(100)
+              artifactDaysToKeep(2)
+              artifactNumToKeep(3)
             }
             parameters {
               choiceParam('SUITE', ['public-smoke', 'private-smoke', 'public', 'private'], 'Scene suite to materialize. Smoke suites use zip cache. Full suites use runner-farm Git object cache.')
@@ -1718,6 +1718,11 @@ data:
                             'if ($env:FAIL_ON_RENDER_FAILURE -eq "true" -and $failureCount -gt 0) { throw "EX40 report contains failed scenes." }'
                           ].join('\\n')
                           powershell './validate-report.ps1'
+                          def summary = readJSON(file: 'publish/summary.json', returnPojo: true)
+                          def failureCount = (summary.failure_count ?: 0) as int
+                          if (!params.FAIL_ON_RENDER_FAILURE && failureCount > 0) {
+                            unstable("EX40 report contains ${failureCount} failed scene(s).")
+                          }
                         }
                         stage('Prepare publish') {
                           if (params.PUBLISH) {
@@ -1740,7 +1745,7 @@ data:
                           }
                         }
                         stage('Artifacts') {
-                          archiveArtifacts artifacts: 'package-info.json,scene-cache-info.json,scene-git-request.json,git-object-cache.json,resolved-scenes.json,selected-scenes.txt,ex40.log,publish.zip,publish/**', allowEmptyArchive: true, fingerprint: false
+                          archiveArtifacts artifacts: 'package-info.json,scene-cache-info.json,scene-git-request.json,git-object-cache.json,resolved-scenes.json,selected-scenes.txt,ex40.log,publish.zip,publish/index.html,publish/summary.json', allowEmptyArchive: true, fingerprint: false
                         }
                       }
                     }
@@ -1750,7 +1755,7 @@ data:
                       if (!storePublishArtifact) {
                         error 'Store publish artifact was not prepared.'
                       }
-                      def result = storePublishReportArtifact(storePrefix, storePublishArtifact, [jobs: 8])
+                      def result = storePublishReportArtifact(storePrefix, storePublishArtifact, [jobs: 8, pruneAfterPublish: true, deleteAfterPublish: true])
                       currentBuild.description = result.url
                     } else {
                       echo 'Publishing disabled by PUBLISH=false.'
@@ -1766,8 +1771,8 @@ data:
             logRotator {
               daysToKeep(31)
               numToKeep(100)
-              artifactDaysToKeep(31)
-              artifactNumToKeep(100)
+              artifactDaysToKeep(2)
+              artifactNumToKeep(3)
             }
             parameters {
               stringParam('MEDIA_COMMIT', '0f7ad42b33abe3143a5d69c4d14b26cf3e538c88', 'Nabla examples media commit for the public full suite.')
@@ -1809,8 +1814,8 @@ data:
             logRotator {
               daysToKeep(31)
               numToKeep(100)
-              artifactDaysToKeep(31)
-              artifactNumToKeep(100)
+              artifactDaysToKeep(2)
+              artifactNumToKeep(3)
             }
             parameters {
               stringParam('DITT_SCENES_COMMIT', 'fe7cd7bf9b462e3bb5ef46e1e0658ed08899f5ee', 'DITT reference scenes commit for the private full suite.')

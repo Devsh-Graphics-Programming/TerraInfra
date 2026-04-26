@@ -97,14 +97,21 @@ Current object stores are split by reuse and sensitivity:
 - `ditt-reference-renders`: DITT reference renders.
 
 Jenkins does not upload media, scenes, or reference renders. It only passes commit SHAs, suite name, shard index, and the small EX40 runtime package. Object cache remotes and any read-only credentials are host-side configuration and must not be committed.
-Large EX40 reports are published through an archived `publish.zip` artifact. The
-Windows runner creates the zip, Jenkins archives it, and the `runnerctl` sidecar
-downloads that artifact through the internal Jenkins API. Real report jobs use
-the report bundle's `publishS3.py` with `--checksum`, so unchanged objects are
-skipped by S3 HEAD/checksum checks instead of being uploaded again. This keeps
-Object Storage credentials out of the runner and avoids sending large base64
-JSON payloads through the Jenkins controller.
+Large EX40 reports are published through a transient archived `publish.zip`
+artifact. The Windows runner creates the zip, Jenkins archives it only long
+enough for the `runnerctl` sidecar to download it through the internal Jenkins
+API, and `runnerctl` deletes the zip artifact after a successful store publish.
+The build keeps only small diagnostics such as logs, metadata, `index.html`, and
+`summary.json`. Real report jobs use the report bundle's `publishS3.py` with
+`--checksum`, so unchanged objects are skipped by S3 HEAD/checksum checks instead
+of being uploaded again. After a successful publish, `runnerctl` writes
+`publish-manifest.json` and prunes objects under approved latest prefixes that
+are not part of the current report. This keeps Object Storage credentials out of
+the runner, avoids sending large base64 JSON payloads through the Jenkins
+controller, keeps `latest/` prefixes from accumulating stale objects, and
+prevents Jenkins home from becoming the long-term report store.
 When `FAIL_ON_RENDER_FAILURE=false`, EX40 may return a comparison-failure exit
 code and the Jenkins job still proceeds if `summary.json` was produced and no
-runtime/load errors appear in the log. The failure remains visible in the
-published report.
+runtime/load errors appear in the log. If the report contains failed scenes, the
+Jenkins build is marked `UNSTABLE` instead of `FAILURE`; `FAILURE` is reserved
+for infrastructure, runtime, scene loading, or publish errors.

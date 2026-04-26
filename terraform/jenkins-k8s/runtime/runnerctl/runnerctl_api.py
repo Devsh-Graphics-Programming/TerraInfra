@@ -92,6 +92,19 @@ def require_int(value, field_name, minimum=None, maximum=None):
     return parsed
 
 
+def optional_bool(value, default=False):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
 def require_list(value, field_name):
     if not isinstance(value, list):
         raise RunnerCtlError(
@@ -541,7 +554,7 @@ def aws_sigv4_signing_key(secret_key, date_stamp, region, service):
     return hmac.new(key_service, b"aws4_request", hashlib.sha256).digest()
 
 
-def build_s3_put_request(config, key, content, content_type, cache_control, request_datetime=None):
+def s3_endpoint_host(config):
     parsed_endpoint = urllib.parse.urlparse(config["endpoint"])
     if parsed_endpoint.scheme != "https" or not parsed_endpoint.netloc:
         raise RunnerCtlError(
@@ -549,23 +562,41 @@ def build_s3_put_request(config, key, content, content_type, cache_control, requ
             "store-config-invalid",
             "Store S3 endpoint must be an HTTPS URL.",
         )
-    host = f"{config['bucket']}.{parsed_endpoint.netloc}"
-    canonical_uri = "/" + urllib.parse.quote(key, safe="/~")
-    url = f"{parsed_endpoint.scheme}://{host}{canonical_uri}"
+    return parsed_endpoint.scheme, f"{config['bucket']}.{parsed_endpoint.netloc}"
+
+
+def s3_canonical_query(query):
+    if not query:
+        return ""
+    parts = []
+    for name, value in sorted((str(name), str(value)) for name, value in query.items()):
+        encoded_name = urllib.parse.quote(name, safe="-_.~")
+        encoded_value = urllib.parse.quote(value, safe="-_.~")
+        parts.append(f"{encoded_name}={encoded_value}")
+    return "&".join(parts)
+
+
+def build_s3_request(config, method, key="", query=None, content=b"", headers=None, request_datetime=None):
+    scheme, host = s3_endpoint_host(config)
+    canonical_uri = "/" + urllib.parse.quote(key, safe="/~") if key else "/"
+    canonical_query = s3_canonical_query(query)
+    url = f"{scheme}://{host}{canonical_uri}"
+    if canonical_query:
+        url += "?" + canonical_query
     now = request_datetime or datetime.datetime.now(datetime.timezone.utc)
     amz_date = now.strftime("%Y%m%dT%H%M%SZ")
     date_stamp = now.strftime("%Y%m%d")
     payload_hash = hashlib.sha256(content).hexdigest()
     header_values = {
-        "cache-control": cache_control,
-        "content-type": content_type,
         "host": host,
         "x-amz-content-sha256": payload_hash,
         "x-amz-date": amz_date,
     }
+    for name, value in (headers or {}).items():
+        header_values[str(name).lower()] = str(value)
     canonical_headers = "".join(f"{name}:{header_values[name].strip()}\n" for name in sorted(header_values))
     signed_headers = ";".join(sorted(header_values))
-    canonical_request = "\n".join(["PUT", canonical_uri, "", canonical_headers, signed_headers, payload_hash])
+    canonical_request = "\n".join([method.upper(), canonical_uri, canonical_query, canonical_headers, signed_headers, payload_hash])
     credential_scope = f"{date_stamp}/{config['region']}/s3/aws4_request"
     string_to_sign = "\n".join(
         [
@@ -581,15 +612,38 @@ def build_s3_put_request(config, key, content, content_type, cache_control, requ
         f"AWS4-HMAC-SHA256 Credential={config['access_key']}/{credential_scope}, "
         f"SignedHeaders={signed_headers}, Signature={signature}"
     )
-    headers = {
+    request_headers = {
         "Authorization": authorization,
-        "Cache-Control": cache_control,
-        "Content-Type": content_type,
         "Host": host,
         "X-Amz-Content-Sha256": payload_hash,
         "X-Amz-Date": amz_date,
     }
-    return urllib.request.Request(url, data=content, headers=headers, method="PUT")
+    for name, value in (headers or {}).items():
+        request_headers[name] = value
+    data = content if method.upper() not in {"GET", "HEAD"} else None
+    return urllib.request.Request(url, data=data, headers=request_headers, method=method.upper())
+
+
+def build_s3_put_request(config, key, content, content_type, cache_control, request_datetime=None):
+    return build_s3_request(
+        config,
+        "PUT",
+        key=key,
+        content=content,
+        headers={"Cache-Control": cache_control, "Content-Type": content_type},
+        request_datetime=request_datetime,
+    )
+
+
+def build_s3_delete_request(config, key, request_datetime=None):
+    return build_s3_request(config, "DELETE", key=key, request_datetime=request_datetime)
+
+
+def build_s3_list_request(config, prefix, continuation_token=None, request_datetime=None):
+    query = {"list-type": "2", "prefix": prefix}
+    if continuation_token:
+        query["continuation-token"] = continuation_token
+    return build_s3_request(config, "GET", query=query, request_datetime=request_datetime)
 
 
 class S3StorePublisher:
@@ -623,6 +677,104 @@ class S3StorePublisher:
                 "Store upload request failed.",
                 {"key": key},
             ) from exc
+
+    def list_keys(self, prefix):
+        keys = []
+        token = None
+        while True:
+            request = build_s3_list_request(self.config, prefix, continuation_token=token)
+            try:
+                with self.opener(request, timeout=60) as response:
+                    status = getattr(response, "status", 200)
+                    if status < 200 or status >= 300:
+                        raise RunnerCtlError(
+                            HTTPStatus.BAD_GATEWAY,
+                            "store-list-failed",
+                            "Store object listing failed.",
+                            {"prefix": prefix, "upstream_status": status},
+                        )
+                    payload = response.read()
+            except urllib.error.HTTPError as exc:
+                raise RunnerCtlError(
+                    HTTPStatus.BAD_GATEWAY,
+                    "store-list-failed",
+                    "Store object listing failed.",
+                    {"prefix": prefix, "upstream_status": exc.code},
+                ) from exc
+            except urllib.error.URLError as exc:
+                raise RunnerCtlError(
+                    HTTPStatus.BAD_GATEWAY,
+                    "store-list-failed",
+                    "Store object listing request failed.",
+                    {"prefix": prefix},
+                ) from exc
+            try:
+                root = ElementTree.fromstring(payload)
+            except ElementTree.ParseError as exc:
+                raise RunnerCtlError(
+                    HTTPStatus.BAD_GATEWAY,
+                    "store-list-invalid-response",
+                    "Store object listing returned invalid XML.",
+                    {"prefix": prefix},
+                ) from exc
+            namespace = ""
+            if root.tag.startswith("{"):
+                namespace = root.tag.split("}", 1)[0] + "}"
+            for key_element in root.findall(f".//{namespace}Contents/{namespace}Key"):
+                if key_element.text:
+                    keys.append(key_element.text)
+            truncated = (root.findtext(f"{namespace}IsTruncated") or "").strip().lower() == "true"
+            token = root.findtext(f"{namespace}NextContinuationToken")
+            if not truncated:
+                return keys
+
+    def delete_object(self, key):
+        request = build_s3_delete_request(self.config, key)
+        try:
+            with self.opener(request, timeout=60) as response:
+                status = getattr(response, "status", 204)
+                if status < 200 or status >= 300:
+                    raise RunnerCtlError(
+                        HTTPStatus.BAD_GATEWAY,
+                        "store-delete-failed",
+                        "Store object delete failed.",
+                        {"key": key, "upstream_status": status},
+                    )
+        except urllib.error.HTTPError as exc:
+            raise RunnerCtlError(
+                HTTPStatus.BAD_GATEWAY,
+                "store-delete-failed",
+                "Store object delete failed.",
+                {"key": key, "upstream_status": exc.code},
+            ) from exc
+        except urllib.error.URLError as exc:
+            raise RunnerCtlError(
+                HTTPStatus.BAD_GATEWAY,
+                "store-delete-failed",
+                "Store object delete request failed.",
+                {"key": key},
+            ) from exc
+
+    def prune_prefix(self, prefix, expected_keys):
+        current_keys = set(self.list_keys(prefix))
+        expected = set(expected_keys)
+        delete_keys = sorted(key for key in current_keys if key.startswith(prefix) and key not in expected)
+        max_deletes = require_int(
+            os.getenv("RUNNERCTL_STORE_PRUNE_MAX_DELETE_OBJECTS", "5000"),
+            "RUNNERCTL_STORE_PRUNE_MAX_DELETE_OBJECTS",
+            minimum=1,
+            maximum=100000,
+        )
+        if len(delete_keys) > max_deletes:
+            raise RunnerCtlError(
+                HTTPStatus.CONFLICT,
+                "store-prune-too-large",
+                "Store prune would delete too many objects.",
+                {"prefix": prefix, "delete_count": len(delete_keys), "maximum": max_deletes},
+            )
+        for key in delete_keys:
+            self.delete_object(key)
+        return {"listed_count": len(current_keys), "deleted_count": len(delete_keys)}
 
 
 def publish_store_bundle(request_data, opener=urllib.request.urlopen):
@@ -862,6 +1014,57 @@ def prepare_report_dynamic_source(report_dir, dynamic_dir):
     return file_count
 
 
+def report_publish_relative_paths(entries):
+    skipped_names = {"publishS3.py", "server.py"}
+    paths = []
+    for item in entries:
+        relative = item["path"]
+        parts = relative.split("/")
+        if "__pycache__" in parts or parts[-1] in skipped_names:
+            continue
+        paths.append(relative)
+    return sorted(paths)
+
+
+def store_report_manifest(prefix, job, build_number, artifact_path, relative_paths):
+    return {
+        "schema": 1,
+        "prefix": prefix,
+        "job": job,
+        "build": build_number,
+        "artifact": artifact_path,
+        "generated_at": datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat(),
+        "file_count": len(relative_paths),
+        "files": relative_paths,
+    }
+
+
+def store_prune_allowed_prefixes():
+    raw_value = os.getenv(
+        "RUNNERCTL_STORE_PRUNE_ALLOWED_PREFIXES",
+        "ditt/dummy/,ditt/public/latest/,ditt/private/latest/,ditt/public/smoke/latest/,ditt/private/smoke/latest/",
+    )
+    prefixes = [normalize_store_prefix(item, "RUNNERCTL_STORE_PRUNE_ALLOWED_PREFIXES") for item in raw_value.split(",") if item.strip()]
+    if not prefixes:
+        raise RunnerCtlError(
+            HTTPStatus.INTERNAL_SERVER_ERROR,
+            "store-config-missing",
+            "Store prune allowed prefixes are not configured.",
+        )
+    return prefixes
+
+
+def require_store_prune_prefix_allowed(prefix):
+    allowed_prefixes = store_prune_allowed_prefixes()
+    if not any(prefix.startswith(allowed) for allowed in allowed_prefixes):
+        raise RunnerCtlError(
+            HTTPStatus.FORBIDDEN,
+            "store-prune-prefix-forbidden",
+            "Store prune prefix is not allowed.",
+            {"prefix": prefix, "allowed_prefixes": allowed_prefixes},
+        )
+
+
 def summarize_publish_s3_output(output):
     lines = [line.strip() for line in output.splitlines() if line.strip()]
     uploaded = sum(1 for line in lines if line.startswith("uploaded "))
@@ -876,7 +1079,7 @@ def summarize_publish_s3_output(output):
     }
 
 
-def publish_store_report_artifact(request_data, jenkins_client):
+def publish_store_report_artifact(request_data, jenkins_client, opener=urllib.request.urlopen):
     prefix = normalize_store_prefix(request_data.get("prefix", ""))
     require_store_prefix_allowed(prefix)
     job = normalize_jenkins_job_path(request_data.get("job", ""))
@@ -959,12 +1162,29 @@ def publish_store_report_artifact(request_data, jenkins_client):
                 },
             )
         summary = summarize_publish_s3_output(completed.stdout)
+        relative_paths = report_publish_relative_paths(entries)
+        manifest_path = "publish-manifest.json"
+        manifest_key = prefix + manifest_path
+        expected_keys = [prefix + path for path in relative_paths] + [manifest_key]
+        manifest = store_report_manifest(prefix, job, build_number, artifact_path, relative_paths)
+        publisher = S3StorePublisher(store_config, opener=opener)
+        publisher.put_object(
+            manifest_key,
+            json.dumps(manifest, indent=2, sort_keys=True).encode("utf-8"),
+            "application/json",
+            "no-store",
+        )
+        prune_summary = {"listed_count": 0, "deleted_count": 0}
+        if optional_bool(request_data.get("prune"), default=False):
+            require_store_prune_prefix_allowed(prefix)
+            prune_summary = publisher.prune_prefix(prefix, expected_keys)
 
     return {
         "result": "published",
         "prefix": prefix,
         "url": store_public_url(prefix),
         "file_count": len(entries),
+        "published_file_count": len(relative_paths),
         "dynamic_file_count": dynamic_file_count,
         "bytes": total_bytes,
         "artifact_bytes": artifact_bytes,
@@ -972,7 +1192,31 @@ def publish_store_report_artifact(request_data, jenkins_client):
         "job": job,
         "build": build_number,
         "publisher": "publishS3.py",
+        "manifest": manifest_path,
+        "pruned_count": prune_summary["deleted_count"],
+        "listed_count": prune_summary["listed_count"],
         **summary,
+    }
+
+
+def delete_jenkins_artifact(request_data, jenkins_client):
+    job = normalize_jenkins_job_path(request_data.get("job", ""))
+    build_number = require_int(request_data.get("build", ""), "build", minimum=1)
+    artifact_path = normalize_store_file_path(request_data.get("artifact", ""), "artifact")
+    if artifact_path != "publish.zip":
+        raise RunnerCtlError(
+            HTTPStatus.BAD_REQUEST,
+            "invalid-request",
+            "Only the transient publish.zip artifact can be deleted through runnerctl.",
+            {"field": "artifact"},
+        )
+    result = jenkins_client.delete_artifact_file(job, build_number, artifact_path)
+    return {
+        "result": result["result"],
+        "job": job,
+        "build": build_number,
+        "artifact": artifact_path,
+        "bytes": result["bytes"],
     }
 
 
@@ -1698,6 +1942,67 @@ class JenkinsApiClient:
 
     def script_text(self, script):
         return self._request("POST", "/scriptText", data={"script": script})
+
+    def delete_artifact_file(self, job, build_number, artifact_path):
+        script = f"""
+import jenkins.model.Jenkins
+
+String jobName = {groovy_string(job)}
+int buildNumber = {int(build_number)}
+String artifactPath = {groovy_string(artifact_path)}
+
+def item = Jenkins.get().getItemByFullName(jobName)
+if (item == null) {{
+  println("missing-job")
+  return
+}}
+def run = item.getBuildByNumber(buildNumber)
+if (run == null) {{
+  println("missing-build")
+  return
+}}
+File archiveRoot = run.getArtifactsDir()
+File root = archiveRoot.getCanonicalFile()
+File target = new File(archiveRoot, artifactPath).getCanonicalFile()
+if (!target.toPath().startsWith(root.toPath())) {{
+  println("invalid-path")
+  return
+}}
+if (!target.exists()) {{
+  println("missing")
+  return
+}}
+if (!target.isFile()) {{
+  println("not-file")
+  return
+}}
+long bytes = target.length()
+if (!target.delete()) {{
+  println("delete-failed")
+  return
+}}
+println("deleted " + bytes)
+"""
+        output = self.script_text(script)
+        lines = [line.strip() for line in output.splitlines() if line.strip()]
+        for line in reversed(lines):
+            if line.startswith("deleted "):
+                return {"result": "deleted", "bytes": int(line.split(" ", 1)[1])}
+            if line in {"missing", "missing-job", "missing-build"}:
+                return {"result": line, "bytes": 0}
+            if line in {"invalid-path", "not-file", "delete-failed"}:
+                raise RunnerCtlError(
+                    HTTPStatus.BAD_GATEWAY,
+                    "jenkins-artifact-delete-failed",
+                    "Jenkins refused to delete the requested artifact.",
+                    {"result": line, "job": job, "build": build_number, "artifact": artifact_path},
+                )
+        raise RunnerCtlError(
+            HTTPStatus.BAD_GATEWAY,
+            "jenkins-artifact-delete-failed",
+            "Jenkins artifact cleanup returned an unexpected response.",
+            {"job": job, "build": build_number, "artifact": artifact_path},
+        )
 
     def create_agent_node(self, node_name, label_string, remote_fs):
         script = f"""
@@ -3764,6 +4069,10 @@ class RunnerCtlHandler(BaseHTTPRequestHandler):
                 return
             if self.path == "/api/v1/store/publish-report-artifact":
                 result = publish_store_report_artifact(request_data, self._jenkins())
+                self._write_json(HTTPStatus.OK, {"status": "ok", **result})
+                return
+            if self.path == "/api/v1/jenkins/delete-artifact":
+                result = delete_jenkins_artifact(request_data, self._jenkins())
                 self._write_json(HTTPStatus.OK, {"status": "ok", **result})
                 return
             self._write_json(HTTPStatus.NOT_FOUND, {"status": "error", "code": "not-found", "message": "Unknown endpoint."})

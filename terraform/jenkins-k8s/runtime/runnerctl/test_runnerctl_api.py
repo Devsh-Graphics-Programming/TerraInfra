@@ -7,6 +7,7 @@ import threading
 import tempfile
 import unittest
 import urllib.error
+import urllib.parse
 import zipfile
 from unittest import mock
 from pathlib import Path
@@ -270,6 +271,51 @@ class HelpersTests(unittest.TestCase):
         self.assertIn("AWS4-HMAC-SHA256", request.headers["Authorization"])
         self.assertNotIn("test-secret", request.headers["Authorization"])
 
+    def test_s3_prune_deletes_keys_missing_from_manifest(self):
+        class FakeResponse:
+            status = 200
+
+            def __init__(self, payload=b""):
+                self.payload = payload
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+            def read(self):
+                return self.payload
+
+        calls = []
+        listing = b"""<?xml version="1.0" encoding="UTF-8"?>
+<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+  <IsTruncated>false</IsTruncated>
+  <Contents><Key>ditt/public/latest/index.html</Key></Contents>
+  <Contents><Key>ditt/public/latest/old.exr</Key></Contents>
+</ListBucketResult>"""
+
+        def fake_open(request, timeout):
+            calls.append((request.get_method(), request.full_url, timeout))
+            if request.get_method() == "GET":
+                return FakeResponse(listing)
+            return FakeResponse()
+
+        config = {
+            "endpoint": "https://s3.fr-par.scw.cloud",
+            "region": "fr-par",
+            "bucket": "devsh-store-prod",
+            "access_key": "test-access",
+            "secret_key": "test-secret",
+        }
+        publisher = runnerctl_api.S3StorePublisher(config, opener=fake_open)
+        result = publisher.prune_prefix("ditt/public/latest/", {"ditt/public/latest/index.html"})
+
+        self.assertEqual(result, {"listed_count": 2, "deleted_count": 1})
+        self.assertEqual(calls[0][0], "GET")
+        self.assertEqual(calls[1][0], "DELETE")
+        self.assertTrue(calls[1][1].endswith("/ditt/public/latest/old.exr"))
+
     def test_publish_store_bundle_uploads_prepared_files(self):
         class FakeResponse:
             status = 200
@@ -424,6 +470,23 @@ class HelpersTests(unittest.TestCase):
             archive.writestr("renders/test.exr", b"exr")
 
         calls = []
+        s3_calls = []
+
+        class FakeResponse:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+            def read(self):
+                return b""
+
+        def fake_open(request, timeout):
+            s3_calls.append((request, timeout))
+            return FakeResponse()
 
         def fake_run(command, cwd, env, text, stdout, stderr, timeout, check):
             calls.append(
@@ -462,6 +525,7 @@ class HelpersTests(unittest.TestCase):
                     "jobs": "4",
                 },
                 FakeJenkinsClient(zip_buffer.getvalue()),
+                opener=fake_open,
             )
 
         self.assertEqual(result["result"], "published")
@@ -469,6 +533,9 @@ class HelpersTests(unittest.TestCase):
         self.assertEqual(result["uploaded_count"], 1)
         self.assertEqual(result["skipped_count"], 1)
         self.assertEqual(result["dynamic_file_count"], 2)
+        self.assertEqual(result["published_file_count"], 4)
+        self.assertEqual(result["manifest"], "publish-manifest.json")
+        self.assertTrue(s3_calls[0][0].full_url.endswith("/ditt/public/latest/publish-manifest.json"))
         self.assertEqual(calls[0]["env"]["AWS_ACCESS_KEY_ID"], "test-access")
         self.assertEqual(calls[0]["env"]["AWS_SECRET_ACCESS_KEY"], "test-secret")
         self.assertIn("--checksum", calls[0]["command"])
@@ -476,6 +543,91 @@ class HelpersTests(unittest.TestCase):
 
 
 class JenkinsApiClientTests(unittest.TestCase):
+    def test_delete_artifact_file_posts_script_and_parses_deleted_size(self):
+        class FakeResponse:
+            def __init__(self, payload):
+                self.payload = payload
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+            def read(self):
+                return self.payload
+
+        class FakeOpener:
+            def __init__(self):
+                self.calls = []
+
+            def open(self, request, timeout):
+                headers = {key.lower(): value for key, value in request.header_items()}
+                self.calls.append((request.get_method(), request.full_url, headers, request.data, timeout))
+                if request.full_url.endswith("/crumbIssuer/api/json"):
+                    payload = json.dumps({"crumbRequestField": "Jenkins-Crumb", "crumb": "crumb"}).encode("utf-8")
+                    return FakeResponse(payload)
+                if request.full_url.endswith("/scriptText"):
+                    return FakeResponse(b"deleted 12345\n")
+                raise AssertionError(f"unexpected request: {request.full_url}")
+
+        opener = FakeOpener()
+        client = runnerctl_api.JenkinsApiClient(
+            "http://jenkins.example.invalid",
+            "https://jenkins.example.invalid",
+            "admin",
+            "password",
+        )
+        client.opener = opener
+
+        result = client.delete_artifact_file("ci/ditt/real/ex40-private", 19, "publish.zip")
+
+        self.assertEqual(result, {"result": "deleted", "bytes": 12345})
+        script_call = [call for call in opener.calls if call[1].endswith("/scriptText")][0]
+        payload = urllib.parse.parse_qs(script_call[3].decode("utf-8"))
+        self.assertIn('"ci/ditt/real/ex40-private"', payload["script"][0])
+        self.assertIn('"publish.zip"', payload["script"][0])
+
+    def test_delete_jenkins_artifact_normalizes_request(self):
+        class FakeJenkinsClient:
+            def __init__(self):
+                self.calls = []
+
+            def delete_artifact_file(self, job, build_number, artifact_path):
+                self.calls.append((job, build_number, artifact_path))
+                return {"result": "deleted", "bytes": 7}
+
+        jenkins = FakeJenkinsClient()
+        result = runnerctl_api.delete_jenkins_artifact(
+            {
+                "job": "ci/ditt/real/ex40-public",
+                "build": "3",
+                "artifact": "publish.zip",
+            },
+            jenkins,
+        )
+
+        self.assertEqual(result["result"], "deleted")
+        self.assertEqual(result["bytes"], 7)
+        self.assertEqual(jenkins.calls, [("ci/ditt/real/ex40-public", 3, "publish.zip")])
+
+    def test_delete_jenkins_artifact_rejects_non_publish_zip(self):
+        class FakeJenkinsClient:
+            def delete_artifact_file(self, job, build_number, artifact_path):
+                raise AssertionError("must not be called")
+
+        with self.assertRaises(runnerctl_api.RunnerCtlError) as raised:
+            runnerctl_api.delete_jenkins_artifact(
+                {
+                    "job": "ci/ditt/real/ex40-public",
+                    "build": "3",
+                    "artifact": "summary.json",
+                },
+                FakeJenkinsClient(),
+            )
+
+        self.assertEqual(raised.exception.code, "invalid-request")
+
     def test_post_refreshes_crumb_and_retries_after_stale_403(self):
         class FakeResponse:
             def __init__(self, payload):

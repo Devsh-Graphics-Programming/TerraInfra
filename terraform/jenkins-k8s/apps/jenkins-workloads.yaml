@@ -195,6 +195,10 @@ spec:
               value: devsh-store-prod
             - name: RUNNERCTL_STORE_ALLOWED_PREFIXES
               value: ditt/dummy/,ditt/public/,ditt/private/
+            - name: RUNNERCTL_STORE_PRUNE_ALLOWED_PREFIXES
+              value: ditt/dummy/,ditt/public/latest/,ditt/private/latest/,ditt/public/smoke/latest/,ditt/private/smoke/latest/
+            - name: RUNNERCTL_STORE_PRUNE_MAX_DELETE_OBJECTS
+              value: "5000"
             - name: RUNNERCTL_STORE_MAX_UPLOAD_BYTES
               value: "2147483648"
             - name: RUNNERCTL_STORE_REPORT_PUBLISH_TIMEOUT_SECONDS

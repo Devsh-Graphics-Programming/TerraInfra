@@ -12,7 +12,8 @@ def call(String prefix, String artifactPath = 'publish.zip', Map args = [:]) {
     job: jobName,
     build: buildNumber,
     artifact: artifactPath,
-    jobs: (args.get('jobs') ?: 8).toString()
+    jobs: (args.get('jobs') ?: 8).toString(),
+    prune: args.get('pruneAfterPublish') == true
   ])
   echo(
     'Published report with ' + result.publisher +
@@ -20,7 +21,20 @@ def call(String prefix, String artifactPath = 'publish.zip', Map args = [:]) {
     ', skipped=' + result.skipped_count +
     ', files=' + result.file_count +
     ', bytes=' + result.bytes +
+    ', pruned=' + (result.pruned_count ?: 0) +
     ', url=' + result.url
   )
+  if (args.get('deleteAfterPublish') == true) {
+    def cleanup = runnerctlPost('/api/v1/jenkins/delete-artifact', [
+      job: jobName,
+      build: buildNumber,
+      artifact: artifactPath
+    ])
+    echo(
+      'Deleted transient publish artifact: result=' + cleanup.result +
+      ', artifact=' + cleanup.artifact +
+      ', bytes=' + cleanup.bytes + '.'
+    )
+  }
   return result
 }
