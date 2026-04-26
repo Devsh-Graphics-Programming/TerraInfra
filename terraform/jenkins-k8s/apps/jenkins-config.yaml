@@ -54,6 +54,13 @@ data:
                 permissions:
                   - Overall/Read
                   - Metrics/View
+            - user:
+                name: "github-actions-ditt"
+                permissions:
+                  - Overall/Read
+                  - Job/Read
+                  - Job/Build
+                  - Job/Cancel
 
     appearance:
       themeManager:
@@ -1781,6 +1788,12 @@ data:
               stringParam('STORE_PREFIX', 'ditt/public/latest/', 'Destination prefix under store.devsh.eu. Must stay under ditt/public/.')
               stringParam('SHARD_COUNT', '1', 'Number of scene shards. Use 1 for a full single-run validation.')
               stringParam('SHARD_INDEX', '0', 'Zero-based shard index for this run.')
+              stringParam('SOURCE_REPOSITORY', '', 'Optional GitHub repository owner/name that requested this run.')
+              stringParam('SOURCE_BRANCH', '', 'Optional GitHub branch that requested this run.')
+              stringParam('SOURCE_SHA', '', 'Optional GitHub commit SHA that requested this run.')
+              stringParam('SOURCE_RUN_ID', '', 'Optional GitHub Actions run id that requested this run.')
+              stringParam('SOURCE_RUN_ATTEMPT', '', 'Optional GitHub Actions run attempt that requested this run.')
+              stringParam('SOURCE_WORKFLOW', '', 'Optional GitHub Actions workflow name that requested this run.')
               booleanParam('FAIL_ON_RENDER_FAILURE', false, 'Fail the Jenkins build when the EX40 comparison report contains failed scenes.')
               booleanParam('ISOLATE_SCENES', false, 'Run each selected scene in a separate EX40 process and merge the report.')
               booleanParam('PUBLISH', true, 'Publish the generated report to store.devsh.eu.')
@@ -1824,6 +1837,12 @@ data:
               stringParam('STORE_PREFIX', 'ditt/private/latest/', 'Destination prefix under store.devsh.eu. Must stay under ditt/private/.')
               stringParam('SHARD_COUNT', '1', 'Number of scene shards. Use 1 for a full single-run validation.')
               stringParam('SHARD_INDEX', '0', 'Zero-based shard index for this run.')
+              stringParam('SOURCE_REPOSITORY', '', 'Optional GitHub repository owner/name that requested this run.')
+              stringParam('SOURCE_BRANCH', '', 'Optional GitHub branch that requested this run.')
+              stringParam('SOURCE_SHA', '', 'Optional GitHub commit SHA that requested this run.')
+              stringParam('SOURCE_RUN_ID', '', 'Optional GitHub Actions run id that requested this run.')
+              stringParam('SOURCE_RUN_ATTEMPT', '', 'Optional GitHub Actions run attempt that requested this run.')
+              stringParam('SOURCE_WORKFLOW', '', 'Optional GitHub Actions workflow name that requested this run.')
               booleanParam('FAIL_ON_RENDER_FAILURE', false, 'Fail the Jenkins build when the EX40 comparison report contains failed scenes.')
               booleanParam('ISOLATE_SCENES', true, 'Run each selected scene in a separate EX40 process and merge the report.')
               booleanParam('PUBLISH', true, 'Publish the generated report to store.devsh.eu.')

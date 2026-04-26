@@ -31,6 +31,10 @@ Set-Service -Name WinRM -StartupType Automatic
 Start-Service -Name WinRM
 Set-Item -Path WSMan:\localhost\Service\Auth\Basic -Value `$true
 Set-Item -Path WSMan:\localhost\Service\AllowUnencrypted -Value `$true
+Set-NetFirewallRule -DisplayGroup 'Windows Remote Management' -Enabled True -Profile Any -Action Allow
+if (-not (Get-NetFirewallRule -Name 'runnerctl-winrm-http' -ErrorAction SilentlyContinue)) {
+  New-NetFirewallRule -Name 'runnerctl-winrm-http' -DisplayName 'RunnerCtl WinRM HTTP' -Direction Inbound -Protocol TCP -LocalPort 5985 -Action Allow -Profile Any | Out-Null
+}
 Remove-Item -LiteralPath (Join-Path `$env:WINDIR 'Temp\packer-sysprep-unattend.xml') -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath `$PSCommandPath -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath (Join-Path `$PSScriptRoot 'SetupComplete.cmd') -Force -ErrorAction SilentlyContinue
@@ -117,7 +121,20 @@ if (-not $sysprep.WaitForExit(120000)) {
   throw 'Sysprep did not exit within 120 seconds.'
 }
 $acceptedSysprepExitCodes = @(0, 267014)
+if ($sysprep.ExitCode -eq 16001) {
+  Write-Host "Sysprep returned exit code $($sysprep.ExitCode) after accepting the shutdown request."
+  exit 0
+}
 if ($sysprep.ExitCode -notin $acceptedSysprepExitCodes) {
+  foreach ($logPath in @(
+    (Join-Path $env:WINDIR 'System32\Sysprep\Panther\setuperr.log'),
+    (Join-Path $env:WINDIR 'System32\Sysprep\Panther\setupact.log')
+  )) {
+    if (Test-Path $logPath) {
+      Write-Host "===== $logPath ====="
+      Get-Content -Path $logPath -Tail 120
+    }
+  }
   throw "Sysprep failed with exit code $($sysprep.ExitCode)."
 }
 Start-Sleep -Seconds 15

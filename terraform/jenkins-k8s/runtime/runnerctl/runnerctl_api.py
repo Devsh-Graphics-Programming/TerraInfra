@@ -2805,6 +2805,16 @@ def run_named_health_check(client, node, vmid, check_name):
             "New-Item -ItemType Directory -Force -Path 'C:\\runner\\work' | Out-Null; if (Test-Path 'C:\\runner\\work') { exit 0 } exit 1",
         )
         return "passed"
+    if check_name == "git-client":
+        run_guest_powershell_check(
+            client,
+            node,
+            vmid,
+            "$git = Get-Command git.exe -ErrorAction SilentlyContinue; "
+            "if (-not $git) { exit 1 }; "
+            "& $git.Source --version; exit $LASTEXITCODE",
+        )
+        return "passed"
     if check_name == "vulkan-runtime":
         run_guest_powershell_check(
             client,

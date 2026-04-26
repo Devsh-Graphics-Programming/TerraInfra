@@ -155,7 +155,7 @@ data:
           "placements": [
             {
               "host": "rtx-node3",
-              "vmid": 9003,
+              "vmid": 9004,
               "gpu_device": "rtx-2070-0"
             }
           ]
@@ -207,7 +207,8 @@ data:
             "network-interfaces",
             "nvidia-smi",
             "vulkan-runtime",
-            "workspace-ready"
+            "workspace-ready",
+            "git-client"
           ]
         }
       ],

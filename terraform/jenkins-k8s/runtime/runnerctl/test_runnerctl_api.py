@@ -134,7 +134,7 @@ SAMPLE_INVENTORY = {
                 "release_on_failure": True,
                 "destroy_after_job": True,
             },
-            "health_checks": ["guest-agent", "network-interfaces", "nvidia-smi", "vulkan-runtime", "workspace-ready"],
+            "health_checks": ["guest-agent", "network-interfaces", "nvidia-smi", "vulkan-runtime", "workspace-ready", "git-client"],
         }
     ],
     "janitor": {
@@ -799,6 +799,15 @@ class FakeJenkinsClient:
 
 
 class CreateLeaseTests(unittest.TestCase):
+    def test_git_client_health_check_requires_git_exe(self):
+        client = FakeProxmoxClient()
+        result = runnerctl_api.run_named_health_check(client, "pve-rtx-01", 2000, "git-client")
+        self.assertEqual(result, "passed")
+        self.assertEqual(len(client.guest_exec_requests), 1)
+        script = client.guest_exec_requests[0][2][5]
+        self.assertIn("Get-Command git.exe", script)
+        self.assertIn("--version", script)
+
     def test_create_lease_clones_selected_template_on_capability_host(self):
         with tempfile.TemporaryDirectory() as directory:
             lease_store = runnerctl_api.LeaseStore(Path(directory) / "leases.json")
@@ -827,6 +836,7 @@ class CreateLeaseTests(unittest.TestCase):
             self.assertEqual(record["git_object_cache"]["stores"][0]["git_url"], "git://10.254.254.254:9418/nabla-media-public.git")
             self.assertEqual(record["git_object_cache"]["git_client_sha256"], "04f937e1f0918b17b9be6f2294cb2bb66e96e1d9832d1c298e2de088a1d0e668")
             self.assertEqual(result["git_object_cache"]["stores"][1]["id"], "ditt-reference-scenes")
+            self.assertIn("git-client", record["health_checks"])
             self.assertIn("lease_total_ms", record["timings"])
 
     def test_create_lease_acquires_ready_hot_pool_member(self):
@@ -991,6 +1001,7 @@ class CreateLeaseTests(unittest.TestCase):
                 "nvidia-smi": "passed",
                 "vulkan-runtime": "passed",
                 "workspace-ready": "passed",
+                "git-client": "passed",
             }
             node_name = "runner-lease-" + lease_id[:12]
             lease_store.put(
@@ -1060,6 +1071,7 @@ class CreateLeaseTests(unittest.TestCase):
                 "nvidia-smi": "passed",
                 "vulkan-runtime": "passed",
                 "workspace-ready": "passed",
+                "git-client": "passed",
             }
             lease_store.put(
                 lease_id,
@@ -1114,6 +1126,7 @@ class CreateLeaseTests(unittest.TestCase):
                 "nvidia-smi": "passed",
                 "vulkan-runtime": "passed",
                 "workspace-ready": "passed",
+                "git-client": "passed",
             }
             lease_store.put(
                 lease_id,

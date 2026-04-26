@@ -110,6 +110,6 @@ build {
     environment_vars  = ["PACKER_WINRM_PASSWORD=${var.winrm_password}"]
     pause_after       = "2m"
     script            = "${abspath(path.root)}/scripts/windows-base/start-sysprep.ps1"
-    valid_exit_codes  = [0, 267014]
+    valid_exit_codes  = [0, 267014, 16001]
   }
 }

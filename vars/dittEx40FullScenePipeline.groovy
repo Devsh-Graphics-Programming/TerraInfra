@@ -41,6 +41,13 @@ def call(Map args = [:]) {
   def isolateScenes = false
   def publish = true
   def storePublishArtifact = null
+  def sourceRepository = null
+  def sourceBranch = null
+  def sourceSha = null
+  def sourceRunId = null
+  def sourceRunAttempt = null
+  def sourceWorkflow = null
+  def sourceUrl = null
 
   timestamps {
     stage('Validate request') {
@@ -65,6 +72,39 @@ def call(Map args = [:]) {
       failOnRenderFailure = params.FAIL_ON_RENDER_FAILURE == null ? (args.get('failOnRenderFailureDefault', false) as boolean) : (params.FAIL_ON_RENDER_FAILURE as boolean)
       isolateScenes = params.ISOLATE_SCENES == null ? (args.get('isolateScenesDefault', false) as boolean) : (params.ISOLATE_SCENES as boolean)
       publish = params.PUBLISH == null ? (args.get('publishDefault', true) as boolean) : (params.PUBLISH as boolean)
+      sourceRepository = params.SOURCE_REPOSITORY?.trim()
+      sourceBranch = params.SOURCE_BRANCH?.trim()
+      sourceSha = params.SOURCE_SHA?.trim()
+      sourceRunId = params.SOURCE_RUN_ID?.trim()
+      sourceRunAttempt = params.SOURCE_RUN_ATTEMPT?.trim()
+      sourceWorkflow = params.SOURCE_WORKFLOW?.trim()
+      if (sourceRepository && !(sourceRepository ==~ /[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+/)) {
+        error('SOURCE_REPOSITORY must be owner/repository.')
+      }
+      if (sourceBranch && !(sourceBranch ==~ /[A-Za-z0-9_.\/-]+/)) {
+        error('SOURCE_BRANCH contains unsupported characters.')
+      }
+      if (sourceSha && !(sourceSha ==~ /[0-9a-fA-F]{7,40}/)) {
+        error('SOURCE_SHA must be a 7 to 40 character hexadecimal commit SHA.')
+      }
+      if (sourceRunId && !(sourceRunId ==~ /[0-9]+/)) {
+        error('SOURCE_RUN_ID must be numeric.')
+      }
+      if (sourceRunAttempt && !(sourceRunAttempt ==~ /[0-9]+/)) {
+        error('SOURCE_RUN_ATTEMPT must be numeric.')
+      }
+      if (sourceWorkflow && !(sourceWorkflow ==~ /[A-Za-z0-9_.\/ -]+/)) {
+        error('SOURCE_WORKFLOW contains unsupported characters.')
+      }
+      if (sourceRepository && sourceRunId) {
+        sourceUrl = 'https://github.com/' + sourceRepository + '/actions/runs/' + sourceRunId
+        if (sourceRunAttempt) {
+          sourceUrl += '/attempts/' + sourceRunAttempt
+        }
+        currentBuild.displayName = '#' + env.BUILD_NUMBER + ' ' + suite + ' ' + (sourceSha ?: sourceRunId).take(12)
+        currentBuild.description = sourceUrl
+        echo('Source Actions run: ' + sourceUrl)
+      }
       echo('Suite: ' + suite + ', shard=' + shardIndex + '/' + shardCount + ', store_prefix=' + storePrefix + ', isolate_scenes=' + isolateScenes + ', publish=' + publish)
     }
 
@@ -416,7 +456,7 @@ def call(Map args = [:]) {
           pruneAfterPublish: args.get('pruneAfterPublish', true),
           deleteAfterPublish: args.get('deletePublishArtifactAfterPublish', true)
         ])
-        currentBuild.description = result.url
+        currentBuild.description = sourceUrl ? (result.url + '<br/>' + sourceUrl) : result.url
       } else {
         echo 'Publishing disabled by PUBLISH=false.'
       }

@@ -82,6 +82,10 @@ try {
   Set-Item -Path WSMan:\localhost\Service\Auth\Basic -Value $true
   net accounts /lockoutthreshold:0 | Out-Null
   netsh advfirewall firewall set rule group="Windows Remote Management" new enable=Yes | Out-Null
+  Set-NetFirewallRule -DisplayGroup 'Windows Remote Management' -Enabled True -Profile Any -Action Allow
+  if (-not (Get-NetFirewallRule -Name 'runnerctl-winrm-http' -ErrorAction SilentlyContinue)) {
+    New-NetFirewallRule -Name 'runnerctl-winrm-http' -DisplayName 'RunnerCtl WinRM HTTP' -Direction Inbound -Protocol TCP -LocalPort 5985 -Action Allow -Profile Any | Out-Null
+  }
   Write-Log 'WinRM is configured.'
 
   ipconfig /all | Out-File -FilePath $ipconfigPath -Encoding ascii -Force
