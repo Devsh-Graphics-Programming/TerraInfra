@@ -25,6 +25,7 @@ resource "scaleway_iam_policy" "store_publisher_object_storage" {
     permission_set_names = [
       "ObjectStorageBucketsRead",
       "ObjectStorageObjectsRead",
+      "ObjectStorageObjectsDelete",
       "ObjectStorageObjectsWrite",
     ]
   }
@@ -105,6 +106,7 @@ resource "scaleway_object_bucket_policy" "store" {
         }
         Action = [
           "s3:ListBucket",
+          "s3:DeleteObject",
           "s3:GetObject",
           "s3:PutObject",
         ]
