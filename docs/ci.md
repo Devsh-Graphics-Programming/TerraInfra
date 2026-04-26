@@ -60,6 +60,8 @@ Current jobs:
 - `ci/ditt/store-smoke`: validates `store.devsh.eu` public/private report endpoint behavior without Proxmox credentials.
 - `ci/ditt/ex40-dummy-smoke`: accepts an uploaded EX40 runtime package or HTTPS package URL, leases a Windows GPU runtime runner, renders a tiny inline dummy scene, validates the report bundle, and publishes it to `https://store.devsh.eu/ditt/dummy/`.
 - `ci/ditt/ex40-scene-smoke`: accepts an uploaded EX40 runtime package or HTTPS package URL, materializes `public-smoke` and `private-smoke` from the small smoke zip cache or `public` and `private` from the runner-farm Git object cache, renders the selected shard on a Windows GPU runtime runner, and publishes the report under `ditt/public/` or `ditt/private/`.
+- `ci/ditt/real/ex40-public`: runs the full public EX40 DITT scene suite from Git object cache commits and publishes the real report to `https://store.devsh.eu/ditt/public/latest/`.
+- `ci/ditt/real/ex40-private`: runs the full private EX40 DITT scene suite from Git object cache commits and publishes the real report to `https://store.devsh.eu/ditt/private/latest/`.
 - `ci/ditt/ex40-report-plan`: validates EX40 report publish parameters and stays in dry-run mode until the runtime backend is connected.
 
 Proxmox API credentials stay in the `proxmox-runner-api` Kubernetes Secret and Jenkins API credentials stay in the `jenkins-admin` Kubernetes Secret. Both are consumed by the `runnerctl` sidecar, not by JCasC job definitions. Store publish credentials stay in the optional `jenkins-store-publisher` Kubernetes Secret and are consumed only by `runnerctl`, so Windows runners receive no Object Storage keys. Do not add plaintext credentials to job definitions or workflow inputs.
@@ -97,9 +99,11 @@ Current object stores are split by reuse and sensitivity:
 Jenkins does not upload media, scenes, or reference renders. It only passes commit SHAs, suite name, shard index, and the small EX40 runtime package. Object cache remotes and any read-only credentials are host-side configuration and must not be committed.
 Large EX40 reports are published through an archived `publish.zip` artifact. The
 Windows runner creates the zip, Jenkins archives it, and the `runnerctl` sidecar
-downloads that artifact through the internal Jenkins API before uploading each
-file to Object Storage. This keeps Object Storage credentials out of the runner
-and avoids sending large base64 JSON payloads through the Jenkins controller.
+downloads that artifact through the internal Jenkins API. Real report jobs use
+the report bundle's `publishS3.py` with `--checksum`, so unchanged objects are
+skipped by S3 HEAD/checksum checks instead of being uploaded again. This keeps
+Object Storage credentials out of the runner and avoids sending large base64
+JSON payloads through the Jenkins controller.
 When `FAIL_ON_RENDER_FAILURE=false`, EX40 may return a comparison-failure exit
 code and the Jenkins job still proceeds if `summary.json` was produced and no
 runtime/load errors appear in the log. The failure remains visible in the

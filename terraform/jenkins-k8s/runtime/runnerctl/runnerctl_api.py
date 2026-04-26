@@ -10,7 +10,9 @@ import json
 import mimetypes
 import os
 import re
+import shutil
 import ssl
+import subprocess
 import sys
 import tempfile
 import threading
@@ -749,9 +751,9 @@ def jenkins_job_build_path(job, build_number, artifact_path=None):
     return "/" + "/".join(path_parts)
 
 
-def prepare_store_files_from_zip(zip_path, max_bytes):
+def store_zip_entries(zip_path, max_bytes):
     total_bytes = 0
-    prepared_files = []
+    prepared_entries = []
     seen_paths = set()
     try:
         with zipfile.ZipFile(zip_path) as archive:
@@ -763,12 +765,12 @@ def prepare_store_files_from_zip(zip_path, max_bytes):
                     "Artifact zip contains no files.",
                     {"field": "artifact"},
                 )
-            if len(entries) > 200:
+            if len(entries) > 2000:
                 raise RunnerCtlError(
                     HTTPStatus.BAD_REQUEST,
                     "invalid-request",
                     "Artifact zip contains too many files.",
-                    {"field": "artifact", "maximum": 200},
+                    {"field": "artifact", "maximum": 2000},
                 )
             for index, entry in enumerate(entries):
                 file_type = (entry.external_attr >> 16) & 0o170000
@@ -796,12 +798,11 @@ def prepare_store_files_from_zip(zip_path, max_bytes):
                         "Store publish artifact is too large.",
                         {"maximum_bytes": max_bytes},
                     )
-                content = archive.read(entry)
-                prepared_files.append(
+                prepared_entries.append(
                     {
+                        "zip_name": entry.filename,
                         "key": relative_path,
                         "path": relative_path,
-                        "content": content,
                         "content_type": content_type_for_store_path(relative_path, None),
                     }
                 )
@@ -812,7 +813,167 @@ def prepare_store_files_from_zip(zip_path, max_bytes):
             "Artifact must be a valid zip file.",
             {"field": "artifact"},
         ) from exc
+    return prepared_entries, total_bytes
+
+
+def prepare_store_files_from_zip(zip_path, max_bytes):
+    prepared_entries, total_bytes = store_zip_entries(zip_path, max_bytes)
+    prepared_files = []
+    with zipfile.ZipFile(zip_path) as archive:
+        for item in prepared_entries:
+            prepared_files.append(
+                {
+                    "key": item["key"],
+                    "path": item["path"],
+                    "content": archive.read(item["zip_name"]),
+                    "content_type": item["content_type"],
+                }
+            )
     return prepared_files, total_bytes
+
+
+def extract_store_zip(zip_path, target_dir, entries):
+    target_dir.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(zip_path) as archive:
+        for item in entries:
+            target = target_dir / item["path"]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(archive.read(item["zip_name"]))
+            info = archive.getinfo(item["zip_name"])
+            timestamp = datetime.datetime(*info.date_time, tzinfo=datetime.timezone.utc).timestamp()
+            os.utime(target, (timestamp, timestamp))
+
+
+def prepare_report_dynamic_source(report_dir, dynamic_dir):
+    static_extensions = {".css", ".html", ".js", ".mjs", ".wasm"}
+    skipped_names = {"publishS3.py", "server.py"}
+    dynamic_dir.mkdir(parents=True, exist_ok=True)
+    file_count = 0
+    for path in report_dir.rglob("*"):
+        if not path.is_file() or "__pycache__" in path.parts:
+            continue
+        if path.suffix.lower() in static_extensions or path.name in skipped_names:
+            continue
+        relative = path.relative_to(report_dir)
+        target = dynamic_dir / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, target)
+        file_count += 1
+    return file_count
+
+
+def summarize_publish_s3_output(output):
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    uploaded = sum(1 for line in lines if line.startswith("uploaded "))
+    skipped = sum(1 for line in lines if line.startswith("skip "))
+    would_upload = sum(1 for line in lines if line.startswith("upload "))
+    return {
+        "uploaded_count": uploaded,
+        "skipped_count": skipped,
+        "would_upload_count": would_upload,
+        "line_count": len(lines),
+        "tail": lines[-20:],
+    }
+
+
+def publish_store_report_artifact(request_data, jenkins_client):
+    prefix = normalize_store_prefix(request_data.get("prefix", ""))
+    require_store_prefix_allowed(prefix)
+    job = normalize_jenkins_job_path(request_data.get("job", ""))
+    build_number = require_int(request_data.get("build", ""), "build", minimum=1)
+    artifact_path = normalize_store_file_path(request_data.get("artifact", ""), "artifact")
+    if not artifact_path.lower().endswith(".zip"):
+        raise RunnerCtlError(
+            HTTPStatus.BAD_REQUEST,
+            "invalid-request",
+            "artifact must point to a zip file.",
+            {"field": "artifact"},
+        )
+    jobs = require_int(request_data.get("jobs", "8"), "jobs", minimum=1, maximum=32)
+    max_bytes = store_publish_max_bytes()
+    store_config = store_config_from_env()
+
+    with tempfile.TemporaryDirectory(prefix="runnerctl-store-report-") as directory:
+        root = Path(directory)
+        zip_path = root / "artifact.zip"
+        artifact_bytes = jenkins_client.download_artifact(job, build_number, artifact_path, zip_path, max_bytes)
+        entries, total_bytes = store_zip_entries(zip_path, max_bytes)
+        report_dir = root / "report"
+        dynamic_dir = root / "dynamic"
+        extract_store_zip(zip_path, report_dir, entries)
+        dynamic_file_count = prepare_report_dynamic_source(report_dir, dynamic_dir)
+        script_candidates = sorted(report_dir.rglob("publishS3.py"))
+        if not script_candidates:
+            raise RunnerCtlError(
+                HTTPStatus.BAD_REQUEST,
+                "invalid-request",
+                "Report artifact does not contain publishS3.py.",
+                {"artifact": artifact_path},
+            )
+        script_path = script_candidates[0]
+        environment = os.environ.copy()
+        environment["AWS_ACCESS_KEY_ID"] = store_config["access_key"]
+        environment["AWS_SECRET_ACCESS_KEY"] = store_config["secret_key"]
+        command = [
+            sys.executable,
+            str(script_path),
+            "--source",
+            str(dynamic_dir),
+            "--bucket",
+            store_config["bucket"],
+            "--prefix",
+            prefix.strip("/"),
+            "--endpoint",
+            store_config["endpoint"],
+            "--region",
+            store_config["region"],
+            "--checksum",
+            "--jobs",
+            str(jobs),
+        ]
+        timeout_seconds = require_int(
+            os.getenv("RUNNERCTL_STORE_REPORT_PUBLISH_TIMEOUT_SECONDS", "7200"),
+            "RUNNERCTL_STORE_REPORT_PUBLISH_TIMEOUT_SECONDS",
+            minimum=60,
+            maximum=86400,
+        )
+        completed = subprocess.run(
+            command,
+            cwd=str(script_path.parent),
+            env=environment,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout_seconds,
+            check=False,
+        )
+        if completed.returncode != 0:
+            raise RunnerCtlError(
+                HTTPStatus.BAD_GATEWAY,
+                "store-publish-failed",
+                "publishS3.py failed while publishing the report.",
+                {
+                    "exit_code": completed.returncode,
+                    "stderr_tail": completed.stderr.splitlines()[-20:],
+                    "stdout_tail": completed.stdout.splitlines()[-20:],
+                },
+            )
+        summary = summarize_publish_s3_output(completed.stdout)
+
+    return {
+        "result": "published",
+        "prefix": prefix,
+        "url": store_public_url(prefix),
+        "file_count": len(entries),
+        "dynamic_file_count": dynamic_file_count,
+        "bytes": total_bytes,
+        "artifact_bytes": artifact_bytes,
+        "artifact": artifact_path,
+        "job": job,
+        "build": build_number,
+        "publisher": "publishS3.py",
+        **summary,
+    }
 
 
 def publish_store_artifact_zip(request_data, jenkins_client, opener=urllib.request.urlopen):
@@ -834,17 +995,17 @@ def publish_store_artifact_zip(request_data, jenkins_client, opener=urllib.reque
     with tempfile.TemporaryDirectory(prefix="runnerctl-store-publish-") as directory:
         zip_path = Path(directory) / "artifact.zip"
         artifact_bytes = jenkins_client.download_artifact(job, build_number, artifact_path, zip_path, max_bytes)
-        prepared_files, total_bytes = prepare_store_files_from_zip(zip_path, max_bytes)
-
-    publisher = S3StorePublisher(store_config_from_env(), opener=opener)
-    for item in prepared_files:
-        publisher.put_object(prefix + item["path"], item["content"], item["content_type"], cache_control)
+        prepared_entries, total_bytes = store_zip_entries(zip_path, max_bytes)
+        publisher = S3StorePublisher(store_config_from_env(), opener=opener)
+        with zipfile.ZipFile(zip_path) as archive:
+            for item in prepared_entries:
+                publisher.put_object(prefix + item["path"], archive.read(item["zip_name"]), item["content_type"], cache_control)
 
     return {
         "result": "published",
         "prefix": prefix,
         "url": store_public_url(prefix),
-        "file_count": len(prepared_files),
+        "file_count": len(prepared_entries),
         "bytes": total_bytes,
         "artifact_bytes": artifact_bytes,
         "artifact": artifact_path,
@@ -3599,6 +3760,10 @@ class RunnerCtlHandler(BaseHTTPRequestHandler):
                 return
             if self.path == "/api/v1/store/publish-artifact":
                 result = publish_store_artifact_zip(request_data, self._jenkins())
+                self._write_json(HTTPStatus.OK, {"status": "ok", **result})
+                return
+            if self.path == "/api/v1/store/publish-report-artifact":
+                result = publish_store_report_artifact(request_data, self._jenkins())
                 self._write_json(HTTPStatus.OK, {"status": "ok", **result})
                 return
             self._write_json(HTTPStatus.NOT_FOUND, {"status": "error", "code": "not-found", "message": "Unknown endpoint."})

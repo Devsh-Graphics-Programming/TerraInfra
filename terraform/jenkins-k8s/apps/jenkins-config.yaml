@@ -110,6 +110,11 @@ data:
             description('Static report publish and validation jobs.')
           }
 
+          folder('ci/ditt/real') {
+            displayName('Real')
+            description('Full DITT scene validation jobs backed by runner-farm Git object caches.')
+          }
+
           folder('ci/runners') {
             displayName('Runners')
             description('Generic runtime runner planning jobs managed by configuration as code.')
@@ -1779,6 +1784,88 @@ data:
                     }
                   }
                 }''')
+              }
+            }
+          }
+
+          pipelineJob('ci/ditt/real/ex40-public') {
+            description('Runs the full public EX40 DITT scene suite from a runtime package on a Windows GPU runner, materializes public media and references through the runner-farm Git object cache, and publishes to store.devsh.eu/ditt/public/latest/.')
+            logRotator {
+              daysToKeep(31)
+              numToKeep(100)
+              artifactDaysToKeep(31)
+              artifactNumToKeep(100)
+            }
+            parameters {
+              stringParam('MEDIA_COMMIT', '0f7ad42b33abe3143a5d69c4d14b26cf3e538c88', 'Nabla examples media commit for the public full suite.')
+              stringParam('PUBLIC_REFERENCES_COMMIT', '043f8a0aa074f134b3230d56f27ed7d0c645f6b3', 'Nabla CI commit containing public reference renders.')
+              stringParam('EX40_PACKAGE_URL', '', 'Optional HTTPS URL of an EX40 runtime package zip. Leave empty when uploading EX40_PACKAGE_FILE.')
+              stringParam('STORE_PREFIX', 'ditt/public/latest/', 'Destination prefix under store.devsh.eu. Must stay under ditt/public/.')
+              stringParam('SHARD_COUNT', '1', 'Number of scene shards. Use 1 for a full single-run validation.')
+              stringParam('SHARD_INDEX', '0', 'Zero-based shard index for this run.')
+              booleanParam('FAIL_ON_RENDER_FAILURE', false, 'Fail the Jenkins build when the EX40 comparison report contains failed scenes.')
+              booleanParam('PUBLISH', true, 'Publish the generated report to store.devsh.eu.')
+            }
+            configure { project ->
+              def parameterDefinitions = project / 'properties' / 'hudson.model.ParametersDefinitionProperty' / 'parameterDefinitions'
+              parameterDefinitions << 'io.jenkins.plugins.file_parameters.StashedFileParameterDefinition' {
+                name('EX40_PACKAGE_FILE')
+                description('Optional EX40 runtime package zip uploaded from this computer. Use this instead of EX40_PACKAGE_URL for local package real runs.')
+              }
+            }
+            definition {
+              cps {
+                sandbox()
+                script('''dittEx40FullScenePipeline(
+                  suite: 'public',
+                  mediaCommitDefault: '0f7ad42b33abe3143a5d69c4d14b26cf3e538c88',
+                  publicReferencesCommitDefault: '043f8a0aa074f134b3230d56f27ed7d0c645f6b3',
+                  defaultStorePrefix: 'ditt/public/latest/',
+                  leaseTtlMinutes: 360,
+                  maxReadySeconds: 180,
+                  publishJobs: 8
+                )''')
+              }
+            }
+          }
+
+          pipelineJob('ci/ditt/real/ex40-private') {
+            description('Runs the full private EX40 DITT scene suite from a runtime package on a Windows GPU runner, materializes private scenes and references through the runner-farm Git object cache, and publishes to store.devsh.eu/ditt/private/latest/.')
+            logRotator {
+              daysToKeep(31)
+              numToKeep(100)
+              artifactDaysToKeep(31)
+              artifactNumToKeep(100)
+            }
+            parameters {
+              stringParam('DITT_SCENES_COMMIT', 'fe7cd7bf9b462e3bb5ef46e1e0658ed08899f5ee', 'DITT reference scenes commit for the private full suite.')
+              stringParam('PRIVATE_REFERENCES_COMMIT', '201d9726ce69c6807fc5c326b3388315ecb2797b', 'DITT reference renders commit for the private full suite.')
+              stringParam('EX40_PACKAGE_URL', '', 'Optional HTTPS URL of an EX40 runtime package zip. Leave empty when uploading EX40_PACKAGE_FILE.')
+              stringParam('STORE_PREFIX', 'ditt/private/latest/', 'Destination prefix under store.devsh.eu. Must stay under ditt/private/.')
+              stringParam('SHARD_COUNT', '1', 'Number of scene shards. Use 1 for a full single-run validation.')
+              stringParam('SHARD_INDEX', '0', 'Zero-based shard index for this run.')
+              booleanParam('FAIL_ON_RENDER_FAILURE', false, 'Fail the Jenkins build when the EX40 comparison report contains failed scenes.')
+              booleanParam('PUBLISH', true, 'Publish the generated report to store.devsh.eu.')
+            }
+            configure { project ->
+              def parameterDefinitions = project / 'properties' / 'hudson.model.ParametersDefinitionProperty' / 'parameterDefinitions'
+              parameterDefinitions << 'io.jenkins.plugins.file_parameters.StashedFileParameterDefinition' {
+                name('EX40_PACKAGE_FILE')
+                description('Optional EX40 runtime package zip uploaded from this computer. Use this instead of EX40_PACKAGE_URL for local package real runs.')
+              }
+            }
+            definition {
+              cps {
+                sandbox()
+                script('''dittEx40FullScenePipeline(
+                  suite: 'private',
+                  dittScenesCommitDefault: 'fe7cd7bf9b462e3bb5ef46e1e0658ed08899f5ee',
+                  privateReferencesCommitDefault: '201d9726ce69c6807fc5c326b3388315ecb2797b',
+                  defaultStorePrefix: 'ditt/private/latest/',
+                  leaseTtlMinutes: 360,
+                  maxReadySeconds: 180,
+                  publishJobs: 8
+                )''')
               }
             }
           }

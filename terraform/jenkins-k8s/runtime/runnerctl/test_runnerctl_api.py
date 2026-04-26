@@ -2,6 +2,7 @@ import base64
 import io
 import json
 import os
+import subprocess
 import threading
 import tempfile
 import unittest
@@ -398,6 +399,74 @@ class HelpersTests(unittest.TestCase):
                 )
 
         self.assertEqual(raised.exception.code, "invalid-request")
+
+    def test_publish_store_report_artifact_uses_report_publish_script(self):
+        class FakeJenkinsClient:
+            def __init__(self, payload):
+                self.payload = payload
+
+            def download_artifact(self, job, build_number, artifact_path, target_path, max_bytes):
+                target_path.write_bytes(self.payload)
+                return len(self.payload)
+
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w") as archive:
+            archive.writestr("publishS3.py", b"print('placeholder')\n")
+            archive.writestr("index.html", b"<html></html>")
+            archive.writestr("css/report.css", b"body{}")
+            archive.writestr("summary.json", b'{"pass_status":"failed"}')
+            archive.writestr("renders/test.exr", b"exr")
+
+        calls = []
+
+        def fake_run(command, cwd, env, text, stdout, stderr, timeout, check):
+            calls.append(
+                {
+                    "command": command,
+                    "cwd": cwd,
+                    "env": env,
+                    "text": text,
+                    "stdout": stdout,
+                    "stderr": stderr,
+                    "timeout": timeout,
+                    "check": check,
+                }
+            )
+            source = Path(command[command.index("--source") + 1])
+            self.assertTrue((source / "summary.json").is_file())
+            self.assertTrue((source / "renders" / "test.exr").is_file())
+            self.assertFalse((source / "index.html").exists())
+            self.assertFalse((source / "publishS3.py").exists())
+            return subprocess.CompletedProcess(command, 0, "skip css/report.css\nuploaded summary.json\n", "")
+
+        env = {
+            "RUNNERCTL_STORE_ALLOWED_PREFIXES": "ditt/public/",
+            "RUNNERCTL_STORE_S3_BUCKET": "devsh-store-prod",
+            "RUNNERCTL_STORE_AWS_ACCESS_KEY_ID": "test-access",
+            "RUNNERCTL_STORE_AWS_SECRET_ACCESS_KEY": "test-secret",
+            "RUNNERCTL_STORE_REPORT_PUBLISH_TIMEOUT_SECONDS": "120",
+        }
+        with mock.patch.dict(os.environ, env, clear=False), mock.patch.object(runnerctl_api.subprocess, "run", side_effect=fake_run):
+            result = runnerctl_api.publish_store_report_artifact(
+                {
+                    "prefix": "ditt/public/latest/",
+                    "job": "ci/ditt/real/ex40-public",
+                    "build": "42",
+                    "artifact": "publish.zip",
+                    "jobs": "4",
+                },
+                FakeJenkinsClient(zip_buffer.getvalue()),
+            )
+
+        self.assertEqual(result["result"], "published")
+        self.assertEqual(result["publisher"], "publishS3.py")
+        self.assertEqual(result["uploaded_count"], 1)
+        self.assertEqual(result["skipped_count"], 1)
+        self.assertEqual(result["dynamic_file_count"], 2)
+        self.assertEqual(calls[0]["env"]["AWS_ACCESS_KEY_ID"], "test-access")
+        self.assertEqual(calls[0]["env"]["AWS_SECRET_ACCESS_KEY"], "test-secret")
+        self.assertIn("--checksum", calls[0]["command"])
+        self.assertEqual(calls[0]["command"][calls[0]["command"].index("--jobs") + 1], "4")
 
 
 class JenkinsApiClientTests(unittest.TestCase):

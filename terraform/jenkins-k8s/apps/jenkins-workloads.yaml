@@ -196,7 +196,9 @@ spec:
             - name: RUNNERCTL_STORE_ALLOWED_PREFIXES
               value: ditt/dummy/,ditt/public/,ditt/private/
             - name: RUNNERCTL_STORE_MAX_UPLOAD_BYTES
-              value: "268435456"
+              value: "2147483648"
+            - name: RUNNERCTL_STORE_REPORT_PUBLISH_TIMEOUT_SECONDS
+              value: "7200"
           command:
             - python3
             - /opt/runnerctl/runnerctl_api.py
@@ -243,10 +245,10 @@ spec:
           resources:
             requests:
               cpu: 50m
-              memory: 96Mi
+              memory: 128Mi
             limits:
               cpu: 500m
-              memory: 256Mi
+              memory: 512Mi
         - name: proxmox-tunnel-server
           image: quay.io/panubo/sshd:1.9.0
           imagePullPolicy: IfNotPresent
