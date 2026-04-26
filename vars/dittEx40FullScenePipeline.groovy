@@ -238,7 +238,8 @@ def call(Map args = [:]) {
                 'if ($exitCode -ne 0) {',
                 '  if ($env:FAIL_ON_RENDER_FAILURE -eq "true") { throw "EX40 failed with exit code $exitCode for isolated scene $SceneNumber." }',
                 '  Write-Warning ("EX40 exited with code {0} for isolated scene {1}; continuing because FAIL_ON_RENDER_FAILURE=false." -f $exitCode, $SceneNumber)',
-                '}'
+                '}',
+                'exit 0'
               ].join('\n')
 
               writeFile file: 'merge-isolated-report.ps1', text: [
@@ -370,7 +371,7 @@ def call(Map args = [:]) {
                   if (failOnRenderFailure) {
                     throw err
                   }
-                  echo('Scene ' + sceneNumber + ' timed out or was interrupted; continuing because FAIL_ON_RENDER_FAILURE=false.')
+                  echo('Scene ' + sceneNumber + ' timed out or failed unexpectedly; continuing because FAIL_ON_RENDER_FAILURE=false.')
                 }
               }
             }
