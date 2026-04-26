@@ -300,6 +300,12 @@ def call(Map args = [:]) {
                 '  $regex = New-Object System.Text.RegularExpressions.Regex("`"" + [regex]::Escape($Property) + "`"\\s*:\\s*`"[^`"]*`"")',
                 '  return $regex.Replace($Json, "`"$Property`": " + $serializer.Serialize($Value), 1)',
                 '}',
+                'function Get-JsonNumber {',
+                '  param([Parameter(Mandatory = $true)][string] $Json, [Parameter(Mandatory = $true)][string] $Property)',
+                '  $match = [regex]::Match($Json, "`"" + [regex]::Escape($Property) + "`"\\s*:\\s*([0-9]+)")',
+                '  if (-not $match.Success) { throw "JSON number property was not found: $Property" }',
+                '  return [int]$match.Groups[1].Value',
+                '}',
                 'function Get-SceneDisplayName {',
                 '  param([Parameter(Mandatory = $true)][string] $Line, [Parameter(Mandatory = $true)][int] $SceneNumber)',
                 '  $scenePath = ""',
@@ -320,13 +326,13 @@ def call(Map args = [:]) {
                 '  $exitPath = Join-Path $summaryDir ("exit-{0:D4}.txt" -f $sceneNumber)',
                 '  $timeoutPath = Join-Path $summaryDir ("timeout-{0:D4}.txt" -f $sceneNumber)',
                 '  if (Test-Path -LiteralPath $summaryCopy) {',
+                '    Write-Host ("Merging isolated scene {0}/{1}." -f $sceneNumber, $sceneLines.Count)',
                 '    $summaryJson = [System.IO.File]::ReadAllText($summaryCopy)',
-                '    $summary = $serializer.DeserializeObject($summaryJson)',
                 '    if (-not $firstSummaryJson) { $firstSummaryJson = $summaryJson }',
                 '    $resultsContent = Get-JsonArrayContent -Json $summaryJson -Property "results"',
                 '    if ($resultsContent) { [void]$resultJsonParts.Add($resultsContent) }',
-                '    $mergedFailureCount += [int]$summary["failure_count"]',
-                '    $mergedTestCount += [int]$summary["num_of_tests"]',
+                '    $mergedFailureCount += Get-JsonNumber -Json $summaryJson -Property "failure_count"',
+                '    $mergedTestCount += Get-JsonNumber -Json $summaryJson -Property "num_of_tests"',
                 '  } else {',
                 '    $display = Get-SceneDisplayName -Line $line -SceneNumber $sceneNumber',
                 '    $reason = if (Test-Path -LiteralPath $timeoutPath) { "EX40 exceeded Jenkins scene timeout before writing summary.json." } elseif (Test-Path -LiteralPath $exitPath) { "EX40 exited with code " + (Get-Content -LiteralPath $exitPath -Raw).Trim() + " before writing summary.json." } else { "EX40 did not write summary.json." }',
@@ -377,7 +383,9 @@ def call(Map args = [:]) {
             }
 
             stage('Merge isolated report') {
-              powershell './merge-isolated-report.ps1'
+              timeout(time: 5, unit: 'MINUTES') {
+                powershell './merge-isolated-report.ps1'
+              }
             }
           } else {
             stage('Render scenes') {
