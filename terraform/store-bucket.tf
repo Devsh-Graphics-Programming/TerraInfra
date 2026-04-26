@@ -98,29 +98,18 @@ resource "scaleway_object_bucket_policy" "store" {
         }
       },
       {
-        Sid    = "AllowJenkinsDittReportList"
-        Effect = "Allow"
-        Principal = {
-          SCW = "application_id:${scaleway_iam_application.store_publisher.id}"
-        }
-        Action = [
-          "s3:ListBucket",
-        ]
-        Resource = [
-          scaleway_object_bucket.store.name,
-        ]
-      },
-      {
         Sid    = "AllowJenkinsDittReportObjectAccess"
         Effect = "Allow"
         Principal = {
           SCW = "application_id:${scaleway_iam_application.store_publisher.id}"
         }
         Action = [
+          "s3:ListBucket",
           "s3:GetObject",
           "s3:PutObject",
         ]
         Resource = [
+          scaleway_object_bucket.store.name,
           "${scaleway_object_bucket.store.name}/ditt/dummy/*",
           "${scaleway_object_bucket.store.name}/ditt/public/*",
           "${scaleway_object_bucket.store.name}/ditt/private/*",
