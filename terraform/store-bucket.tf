@@ -24,6 +24,7 @@ resource "scaleway_iam_policy" "store_publisher_object_storage" {
     project_ids = [var.project_id]
     permission_set_names = [
       "ObjectStorageBucketsRead",
+      "ObjectStorageObjectsRead",
       "ObjectStorageObjectsWrite",
     ]
   }
@@ -97,12 +98,26 @@ resource "scaleway_object_bucket_policy" "store" {
         }
       },
       {
-        Sid    = "AllowJenkinsDittReportPublish"
+        Sid    = "AllowJenkinsDittReportList"
         Effect = "Allow"
         Principal = {
           SCW = "application_id:${scaleway_iam_application.store_publisher.id}"
         }
         Action = [
+          "s3:ListBucket",
+        ]
+        Resource = [
+          scaleway_object_bucket.store.name,
+        ]
+      },
+      {
+        Sid    = "AllowJenkinsDittReportObjectAccess"
+        Effect = "Allow"
+        Principal = {
+          SCW = "application_id:${scaleway_iam_application.store_publisher.id}"
+        }
+        Action = [
+          "s3:GetObject",
           "s3:PutObject",
         ]
         Resource = [
