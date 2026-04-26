@@ -5,6 +5,7 @@ import os
 import threading
 import tempfile
 import unittest
+import urllib.error
 import zipfile
 from unittest import mock
 from pathlib import Path
@@ -397,6 +398,68 @@ class HelpersTests(unittest.TestCase):
                 )
 
         self.assertEqual(raised.exception.code, "invalid-request")
+
+
+class JenkinsApiClientTests(unittest.TestCase):
+    def test_post_refreshes_crumb_and_retries_after_stale_403(self):
+        class FakeResponse:
+            def __init__(self, payload):
+                self.payload = payload
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+            def read(self):
+                return self.payload
+
+        class FakeOpener:
+            def __init__(self):
+                self.calls = []
+                self.crumbs = ["stale-crumb", "fresh-crumb"]
+                self.post_attempts = 0
+
+            def open(self, request, timeout):
+                headers = {key.lower(): value for key, value in request.header_items()}
+                self.calls.append((request.get_method(), request.full_url, headers, request.data, timeout))
+                if request.full_url.endswith("/crumbIssuer/api/json"):
+                    crumb = self.crumbs.pop(0)
+                    payload = json.dumps({"crumbRequestField": "Jenkins-Crumb", "crumb": crumb}).encode("utf-8")
+                    return FakeResponse(payload)
+                if request.full_url.endswith("/scriptText"):
+                    self.post_attempts += 1
+                    if self.post_attempts == 1:
+                        raise urllib.error.HTTPError(
+                            request.full_url,
+                            403,
+                            "Forbidden",
+                            {},
+                            io.BytesIO(b"stale crumb"),
+                        )
+                    return FakeResponse(b"ok\n")
+                raise AssertionError(f"unexpected request: {request.full_url}")
+
+        opener = FakeOpener()
+        client = runnerctl_api.JenkinsApiClient(
+            "http://jenkins.example.invalid",
+            "https://jenkins.example.invalid",
+            "admin",
+            "password",
+            timeout_seconds=7,
+        )
+        client.opener = opener
+
+        self.assertEqual(client.script_text("println('ok')"), "ok\n")
+
+        script_calls = [call for call in opener.calls if call[1].endswith("/scriptText")]
+        crumb_calls = [call for call in opener.calls if call[1].endswith("/crumbIssuer/api/json")]
+        self.assertEqual(len(script_calls), 2)
+        self.assertEqual(len(crumb_calls), 2)
+        self.assertEqual(script_calls[0][2]["jenkins-crumb"], "stale-crumb")
+        self.assertEqual(script_calls[1][2]["jenkins-crumb"], "fresh-crumb")
+        self.assertEqual(script_calls[1][4], 7)
 
 
 class LeaseStoreTests(unittest.TestCase):

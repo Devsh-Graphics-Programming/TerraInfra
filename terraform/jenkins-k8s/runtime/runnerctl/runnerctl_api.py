@@ -1451,6 +1451,14 @@ class JenkinsApiClient:
         try:
             return self.opener.open(request, timeout=self.timeout_seconds)
         except urllib.error.HTTPError as exc:
+            if exc.code == 403 and use_crumb and method.upper() not in {"GET", "HEAD"}:
+                self._crumb = None
+                self.cookie_jar.clear()
+                retry_request = self._build_request(method, path, data=data, headers=headers, use_crumb=use_crumb)
+                try:
+                    return self.opener.open(retry_request, timeout=self.timeout_seconds)
+                except urllib.error.HTTPError as retry_exc:
+                    exc = retry_exc
             raise RunnerCtlError(
                 HTTPStatus.BAD_GATEWAY,
                 "jenkins-http-error",
