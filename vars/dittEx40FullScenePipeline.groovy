@@ -38,6 +38,7 @@ def call(Map args = [:]) {
   def shardCount = null
   def shardIndex = null
   def failOnRenderFailure = false
+  def isolateScenes = false
   def publish = true
   def storePublishArtifact = null
 
@@ -62,8 +63,9 @@ def call(Map args = [:]) {
       def allowedPrefixes = suite == 'public' ? ['ditt/public/'] : ['ditt/private/']
       storePrefix = storeNormalizePrefix(rawPrefix, allowedPrefixes)
       failOnRenderFailure = params.FAIL_ON_RENDER_FAILURE == null ? (args.get('failOnRenderFailureDefault', false) as boolean) : (params.FAIL_ON_RENDER_FAILURE as boolean)
+      isolateScenes = params.ISOLATE_SCENES == null ? (args.get('isolateScenesDefault', false) as boolean) : (params.ISOLATE_SCENES as boolean)
       publish = params.PUBLISH == null ? (args.get('publishDefault', true) as boolean) : (params.PUBLISH as boolean)
-      echo('Suite: ' + suite + ', shard=' + shardIndex + '/' + shardCount + ', store_prefix=' + storePrefix + ', publish=' + publish)
+      echo('Suite: ' + suite + ', shard=' + shardIndex + '/' + shardCount + ', store_prefix=' + storePrefix + ', isolate_scenes=' + isolateScenes + ', publish=' + publish)
     }
 
     withRunner(
@@ -77,7 +79,8 @@ def call(Map args = [:]) {
           'SCENE_SUITE=' + suite,
           'SHARD_COUNT=' + shardCount.toString(),
           'SHARD_INDEX=' + shardIndex.toString(),
-          'FAIL_ON_RENDER_FAILURE=' + failOnRenderFailure.toString()
+          'FAIL_ON_RENDER_FAILURE=' + failOnRenderFailure.toString(),
+          'ISOLATE_SCENES=' + isolateScenes.toString()
         ]) {
           stage('Acquire package') {
             writeFile file: 'acquire-package.ps1', text: [
@@ -173,20 +176,88 @@ def call(Map args = [:]) {
               'Copy-Item -Path (Join-Path $package.reportTemplate "*") -Destination $publishRoot -Recurse -Force',
               '$env:PATH = $package.runtime + ";" + $package.dxc + ";" + $env:PATH',
               '$log = Join-Path $env:WORKSPACE "ex40.log"',
-              '$args = @("--scene-list", $scenes.sceneList, "--process-sensors", "RenderAllThenTerminate", "--headless", "--output-dir", $renders, "--report-dir", $publishRoot)',
-              'if ($scenes.referenceDir) { $args += @("--reference-dir", $scenes.referenceDir) }',
-              '$exitCode = 0',
-              'Push-Location -LiteralPath $package.bin',
-              'try {',
-              '  & $package.exe @args 2>&1 | Tee-Object -FilePath $log',
-              '  $exitCode = $LASTEXITCODE',
-              '} finally {',
-              '  Pop-Location',
+              'Remove-Item -LiteralPath $log -Force -ErrorAction SilentlyContinue',
+              'function Invoke-PathTracerSceneList {',
+              '  param([Parameter(Mandatory = $true)][string] $SceneList)',
+              '  $runArgs = @("--scene-list", $SceneList, "--process-sensors", "RenderAllThenTerminate", "--headless", "--output-dir", $renders, "--report-dir", $publishRoot)',
+              '  if ($scenes.referenceDir) { $runArgs += @("--reference-dir", $scenes.referenceDir) }',
+              '  $runExitCode = 0',
+              '  Push-Location -LiteralPath $package.bin',
+              '  try {',
+              '    & $package.exe @runArgs 2>&1 | Tee-Object -FilePath $log -Append | ForEach-Object { Write-Host $_ }',
+              '    $runExitCode = $LASTEXITCODE',
+              '  } finally {',
+              '    Pop-Location',
+              '  }',
+              '  return $runExitCode',
               '}',
-              'if ($exitCode -ne 0) {',
+              'function Count-ReportFailures {',
+              '  param([Parameter(Mandatory = $true)] $Results)',
+              '  $count = 0',
+              '  foreach ($sceneResult in @($Results)) {',
+              '    foreach ($image in @($sceneResult.array)) {',
+              '      $status = ([string]$image.status).ToLowerInvariant()',
+              '      if ($status -in @("failed", "error", "missing-render", "missing-reference")) { $count++ }',
+              '    }',
+              '  }',
+              '  return $count',
+              '}',
+              'function Get-SceneDisplayName {',
+              '  param([Parameter(Mandatory = $true)][string] $Line, [Parameter(Mandatory = $true)][int] $SceneNumber)',
+              '  $scenePath = ""',
+              '  if ($Line -match "^\\s*`"([^`"]+)`"") { $scenePath = $Matches[1] } else { $scenePath = ($Line -split "\\s+", 2)[0].Trim([char]34) }',
+              '  if ($scenePath) { return [System.IO.Path]::GetFileNameWithoutExtension($scenePath) }',
+              '  return "scene_" + ("{0:D2}" -f $SceneNumber)',
+              '}',
+              'if ($env:ISOLATE_SCENES -eq "true") {',
+              '  $sceneLines = @(Get-Content -LiteralPath $scenes.sceneList | Where-Object { $_.Trim().Length -gt 0 })',
+              '  if ($sceneLines.Count -eq 0) { throw "Selected scene list is empty." }',
               '  $summaryPath = Join-Path $publishRoot "summary.json"',
-              '  if ($env:FAIL_ON_RENDER_FAILURE -eq "true" -or -not (Test-Path -LiteralPath $summaryPath)) { throw "EX40 failed with exit code $exitCode." }',
-              '  Write-Warning ("EX40 exited with code {0}; continuing because FAIL_ON_RENDER_FAILURE=false and summary.json exists." -f $exitCode)',
+              '  $sceneResults = New-Object System.Collections.ArrayList',
+              '  $firstSummary = $null',
+              '  for ($i = 0; $i -lt $sceneLines.Count; $i++) {',
+              '    $sceneNumber = $i + 1',
+              '    $line = $sceneLines[$i]',
+              '    $oneSceneList = Join-Path $env:WORKSPACE ("selected-scene-{0:D4}.txt" -f $sceneNumber)',
+              '    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)',
+              '    [System.IO.File]::WriteAllLines($oneSceneList, [string[]]@($line), $utf8NoBom)',
+              '    Remove-Item -LiteralPath $summaryPath -Force -ErrorAction SilentlyContinue',
+              '    Write-Host ("Running isolated scene {0}/{1}." -f $sceneNumber, $sceneLines.Count)',
+              '    $exitCode = Invoke-PathTracerSceneList -SceneList $oneSceneList',
+              '    if (Test-Path -LiteralPath $summaryPath) {',
+              '      $summary = Get-Content -LiteralPath $summaryPath | ConvertFrom-Json',
+              '      if (-not $firstSummary) { $firstSummary = $summary }',
+              '      foreach ($sceneResult in @($summary.results)) {',
+              '        $sceneResult.index = $sceneNumber',
+              '        [void]$sceneResults.Add($sceneResult)',
+              '      }',
+              '    } else {',
+              '      $display = Get-SceneDisplayName -Line $line -SceneNumber $sceneNumber',
+              '      $runtimeImage = [pscustomobject]@{ identifier = "runtime"; title = "Runtime"; status = "error"; status_color = "red"; details = ("EX40 exited with code {0} before writing summary.json." -f $exitCode); filename = $display }',
+              '      $runtimeScene = [pscustomobject]@{ array = @($runtimeImage); compare = $null; details = ("Command: {0}" -f $line); display_name = $display; index = $sceneNumber; scene_name = ("{0:D2}_{1}" -f $sceneNumber, $display); scene_path = $line; sensor = 0; status = "failed"; status_color = "red" }',
+              '      [void]$sceneResults.Add($runtimeScene)',
+              '    }',
+              '    if ($exitCode -ne 0) {',
+              '      if ($env:FAIL_ON_RENDER_FAILURE -eq "true") { throw "EX40 failed with exit code $exitCode for isolated scene $sceneNumber." }',
+              '      Write-Warning ("EX40 exited with code {0} for isolated scene {1}; continuing because FAIL_ON_RENDER_FAILURE=false." -f $exitCode, $sceneNumber)',
+              '    }',
+              '  }',
+              '  if (-not $firstSummary) {',
+              '    $firstSummary = [pscustomobject]@{ buildConfig = ""; compare = [pscustomobject]@{}; datetime = ""; failure_count = 0; num_of_tests = 0; pass_status = "failed"; results = @() }',
+              '  }',
+              '  $firstSummary.results = @($sceneResults)',
+              '  $firstSummary.num_of_tests = @($sceneResults).Count',
+              '  $firstSummary.failure_count = Count-ReportFailures -Results $firstSummary.results',
+              '  $firstSummary.pass_status = if ($firstSummary.failure_count -gt 0) { "failed" } else { "passed" }',
+              '  $firstSummary.datetime = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss zzz")',
+              '  $firstSummary | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $summaryPath -Encoding UTF8',
+              '} else {',
+              '  $exitCode = Invoke-PathTracerSceneList -SceneList $scenes.sceneList',
+              '  if ($exitCode -ne 0) {',
+              '    $summaryPath = Join-Path $publishRoot "summary.json"',
+              '    if ($env:FAIL_ON_RENDER_FAILURE -eq "true" -or -not (Test-Path -LiteralPath $summaryPath)) { throw "EX40 failed with exit code $exitCode." }',
+              '    Write-Warning ("EX40 exited with code {0}; continuing because FAIL_ON_RENDER_FAILURE=false and summary.json exists." -f $exitCode)',
+              '  }',
               '}',
               '$logText = Get-Content -LiteralPath $log -Raw',
               'if ($logText.Contains("[ERROR]") -or $logText.Contains("Failed to Load") -or $logText.Contains("Could not create scene")) { Write-Warning "EX40 log contains render or scene errors; continuing because the report captures them." }',

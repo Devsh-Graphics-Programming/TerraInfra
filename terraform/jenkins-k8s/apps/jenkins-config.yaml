@@ -1804,6 +1804,7 @@ data:
               stringParam('SHARD_COUNT', '1', 'Number of scene shards. Use 1 for a full single-run validation.')
               stringParam('SHARD_INDEX', '0', 'Zero-based shard index for this run.')
               booleanParam('FAIL_ON_RENDER_FAILURE', false, 'Fail the Jenkins build when the EX40 comparison report contains failed scenes.')
+              booleanParam('ISOLATE_SCENES', false, 'Run each selected scene in a separate EX40 process and merge the report.')
               booleanParam('PUBLISH', true, 'Publish the generated report to store.devsh.eu.')
             }
             configure { project ->
@@ -1821,6 +1822,7 @@ data:
                   mediaCommitDefault: '0f7ad42b33abe3143a5d69c4d14b26cf3e538c88',
                   publicReferencesCommitDefault: '043f8a0aa074f134b3230d56f27ed7d0c645f6b3',
                   defaultStorePrefix: 'ditt/public/latest/',
+                  isolateScenesDefault: false,
                   leaseTtlMinutes: 360,
                   maxReadySeconds: 180,
                   publishJobs: 8
@@ -1845,6 +1847,7 @@ data:
               stringParam('SHARD_COUNT', '1', 'Number of scene shards. Use 1 for a full single-run validation.')
               stringParam('SHARD_INDEX', '0', 'Zero-based shard index for this run.')
               booleanParam('FAIL_ON_RENDER_FAILURE', false, 'Fail the Jenkins build when the EX40 comparison report contains failed scenes.')
+              booleanParam('ISOLATE_SCENES', true, 'Run each selected scene in a separate EX40 process and merge the report.')
               booleanParam('PUBLISH', true, 'Publish the generated report to store.devsh.eu.')
             }
             configure { project ->
@@ -1862,6 +1865,7 @@ data:
                   dittScenesCommitDefault: 'fe7cd7bf9b462e3bb5ef46e1e0658ed08899f5ee',
                   privateReferencesCommitDefault: '201d9726ce69c6807fc5c326b3388315ecb2797b',
                   defaultStorePrefix: 'ditt/private/latest/',
+                  isolateScenesDefault: true,
                   leaseTtlMinutes: 360,
                   maxReadySeconds: 180,
                   publishJobs: 8
