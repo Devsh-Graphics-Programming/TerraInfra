@@ -539,7 +539,7 @@ def call(Map args = [:]) {
           }
 
           stage('Artifacts') {
-            archiveArtifacts artifacts: 'package-info.json,scene-cache-info.json,scene-git-request.json,git-object-cache.json,resolved-scenes.json,selected-scenes.txt,ex40.log,publish/index.html,publish/summary.json', allowEmptyArchive: true, fingerprint: false
+            archiveArtifacts artifacts: 'package-info.json,scene-cache-info.json,scene-git-request.json,git-object-cache.json,resolved-scenes.json,selected-scenes.txt,ex40.log,publish.zip,publish/index.html,publish/summary.json', allowEmptyArchive: true, fingerprint: false
           }
         }
       }
