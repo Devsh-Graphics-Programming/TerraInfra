@@ -302,6 +302,7 @@ if ($exitCode -ne 0) {
   Write-Warning ("{0} exited with code {1}; continuing because summary.json exists." -f $VariantName, $exitCode)
 }
 if (-not (Test-Path -LiteralPath $summaryPath)) { throw "$VariantName did not write summary.json." }
+exit 0
 '''
 
               stage('Run Release O3 vs reference') {
