@@ -241,7 +241,8 @@ def call(Map args = [:]) {
               'if (-not $dxcDll) { throw "DXC runtime DLL was not found in the package." }',
               'if (-not (Test-Path -LiteralPath $reportTemplate)) { throw "Report template directory was not found next to the executable." }',
               '$info = [pscustomobject]@{ exe = $exe.FullName; bin = $exe.DirectoryName; runtime = $runtimeDir.FullName; dxc = $dxcDir.FullName; reportTemplate = $reportTemplate; packageSize = $packageSize; manifestUsed = $manifestUsed; manifest = $manifestPath }',
-              '$info | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $env:WORKSPACE "package-info.json") -Encoding UTF8',
+              '$utf8NoBom = New-Object System.Text.UTF8Encoding($false)',
+              '[System.IO.File]::WriteAllText((Join-Path $env:WORKSPACE "package-info.json"), ($info | ConvertTo-Json -Depth 4), $utf8NoBom)',
               'Write-Host ("EX40 executable: {0}" -f $exe.FullName)'
             ].join('\n')
             powershell './acquire-package.ps1'
@@ -287,7 +288,7 @@ def call(Map args = [:]) {
               '$utf8NoBom = New-Object System.Text.UTF8Encoding($false)',
               '[System.IO.File]::WriteAllLines($selectedPath, [string[]]$selected, $utf8NoBom)',
               '$resolved = [pscustomObject]@{ suite = $info.suite; commit = $info.commit; shardIndex = $shardIndex; shardCount = $shardCount; selectedSceneCount = $selected.Count; totalSceneCount = $commands.Count; sceneList = $selectedPath; referenceDir = $info.referenceDir }',
-              '$resolved | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $env:WORKSPACE "resolved-scenes.json") -Encoding UTF8',
+              '[System.IO.File]::WriteAllText((Join-Path $env:WORKSPACE "resolved-scenes.json"), ($resolved | ConvertTo-Json -Depth 4), $utf8NoBom)',
               'Write-Host ("Selected {0}/{1} scenes for shard {2}/{3}." -f $selected.Count, $commands.Count, $shardIndex, $shardCount)'
             ].join('\n')
             powershell './select-scenes.ps1'
