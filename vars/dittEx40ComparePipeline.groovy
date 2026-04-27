@@ -228,6 +228,30 @@ Write-Host ("O1experimental executable: {0}" -f $o1.exe)
                 )
               }
 
+              stage('Link O1experimental media') {
+                writeFile file: 'link-o1experimental-media.ps1', text: '''
+$ErrorActionPreference = "Stop"
+$release = Get-Content -LiteralPath (Join-Path $env:WORKSPACE "package-release.json") | ConvertFrom-Json
+$o1 = Get-Content -LiteralPath (Join-Path $env:WORKSPACE "package-o1experimental.json") | ConvertFrom-Json
+$releaseExamplesRoot = Resolve-Path -LiteralPath (Join-Path $release.bin "..\\..")
+$o1ExamplesRoot = Resolve-Path -LiteralPath (Join-Path $o1.bin "..\\..")
+$releaseMedia = Join-Path $releaseExamplesRoot "media"
+$o1Media = Join-Path $o1ExamplesRoot "media"
+if (-not (Test-Path -LiteralPath $releaseMedia)) { throw "Release media directory was not materialized." }
+if (Test-Path -LiteralPath $o1Media) {
+  $existing = Get-Item -LiteralPath $o1Media -Force
+  if (($existing.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+    Remove-Item -LiteralPath $o1Media -Force
+  } else {
+    Remove-Item -LiteralPath $o1Media -Recurse -Force
+  }
+}
+New-Item -ItemType Junction -Path $o1Media -Target $releaseMedia | Out-Null
+Write-Host ("Linked O1experimental media: {0} -> {1}" -f $o1Media, $releaseMedia)
+'''
+                powershell './link-o1experimental-media.ps1'
+              }
+
               stage('Select shard') {
                 writeFile file: 'select-scenes.ps1', text: '''
 $ErrorActionPreference = "Stop"
