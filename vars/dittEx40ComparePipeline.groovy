@@ -36,6 +36,7 @@ def call(Map args = [:]) {
   def storePrefix = null
   def shardCount = null
   def shardIndex = null
+  def isolateScenes = false
   def publish = true
   def sourceRepository = null
   def sourceBranch = null
@@ -103,6 +104,7 @@ def call(Map args = [:]) {
       def rawPrefix = params.STORE_PREFIX?.trim() ?: args.defaultStorePrefix ?: defaultPrefixForSuite(suite)
       def allowedPrefixes = ['ditt/compare/o1experimental-vs-o3/' + suite + '/']
       storePrefix = storeNormalizePrefix(rawPrefix, allowedPrefixes)
+      isolateScenes = params.ISOLATE_SCENES == null ? (args.get('isolateScenesDefault', suite == 'private') as boolean) : (params.ISOLATE_SCENES as boolean)
       publish = params.PUBLISH == null ? (args.get('publishDefault', true) as boolean) : (params.PUBLISH as boolean)
       sourceRepository = params.SOURCE_REPOSITORY?.trim()
       sourceBranch = params.SOURCE_BRANCH?.trim()
@@ -137,7 +139,7 @@ def call(Map args = [:]) {
         currentBuild.description = sourceUrl
         echo('Source Actions run: ' + sourceUrl)
       }
-      echo('Compare suite: ' + suite + ', shard=' + shardIndex + '/' + shardCount + ', store_prefix=' + storePrefix + ', publish=' + publish)
+      echo('Compare suite: ' + suite + ', shard=' + shardIndex + '/' + shardCount + ', store_prefix=' + storePrefix + ', isolate_scenes=' + isolateScenes + ', publish=' + publish)
       updateBuildDescription()
     }
 
@@ -294,7 +296,8 @@ param(
   [Parameter(Mandatory = $true)][string] $PackageInfoPath,
   [Parameter(Mandatory = $true)][string] $VariantName,
   [Parameter(Mandatory = $true)][string] $ReferenceDir,
-  [Parameter(Mandatory = $true)][string] $OutputRelative
+  [Parameter(Mandatory = $true)][string] $OutputRelative,
+  [string] $SceneListPath = ""
 )
 $ErrorActionPreference = "Stop"
 $package = Get-Content -LiteralPath $PackageInfoPath | ConvertFrom-Json
@@ -302,6 +305,7 @@ $scenes = Get-Content -LiteralPath (Join-Path $env:WORKSPACE "resolved-scenes.js
 $publishRoot = Join-Path $env:WORKSPACE $OutputRelative
 $renders = Join-Path $publishRoot "renders"
 $sharedTmp = Join-Path $package.bin "../../tmp"
+$sceneList = if ($SceneListPath) { (Resolve-Path -LiteralPath $SceneListPath).Path } else { $scenes.sceneList }
 if (Test-Path -LiteralPath $publishRoot) { Remove-Item -LiteralPath $publishRoot -Recurse -Force }
 New-Item -ItemType Directory -Path $renders -Force | Out-Null
 New-Item -ItemType Directory -Path $sharedTmp -Force | Out-Null
@@ -309,7 +313,7 @@ Copy-Item -Path (Join-Path $package.reportTemplate "*") -Destination $publishRoo
 $env:PATH = $package.runtime + ";" + $package.dxc + ";" + $env:PATH
 $log = Join-Path $env:WORKSPACE ("ex40-" + $VariantName + ".log")
 Remove-Item -LiteralPath $log -Force -ErrorAction SilentlyContinue
-$runArgs = @("--scene-list", $scenes.sceneList, "--process-sensors", "RenderAllThenTerminate", "--headless", "--output-dir", $renders, "--report-dir", $publishRoot)
+$runArgs = @("--scene-list", $sceneList, "--process-sensors", "RenderAllThenTerminate", "--headless", "--output-dir", $renders, "--report-dir", $publishRoot)
 if ($ReferenceDir) { $runArgs += @("--reference-dir", $ReferenceDir) }
 Write-Host ("Running {0}: {1}" -f $VariantName, ($runArgs -join " "))
 $exitCode = 0
@@ -329,25 +333,212 @@ if (-not (Test-Path -LiteralPath $summaryPath)) { throw "$VariantName did not wr
 exit 0
 '''
 
-              stage('Run Release O3 vs reference') {
-                powershell '''
+              if (isolateScenes) {
+                def sceneTimeoutSeconds = args.get('sceneTimeoutSeconds', 900) as int
+                if (sceneTimeoutSeconds < 60 || sceneTimeoutSeconds > 7200) {
+                  error('sceneTimeoutSeconds is outside the allowed range.')
+                }
+
+                stage('Prepare isolated compare') {
+                  writeFile file: 'prepare-isolated-compare.ps1', text: '''
+$ErrorActionPreference = "Stop"
+$scenes = Get-Content -LiteralPath (Join-Path $env:WORKSPACE "resolved-scenes.json") | ConvertFrom-Json
+$sceneLines = @(Get-Content -LiteralPath $scenes.sceneList | Where-Object { $_.Trim().Length -gt 0 })
+if ($sceneLines.Count -eq 0) { throw "Selected scene list is empty." }
+$statusRoot = Join-Path $env:WORKSPACE "isolated-summaries"
+if (Test-Path -LiteralPath $statusRoot) { Remove-Item -LiteralPath $statusRoot -Recurse -Force }
+New-Item -ItemType Directory -Path $statusRoot -Force | Out-Null
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+for ($i = 0; $i -lt $sceneLines.Count; $i++) {
+  $sceneNumber = $i + 1
+  $oneSceneList = Join-Path $env:WORKSPACE ("selected-scene-{0:D4}.txt" -f $sceneNumber)
+  [System.IO.File]::WriteAllLines($oneSceneList, [string[]]@($sceneLines[$i]), $utf8NoBom)
+}
+[System.IO.File]::WriteAllText((Join-Path $env:WORKSPACE "isolated-scene-count.txt"), [string]$sceneLines.Count, $utf8NoBom)
+Write-Host ("Prepared {0} isolated compare scene invocations." -f $sceneLines.Count)
+'''
+                  powershell './prepare-isolated-compare.ps1'
+
+                  writeFile file: 'kill-pathtracer.ps1', text: '''
+$ErrorActionPreference = "Continue"
+foreach ($infoFile in @("package-release.json", "package-o1experimental.json")) {
+  if (-not (Test-Path -LiteralPath $infoFile)) { continue }
+  $package = Get-Content -LiteralPath $infoFile | ConvertFrom-Json
+  $name = [System.IO.Path]::GetFileNameWithoutExtension($package.exe)
+  Get-Process -Name $name -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+}
+'''
+
+                  writeFile file: 'run-isolated-compare-scene.ps1', text: '''
+param([Parameter(Mandatory = $true)][int] $SceneNumber)
+$ErrorActionPreference = "Stop"
+$sceneTag = "{0:D4}" -f $SceneNumber
+$sceneList = Join-Path $env:WORKSPACE ("selected-scene-{0}.txt" -f $sceneTag)
+$statusRoot = Join-Path $env:WORKSPACE "isolated-summaries"
+$resolved = Get-Content -LiteralPath (Join-Path $env:WORKSPACE "resolved-scenes.json") | ConvertFrom-Json
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+function Write-VariantStatus {
+  param([Parameter(Mandatory = $true)][string] $Variant, [Parameter(Mandatory = $true)][bool] $Ok, [Parameter(Mandatory = $true)][string] $Message, [Parameter(Mandatory = $true)][string] $OutputRelative)
+  $variantDir = Join-Path $statusRoot $Variant
+  New-Item -ItemType Directory -Path $variantDir -Force | Out-Null
+  $summaryPath = Join-Path (Join-Path $env:WORKSPACE $OutputRelative) "summary.json"
+  if (Test-Path -LiteralPath $summaryPath) {
+    Copy-Item -LiteralPath $summaryPath -Destination (Join-Path $variantDir ("summary-{0}.json" -f $sceneTag)) -Force
+  }
+  $status = [pscustomobject]@{ scene = $SceneNumber; variant = $Variant; ok = $Ok; message = $Message; output = $OutputRelative; summary = (Test-Path -LiteralPath $summaryPath) }
+  [System.IO.File]::WriteAllText((Join-Path $variantDir ("status-{0}.json" -f $sceneTag)), ($status | ConvertTo-Json -Depth 4), $utf8NoBom)
+}
+function Invoke-Variant {
+  param(
+    [Parameter(Mandatory = $true)][string] $Variant,
+    [Parameter(Mandatory = $true)][string] $PackageInfoPath,
+    [Parameter(Mandatory = $true)][string] $ReferenceDir,
+    [Parameter(Mandatory = $true)][string] $OutputRelative
+  )
+  $ok = $true
+  $message = "ok"
+  try {
+    & ./run-compare-variant.ps1 -PackageInfoPath $PackageInfoPath -VariantName ($Variant + "-scene-" + $sceneTag) -ReferenceDir $ReferenceDir -OutputRelative $OutputRelative -SceneListPath $sceneList
+    if ($LASTEXITCODE -ne 0) {
+      $ok = $false
+      $message = "exit " + $LASTEXITCODE
+    }
+  } catch {
+    $ok = $false
+    $message = $_.Exception.Message
+    Write-Warning ("{0} scene {1} failed: {2}" -f $Variant, $sceneTag, $message)
+  }
+  Write-VariantStatus -Variant $Variant -Ok $ok -Message $message -OutputRelative $OutputRelative
+}
+$releaseOutput = "scratch/release-o3-scenes/scene-" + $sceneTag
+$o1Output = "scratch/o1experimental-scenes/scene-" + $sceneTag
+$compareOutput = "scratch/o1experimental-vs-o3-scenes/scene-" + $sceneTag
+Invoke-Variant -Variant "release-o3" -PackageInfoPath "package-release.json" -ReferenceDir $resolved.referenceDir -OutputRelative $releaseOutput
+Invoke-Variant -Variant "o1experimental" -PackageInfoPath "package-o1experimental.json" -ReferenceDir $resolved.referenceDir -OutputRelative $o1Output
+$releaseRenders = Join-Path (Join-Path $env:WORKSPACE $releaseOutput) "renders"
+if (Test-Path -LiteralPath $releaseRenders) {
+  Invoke-Variant -Variant "o1experimental-vs-o3" -PackageInfoPath "package-o1experimental.json" -ReferenceDir $releaseRenders -OutputRelative $compareOutput
+} else {
+  Write-VariantStatus -Variant "o1experimental-vs-o3" -Ok $false -Message "release renders are missing" -OutputRelative $compareOutput
+}
+'''
+
+                  writeFile file: 'merge-isolated-compare.ps1', text: '''
+$ErrorActionPreference = "Stop"
+$statusRoot = Join-Path $env:WORKSPACE "isolated-summaries"
+$sceneLines = @(Get-Content -LiteralPath (Join-Path $env:WORKSPACE "selected-scenes.txt") | Where-Object { $_.Trim().Length -gt 0 })
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+function Get-SceneDisplayName {
+  param([Parameter(Mandatory = $true)][string] $Line, [Parameter(Mandatory = $true)][int] $SceneNumber)
+  $scenePath = ""
+  if ($Line -match "^\\s*`"([^`"]+)`"") { $scenePath = $Matches[1] } else { $scenePath = ($Line -split "\\s+", 2)[0].Trim([char]34) }
+  if ($scenePath) { return [System.IO.Path]::GetFileNameWithoutExtension($scenePath) }
+  return "scene_" + ("{0:D2}" -f $SceneNumber)
+}
+function New-SyntheticResult {
+  param([Parameter(Mandatory = $true)][int] $SceneNumber, [Parameter(Mandatory = $true)][string] $Line, [Parameter(Mandatory = $true)][string] $Reason)
+  $display = Get-SceneDisplayName -Line $Line -SceneNumber $SceneNumber
+  $runtimeImage = [pscustomobject]@{ identifier = "runtime"; title = "Runtime"; status = "error"; status_color = "red"; details = $Reason; filename = $display }
+  return [pscustomobject]@{ array = @($runtimeImage); compare = $null; details = ("Command: {0}" -f $Line); display_name = $display; index = $SceneNumber; scene_name = ("{0:D2}_{1}" -f $SceneNumber, $display); scene_path = $Line; sensor = 0; status = "failed"; status_color = "red" }
+}
+function Merge-VariantSummary {
+  param(
+    [Parameter(Mandatory = $true)][string] $Variant,
+    [Parameter(Mandatory = $true)][string] $DestinationRelative,
+    [string] $TemplatePackageInfoPath = "",
+    [string] $RenderSourceRoot = ""
+  )
+  $destination = Join-Path $env:WORKSPACE $DestinationRelative
+  if (Test-Path -LiteralPath $destination) { Remove-Item -LiteralPath $destination -Recurse -Force }
+  New-Item -ItemType Directory -Path $destination -Force | Out-Null
+  if ($TemplatePackageInfoPath) {
+    $package = Get-Content -LiteralPath $TemplatePackageInfoPath | ConvertFrom-Json
+    Copy-Item -Path (Join-Path $package.reportTemplate "*") -Destination $destination -Recurse -Force
+    New-Item -ItemType Directory -Path (Join-Path $destination "renders") -Force | Out-Null
+  }
+  $results = New-Object System.Collections.ArrayList
+  $failureCount = 0
+  $testCount = 0
+  $buildConfig = ""
+  for ($i = 0; $i -lt $sceneLines.Count; $i++) {
+    $sceneNumber = $i + 1
+    $sceneTag = "{0:D4}" -f $sceneNumber
+    $summaryPath = Join-Path (Join-Path $statusRoot $Variant) ("summary-{0}.json" -f $sceneTag)
+    if (Test-Path -LiteralPath $summaryPath) {
+      $summary = Get-Content -LiteralPath $summaryPath | ConvertFrom-Json
+      if (-not $buildConfig -and $summary.buildConfig) { $buildConfig = $summary.buildConfig }
+      foreach ($item in @($summary.results)) {
+        if ($item.PSObject.Properties.Name -contains "index") { $item.index = $sceneNumber }
+        [void]$results.Add($item)
+      }
+      $failureCount += [int]$summary.failure_count
+      $testCount += [int]$summary.num_of_tests
+    } else {
+      $statusPath = Join-Path (Join-Path $statusRoot $Variant) ("status-{0}.json" -f $sceneTag)
+      $reason = if (Test-Path -LiteralPath $statusPath) { (Get-Content -LiteralPath $statusPath | ConvertFrom-Json).message } else { "variant did not write summary.json" }
+      [void]$results.Add((New-SyntheticResult -SceneNumber $sceneNumber -Line $sceneLines[$i] -Reason $reason))
+      $failureCount++
+      $testCount++
+    }
+    if ($RenderSourceRoot) {
+      $sourceRenders = Join-Path (Join-Path $env:WORKSPACE ($RenderSourceRoot + "/scene-" + $sceneTag)) "renders"
+      if (Test-Path -LiteralPath $sourceRenders) {
+        Copy-Item -Path (Join-Path $sourceRenders "*") -Destination (Join-Path $destination "renders") -Recurse -Force
+      }
+    }
+  }
+  $passStatus = if ($failureCount -gt 0) { "failed" } else { "passed" }
+  $merged = [pscustomobject]@{ buildConfig = $buildConfig; compare = @{}; datetime = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss zzz"); failure_count = $failureCount; num_of_tests = $testCount; pass_status = $passStatus; results = @($results) }
+  [System.IO.File]::WriteAllText((Join-Path $destination "summary.json"), ($merged | ConvertTo-Json -Depth 100), $utf8NoBom)
+  Write-Host ("Merged {0}: tests={1}, failures={2}." -f $Variant, $testCount, $failureCount)
+}
+Merge-VariantSummary -Variant "release-o3" -DestinationRelative "scratch/release-o3"
+Merge-VariantSummary -Variant "o1experimental" -DestinationRelative "scratch/o1experimental"
+Merge-VariantSummary -Variant "o1experimental-vs-o3" -DestinationRelative "publish/o1experimental-vs-o3" -TemplatePackageInfoPath "package-o1experimental.json" -RenderSourceRoot "scratch/o1experimental-vs-o3-scenes"
+'''
+                }
+
+                def selectedScenes = readFile('selected-scenes.txt').readLines().findAll { it.trim() }
+                for (int sceneOffset = 0; sceneOffset < selectedScenes.size(); sceneOffset++) {
+                  def sceneNumber = sceneOffset + 1
+                  stage('Scene ' + sceneNumber) {
+                    try {
+                      timeout(time: sceneTimeoutSeconds, unit: 'SECONDS') {
+                        powershell script: './run-isolated-compare-scene.ps1 -SceneNumber ' + sceneNumber
+                      }
+                    } catch (err) {
+                      timeout(time: 1, unit: 'MINUTES') {
+                        powershell script: './kill-pathtracer.ps1'
+                      }
+                      echo('Scene ' + sceneNumber + ' timed out or failed unexpectedly; merge will mark missing variant summaries as failures.')
+                    }
+                  }
+                }
+
+                stage('Merge isolated comparison') {
+                  powershell './merge-isolated-compare.ps1'
+                }
+              } else {
+                stage('Run Release O3 vs reference') {
+                  powershell '''
 $resolved = Get-Content -LiteralPath resolved-scenes.json | ConvertFrom-Json
 ./run-compare-variant.ps1 -PackageInfoPath package-release.json -VariantName release-o3-vs-reference -ReferenceDir $resolved.referenceDir -OutputRelative scratch/release-o3
 '''
-              }
+                }
 
-              stage('Run O1experimental vs reference') {
-                powershell '''
+                stage('Run O1experimental vs reference') {
+                  powershell '''
 $resolved = Get-Content -LiteralPath resolved-scenes.json | ConvertFrom-Json
 ./run-compare-variant.ps1 -PackageInfoPath package-o1experimental.json -VariantName o1experimental-vs-reference -ReferenceDir $resolved.referenceDir -OutputRelative scratch/o1experimental
 '''
-              }
+                }
 
-              stage('Run O1experimental vs O3') {
-                powershell '''
+                stage('Run O1experimental vs O3') {
+                  powershell '''
 $releaseRenders = Join-Path $env:WORKSPACE "scratch/release-o3/renders"
 ./run-compare-variant.ps1 -PackageInfoPath package-o1experimental.json -VariantName o1experimental-vs-o3 -ReferenceDir $releaseRenders -OutputRelative publish/o1experimental-vs-o3
 '''
+                }
               }
 
               stage('Build comparison index') {
@@ -445,7 +636,7 @@ Write-Host ("Prepared publish.zip with {0} files, {1} bytes." -f @($files).Count
               }
 
               stage('Artifacts') {
-                archiveArtifacts artifacts: 'package-release.json,package-o1experimental.json,scene-cache-info.json,scene-git-request.json,git-object-cache.json,resolved-scenes.json,selected-scenes.txt,ex40-release-o3-vs-reference.log,ex40-o1experimental-vs-reference.log,ex40-o1experimental-vs-o3.log,publish.zip,publish/index.html,publish/summary.json,publish/release-o3-summary.json,publish/o1experimental-summary.json,publish/o1experimental-vs-o3/summary.json', allowEmptyArchive: true, fingerprint: false
+                archiveArtifacts artifacts: 'package-release.json,package-o1experimental.json,scene-cache-info.json,scene-git-request.json,git-object-cache.json,resolved-scenes.json,selected-scenes.txt,isolated-summaries/**/*.json,ex40-*.log,publish.zip,publish/index.html,publish/summary.json,publish/release-o3-summary.json,publish/o1experimental-summary.json,publish/o1experimental-vs-o3/summary.json', allowEmptyArchive: true, fingerprint: false
               }
             }
           }

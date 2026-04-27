@@ -1896,6 +1896,7 @@ data:
               stringParam('SOURCE_RUN_ID', '', 'Optional GitHub Actions run id that requested this run.')
               stringParam('SOURCE_RUN_ATTEMPT', '', 'Optional GitHub Actions run attempt that requested this run.')
               stringParam('SOURCE_WORKFLOW', '', 'Optional GitHub Actions workflow name that requested this run.')
+              booleanParam('ISOLATE_SCENES', false, 'Run each selected scene in a separate EX40 process and merge the comparison report.')
               booleanParam('PUBLISH', true, 'Publish the generated comparison report to store.devsh.eu.')
             }
             configure { project ->
@@ -1918,6 +1919,7 @@ data:
                   publicReferencesCommitDefault: '043f8a0aa074f134b3230d56f27ed7d0c645f6b3',
                   defaultStorePrefix: 'ditt/compare/o1experimental-vs-o3/public/latest/',
                   runnerTimeoutMinutes: 420,
+                  isolateScenesDefault: false,
                   leaseTtlMinutes: 480,
                   maxReadySeconds: 180,
                   publishJobs: 8
@@ -1946,6 +1948,7 @@ data:
               stringParam('SOURCE_RUN_ID', '', 'Optional GitHub Actions run id that requested this run.')
               stringParam('SOURCE_RUN_ATTEMPT', '', 'Optional GitHub Actions run attempt that requested this run.')
               stringParam('SOURCE_WORKFLOW', '', 'Optional GitHub Actions workflow name that requested this run.')
+              booleanParam('ISOLATE_SCENES', true, 'Run each selected scene in a separate EX40 process and merge the comparison report.')
               booleanParam('PUBLISH', true, 'Publish the generated comparison report to store.devsh.eu.')
             }
             configure { project ->
@@ -1968,6 +1971,7 @@ data:
                   privateReferencesCommitDefault: '201d9726ce69c6807fc5c326b3388315ecb2797b',
                   defaultStorePrefix: 'ditt/compare/o1experimental-vs-o3/private/latest/',
                   runnerTimeoutMinutes: 420,
+                  isolateScenesDefault: true,
                   leaseTtlMinutes: 480,
                   maxReadySeconds: 180,
                   publishJobs: 8
