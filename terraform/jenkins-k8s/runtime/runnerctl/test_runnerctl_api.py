@@ -447,6 +447,20 @@ class HelpersTests(unittest.TestCase):
 
         self.assertEqual(raised.exception.code, "invalid-request")
 
+    def test_store_zip_entries_skips_windows_directory_entries(self):
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w") as archive:
+            archive.writestr("assets\\", b"")
+            archive.writestr("assets\\index.html", b"hello")
+
+        with tempfile.TemporaryDirectory() as directory:
+            zip_path = Path(directory) / "publish.zip"
+            zip_path.write_bytes(zip_buffer.getvalue())
+            entries, total_bytes = runnerctl_api.store_zip_entries(zip_path, 1024)
+
+        self.assertEqual(total_bytes, 5)
+        self.assertEqual([item["path"] for item in entries], ["assets/index.html"])
+
     def test_store_file_path_accepts_plus_signs(self):
         self.assertEqual(
             runnerctl_api.normalize_store_file_path("references/render_cube_x+/render_cube_x+.exr"),

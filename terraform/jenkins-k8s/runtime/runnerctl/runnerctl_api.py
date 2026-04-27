@@ -909,7 +909,20 @@ def store_zip_entries(zip_path, max_bytes):
     seen_paths = set()
     try:
         with zipfile.ZipFile(zip_path) as archive:
-            entries = [entry for entry in archive.infolist() if not entry.is_dir()]
+            entries = []
+            for entry in archive.infolist():
+                normalized_name = entry.filename.replace("\\", "/")
+                file_type = (entry.external_attr >> 16) & 0o170000
+                if file_type == 0o120000:
+                    raise RunnerCtlError(
+                        HTTPStatus.BAD_REQUEST,
+                        "invalid-request",
+                        "Artifact zip must not contain symbolic links.",
+                        {"path": entry.filename},
+                    )
+                if entry.is_dir() or normalized_name.endswith("/"):
+                    continue
+                entries.append((entry, normalized_name))
             if not entries:
                 raise RunnerCtlError(
                     HTTPStatus.BAD_REQUEST,
@@ -924,16 +937,8 @@ def store_zip_entries(zip_path, max_bytes):
                     "Artifact zip contains too many files.",
                     {"field": "artifact", "maximum": 2000},
                 )
-            for index, entry in enumerate(entries):
-                file_type = (entry.external_attr >> 16) & 0o170000
-                if file_type == 0o120000:
-                    raise RunnerCtlError(
-                        HTTPStatus.BAD_REQUEST,
-                        "invalid-request",
-                        "Artifact zip must not contain symbolic links.",
-                        {"path": entry.filename},
-                    )
-                relative_path = normalize_store_file_path(entry.filename.replace("\\", "/"), f"artifact[{index}].path")
+            for index, (entry, normalized_name) in enumerate(entries):
+                relative_path = normalize_store_file_path(normalized_name, f"artifact[{index}].path")
                 if relative_path in seen_paths:
                     raise RunnerCtlError(
                         HTTPStatus.BAD_REQUEST,
