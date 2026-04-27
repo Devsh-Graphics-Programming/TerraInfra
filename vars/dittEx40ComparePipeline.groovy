@@ -220,6 +220,7 @@ Write-Host ("O1experimental executable: {0}" -f $o1.exe)
                 dittMaterializeSceneData(
                   suite: suite,
                   gitObjectCache: runner.git_object_cache,
+                  packageInfoFile: 'package-release.json',
                   mediaCommit: mediaCommit,
                   publicReferencesCommit: publicReferencesCommit,
                   dittScenesCommit: dittScenesCommit,

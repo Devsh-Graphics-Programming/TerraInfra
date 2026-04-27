@@ -892,7 +892,7 @@ data:
                   }
 
                   withRunner(labels: labels, leaseTtlMinutes: leaseTtlMinutes, maxReadySeconds: maxReadySeconds) { runner ->
-                    observedReadyMs = runner.ready_wall_ms
+                    observedReadyMs = runner.ready_budget_ms ?: runner.ready_wall_ms
                     stage('Runtime probe') {
                       powershell(
                         '$ErrorActionPreference = "Stop"\\n' +
@@ -1141,7 +1141,7 @@ data:
                 timestamps {
                   withRunner(labels: ['windows', 'gpu', 'nvidia', 'vulkan', 'runtime-only'], leaseTtlMinutes: 30, maxReadySeconds: 10) { runner ->
                     stage('Hello') {
-                      writeFile file: 'runner-summary.txt', text: 'label=' + runner.label + '\\nnode=' + env.NODE_NAME + '\\nworkspace=' + pwd() + '\\nready_wall_ms=' + runner.ready_wall_ms + '\\nnode_enter_ms=' + runner.node_enter_ms + '\\n'
+                      writeFile file: 'runner-summary.txt', text: 'label=' + runner.label + '\\nnode=' + env.NODE_NAME + '\\nworkspace=' + pwd() + '\\nready_wall_ms=' + runner.ready_wall_ms + '\\nready_budget_ms=' + runner.ready_budget_ms + '\\nnode_enter_ms=' + runner.node_enter_ms + '\\n'
                       powershell 'Write-Host "Hello from ephemeral Windows GPU runner"'
                     }
                     stage('GPU sanity') {
@@ -1269,7 +1269,7 @@ data:
                           error 'EX40_PACKAGE_URL must be HTTPS.'
                         }
                         echo('Store prefix: ' + storePrefix)
-                        echo('Runner label: ' + runner.label + ', ready_wall_ms=' + runner.ready_wall_ms)
+                        echo('Runner label: ' + runner.label + ', ready_wall_ms=' + runner.ready_wall_ms + ', ready_budget_ms=' + runner.ready_budget_ms)
                       }
                       stage('Acquire package') {
                         writeFile file: 'acquire-package.ps1', text: [

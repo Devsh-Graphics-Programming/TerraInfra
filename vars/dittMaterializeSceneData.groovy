@@ -17,6 +17,11 @@ def call(Map args = [:]) {
     text.toLowerCase()
   }
 
+  def packageInfoFile = args.packageInfoFile?.toString()?.trim() ?: 'package-info.json'
+  if (!(packageInfoFile ==~ /[A-Za-z0-9_.-]+/)) {
+    error('packageInfoFile must be a workspace file name.')
+  }
+
   def repositories = []
   if (suite == 'public') {
     repositories << [id: 'nabla-media-public', commit: requireSha(args.mediaCommit, 'MEDIA_COMMIT')]
@@ -38,7 +43,7 @@ def call(Map args = [:]) {
     '$workspace = $env:WORKSPACE',
     '$cache = Get-Content -LiteralPath (Join-Path $workspace "git-object-cache.json") | ConvertFrom-Json',
     '$request = Get-Content -LiteralPath (Join-Path $workspace "scene-git-request.json") | ConvertFrom-Json',
-    '$package = Get-Content -LiteralPath (Join-Path $workspace "package-info.json") | ConvertFrom-Json',
+    '$package = Get-Content -LiteralPath (Join-Path $workspace "' + packageInfoFile + '") | ConvertFrom-Json',
     '$toolsRoot = Join-Path $workspace "tools"',
     'function Resolve-GitExe {',
     '  $command = Get-Command git.exe -ErrorAction SilentlyContinue',
