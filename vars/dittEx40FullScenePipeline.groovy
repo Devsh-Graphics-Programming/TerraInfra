@@ -145,7 +145,7 @@ def call(Map args = [:]) {
               'Expand-Archive -LiteralPath $packagePath -DestinationPath $extractRoot -Force',
               '$exe = Get-ChildItem -LiteralPath $extractRoot -Recurse -File -Filter "40_pathtracer*.exe" | Select-Object -First 1',
               'if (-not $exe) { throw "40_pathtracer executable was not found in the package." }',
-              '$runtimeDll = Get-ChildItem -LiteralPath $extractRoot -Recurse -File -Filter "Nabla_*.dll" | Select-Object -First 1',
+              '$runtimeDll = Get-ChildItem -LiteralPath $extractRoot -Recurse -File -Filter "Nabla*.dll" | Select-Object -First 1',
               'if (-not $runtimeDll) { throw "Nabla runtime DLL was not found in the package." }',
               '$dxcDll = Get-ChildItem -LiteralPath $extractRoot -Recurse -File -Filter "dxcompiler.dll" | Select-Object -First 1',
               'if (-not $dxcDll) { throw "DXC runtime DLL was not found in the package." }',
