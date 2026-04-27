@@ -237,15 +237,16 @@ class HelpersTests(unittest.TestCase):
 
     def test_store_allowed_prefixes_accepts_public_and_private_reports(self):
         env = {
-            "RUNNERCTL_STORE_ALLOWED_PREFIXES": "ditt/dummy/,ditt/public/,ditt/private/",
+            "RUNNERCTL_STORE_ALLOWED_PREFIXES": "ditt/dummy/,ditt/public/,ditt/private/,ditt/compare/",
         }
         with mock.patch.dict(os.environ, env, clear=False):
             self.assertEqual(
                 runnerctl_api.store_allowed_prefixes(),
-                ["ditt/dummy/", "ditt/public/", "ditt/private/"],
+                ["ditt/dummy/", "ditt/public/", "ditt/private/", "ditt/compare/"],
             )
             runnerctl_api.require_store_prefix_allowed("ditt/public/smoke/latest/")
             runnerctl_api.require_store_prefix_allowed("ditt/private/smoke/latest/")
+            runnerctl_api.require_store_prefix_allowed("ditt/compare/o1experimental-vs-o3/public/latest/")
 
     def test_normalize_store_file_path_rejects_traversal(self):
         with self.assertRaises(runnerctl_api.RunnerCtlError) as raised:

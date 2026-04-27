@@ -28,7 +28,7 @@ spec:
       labels:
         app.kubernetes.io/name: jenkins
       annotations:
-        devsh.eu/config-revision: "2026-04-25-ex40-scene-smoke-v12"
+        devsh.eu/config-revision: "2026-04-27-ditt-compare-v1"
     spec:
       enableServiceLinks: false
       securityContext:
@@ -194,9 +194,9 @@ spec:
             - name: RUNNERCTL_STORE_S3_BUCKET
               value: devsh-store-prod
             - name: RUNNERCTL_STORE_ALLOWED_PREFIXES
-              value: ditt/dummy/,ditt/public/,ditt/private/
+              value: ditt/dummy/,ditt/public/,ditt/private/,ditt/compare/
             - name: RUNNERCTL_STORE_PRUNE_ALLOWED_PREFIXES
-              value: ditt/dummy/,ditt/public/latest/,ditt/private/latest/,ditt/public/smoke/latest/,ditt/private/smoke/latest/
+              value: ditt/dummy/,ditt/public/latest/,ditt/private/latest/,ditt/public/smoke/latest/,ditt/private/smoke/latest/,ditt/compare/o1experimental-vs-o3/public/latest/,ditt/compare/o1experimental-vs-o3/private/latest/
             - name: RUNNERCTL_STORE_PRUNE_MAX_DELETE_OBJECTS
               value: "5000"
             - name: RUNNERCTL_STORE_MAX_UPLOAD_BYTES

@@ -122,6 +122,11 @@ data:
             description('Full DITT scene validation jobs backed by runner-farm Git object caches.')
           }
 
+          folder('ci/ditt/compare') {
+            displayName('Compare')
+            description('DITT diagnostic comparison jobs backed by runner-farm Git object caches.')
+          }
+
           folder('ci/runners') {
             displayName('Runners')
             description('Generic runtime runner planning jobs managed by configuration as code.')
@@ -1864,6 +1869,106 @@ data:
                   defaultStorePrefix: 'ditt/private/latest/',
                   isolateScenesDefault: true,
                   leaseTtlMinutes: 360,
+                  maxReadySeconds: 180,
+                  publishJobs: 8
+                )''')
+              }
+            }
+          }
+
+          pipelineJob('ci/ditt/compare/o1experimental-vs-o3-public') {
+            description('Runs public EX40 DITT diagnostics comparing Release/O3 and RelWithDebInfo/O1experimental packages on the same Windows GPU runner, then publishes the latest comparison report to store.devsh.eu/ditt/compare/o1experimental-vs-o3/public/latest/.')
+            logRotator {
+              daysToKeep(31)
+              numToKeep(100)
+              artifactDaysToKeep(2)
+              artifactNumToKeep(3)
+            }
+            parameters {
+              stringParam('MEDIA_COMMIT', '0f7ad42b33abe3143a5d69c4d14b26cf3e538c88', 'Nabla examples media commit for the public full suite.')
+              stringParam('PUBLIC_REFERENCES_COMMIT', '043f8a0aa074f134b3230d56f27ed7d0c645f6b3', 'Nabla CI commit containing public reference renders.')
+              stringParam('STORE_PREFIX', 'ditt/compare/o1experimental-vs-o3/public/latest/', 'Destination prefix under store.devsh.eu. Must stay under ditt/compare/o1experimental-vs-o3/public/.')
+              stringParam('SHARD_COUNT', '1', 'Number of scene shards. Use 1 for a full single-run validation.')
+              stringParam('SHARD_INDEX', '0', 'Zero-based shard index for this run.')
+              stringParam('SOURCE_REPOSITORY', '', 'Optional GitHub repository owner/name that requested this run.')
+              stringParam('SOURCE_BRANCH', '', 'Optional GitHub branch that requested this run.')
+              stringParam('SOURCE_SHA', '', 'Optional GitHub commit SHA that requested this run.')
+              stringParam('SOURCE_RUN_ID', '', 'Optional GitHub Actions run id that requested this run.')
+              stringParam('SOURCE_RUN_ATTEMPT', '', 'Optional GitHub Actions run attempt that requested this run.')
+              stringParam('SOURCE_WORKFLOW', '', 'Optional GitHub Actions workflow name that requested this run.')
+              booleanParam('PUBLISH', true, 'Publish the generated comparison report to store.devsh.eu.')
+            }
+            configure { project ->
+              def parameterDefinitions = project / 'properties' / 'hudson.model.ParametersDefinitionProperty' / 'parameterDefinitions'
+              parameterDefinitions << 'io.jenkins.plugins.file_parameters.StashedFileParameterDefinition' {
+                name('EX40_RELEASE_PACKAGE_FILE')
+                description('Release/O3 EX40 runtime package zip.')
+              }
+              parameterDefinitions << 'io.jenkins.plugins.file_parameters.StashedFileParameterDefinition' {
+                name('EX40_O1_PACKAGE_FILE')
+                description('RelWithDebInfo/O1experimental EX40 runtime package zip.')
+              }
+            }
+            definition {
+              cps {
+                sandbox()
+                script('''dittEx40ComparePipeline(
+                  suite: 'public',
+                  mediaCommitDefault: '0f7ad42b33abe3143a5d69c4d14b26cf3e538c88',
+                  publicReferencesCommitDefault: '043f8a0aa074f134b3230d56f27ed7d0c645f6b3',
+                  defaultStorePrefix: 'ditt/compare/o1experimental-vs-o3/public/latest/',
+                  runnerTimeoutMinutes: 420,
+                  leaseTtlMinutes: 480,
+                  maxReadySeconds: 180,
+                  publishJobs: 8
+                )''')
+              }
+            }
+          }
+
+          pipelineJob('ci/ditt/compare/o1experimental-vs-o3-private') {
+            description('Runs private EX40 DITT diagnostics comparing Release/O3 and RelWithDebInfo/O1experimental packages on the same Windows GPU runner, then publishes the latest comparison report to store.devsh.eu/ditt/compare/o1experimental-vs-o3/private/latest/.')
+            logRotator {
+              daysToKeep(31)
+              numToKeep(100)
+              artifactDaysToKeep(2)
+              artifactNumToKeep(3)
+            }
+            parameters {
+              stringParam('DITT_SCENES_COMMIT', 'fe7cd7bf9b462e3bb5ef46e1e0658ed08899f5ee', 'DITT reference scenes commit for the private full suite.')
+              stringParam('PRIVATE_REFERENCES_COMMIT', '201d9726ce69c6807fc5c326b3388315ecb2797b', 'DITT reference renders commit for the private full suite.')
+              stringParam('STORE_PREFIX', 'ditt/compare/o1experimental-vs-o3/private/latest/', 'Destination prefix under store.devsh.eu. Must stay under ditt/compare/o1experimental-vs-o3/private/.')
+              stringParam('SHARD_COUNT', '1', 'Number of scene shards. Use 1 for a full single-run validation.')
+              stringParam('SHARD_INDEX', '0', 'Zero-based shard index for this run.')
+              stringParam('SOURCE_REPOSITORY', '', 'Optional GitHub repository owner/name that requested this run.')
+              stringParam('SOURCE_BRANCH', '', 'Optional GitHub branch that requested this run.')
+              stringParam('SOURCE_SHA', '', 'Optional GitHub commit SHA that requested this run.')
+              stringParam('SOURCE_RUN_ID', '', 'Optional GitHub Actions run id that requested this run.')
+              stringParam('SOURCE_RUN_ATTEMPT', '', 'Optional GitHub Actions run attempt that requested this run.')
+              stringParam('SOURCE_WORKFLOW', '', 'Optional GitHub Actions workflow name that requested this run.')
+              booleanParam('PUBLISH', true, 'Publish the generated comparison report to store.devsh.eu.')
+            }
+            configure { project ->
+              def parameterDefinitions = project / 'properties' / 'hudson.model.ParametersDefinitionProperty' / 'parameterDefinitions'
+              parameterDefinitions << 'io.jenkins.plugins.file_parameters.StashedFileParameterDefinition' {
+                name('EX40_RELEASE_PACKAGE_FILE')
+                description('Release/O3 EX40 runtime package zip.')
+              }
+              parameterDefinitions << 'io.jenkins.plugins.file_parameters.StashedFileParameterDefinition' {
+                name('EX40_O1_PACKAGE_FILE')
+                description('RelWithDebInfo/O1experimental EX40 runtime package zip.')
+              }
+            }
+            definition {
+              cps {
+                sandbox()
+                script('''dittEx40ComparePipeline(
+                  suite: 'private',
+                  dittScenesCommitDefault: 'fe7cd7bf9b462e3bb5ef46e1e0658ed08899f5ee',
+                  privateReferencesCommitDefault: '201d9726ce69c6807fc5c326b3388315ecb2797b',
+                  defaultStorePrefix: 'ditt/compare/o1experimental-vs-o3/private/latest/',
+                  runnerTimeoutMinutes: 420,
+                  leaseTtlMinutes: 480,
                   maxReadySeconds: 180,
                   publishJobs: 8
                 )''')
