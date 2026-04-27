@@ -115,6 +115,7 @@ resource "scaleway_object_bucket_policy" "store" {
           "${scaleway_object_bucket.store.name}/ditt/dummy/*",
           "${scaleway_object_bucket.store.name}/ditt/public/*",
           "${scaleway_object_bucket.store.name}/ditt/private/*",
+          "${scaleway_object_bucket.store.name}/ditt/compare/*",
         ]
       },
     ]
