@@ -48,9 +48,53 @@ def call(Map args = [:]) {
   def sourceRunAttempt = null
   def sourceWorkflow = null
   def sourceUrl = null
+  def runnerTimeoutMinutes = null
+  def runnerSummary = [:]
+  def packageSummary = [:]
+  def selectedSceneCount = null
+  def totalSceneCount = null
+  def reportFailureCount = null
+  def reportTestCount = null
+  def reportUrl = null
+  def buildStartedAt = System.currentTimeMillis()
+
+  def updateBuildDescription = {
+    def lines = []
+    if (reportUrl) {
+      lines << reportUrl
+    }
+    if (sourceUrl) {
+      lines << ('source=' + sourceUrl)
+    }
+    if (sourceSha) {
+      lines << ('sha=' + sourceSha.take(12))
+    }
+    lines << ('suite=' + suite)
+    if (selectedSceneCount != null && totalSceneCount != null) {
+      lines << ('scenes=' + selectedSceneCount + '/' + totalSceneCount)
+    }
+    if (reportFailureCount != null && reportTestCount != null) {
+      lines << ('report_failures=' + reportFailureCount + '/' + reportTestCount)
+    }
+    if (runnerSummary.vmid) {
+      lines << ('vmid=' + runnerSummary.vmid)
+    }
+    if (runnerSummary.label) {
+      lines << ('runner=' + runnerSummary.label)
+    }
+    if (runnerSummary.readyWallMs != null) {
+      lines << ('runner_ready=' + runnerFormatDuration(runnerSummary.readyWallMs as long))
+    }
+    if (packageSummary.manifestUsed != null) {
+      lines << ('package_manifest=' + packageSummary.manifestUsed)
+    }
+    lines << ('elapsed=' + runnerFormatDuration(System.currentTimeMillis() - buildStartedAt))
+    currentBuild.description = lines.findAll { it != null && it.toString().trim() }.join('<br/>')
+  }
 
   timestamps {
     stage('Validate request') {
+      runnerTimeoutMinutes = requireNumber(args.get('runnerTimeoutMinutes', '330'), 'runnerTimeoutMinutes', 10, 720)
       shardCount = requireNumber(params.SHARD_COUNT ?: args.get('shardCountDefault', '1'), 'SHARD_COUNT', 1, 64)
       shardIndex = requireNumber(params.SHARD_INDEX ?: args.get('shardIndexDefault', '0'), 'SHARD_INDEX', 0, 63)
       if (shardIndex >= shardCount) {
@@ -106,24 +150,36 @@ def call(Map args = [:]) {
         echo('Source Actions run: ' + sourceUrl)
       }
       echo('Suite: ' + suite + ', shard=' + shardIndex + '/' + shardCount + ', store_prefix=' + storePrefix + ', isolate_scenes=' + isolateScenes + ', publish=' + publish)
+      updateBuildDescription()
     }
 
-    withRunner(
-      labels: args.get('labels', ['windows', 'gpu', 'nvidia', 'vulkan', 'runtime-only']),
-      leaseTtlMinutes: args.get('leaseTtlMinutes', 360),
-      maxReadySeconds: args.get('maxReadySeconds', 180)
-    ) { runner ->
-      withFileParameter(name: args.get('packageFileParameter', 'EX40_PACKAGE_FILE'), allowNoFile: true) {
-        withEnv([
-          'EX40_PACKAGE_URL=' + (packageUrl ?: ''),
-          'SCENE_SUITE=' + suite,
-          'SHARD_COUNT=' + shardCount.toString(),
-          'SHARD_INDEX=' + shardIndex.toString(),
-          'FAIL_ON_RENDER_FAILURE=' + failOnRenderFailure.toString(),
-          'ISOLATE_SCENES=' + isolateScenes.toString()
-        ]) {
-          stage('Acquire package') {
-            writeFile file: 'acquire-package.ps1', text: [
+    timeout(time: runnerTimeoutMinutes, unit: 'MINUTES') {
+      withRunner(
+        labels: args.get('labels', ['windows', 'gpu', 'nvidia', 'vulkan', 'runtime-only']),
+        leaseTtlMinutes: args.get('leaseTtlMinutes', 360),
+        maxReadySeconds: args.get('maxReadySeconds', 180)
+      ) { runner ->
+        runnerSummary = [
+          label: runner.label,
+          allocationMode: runner.allocation_mode,
+          hostId: runner.host_id,
+          node: runner.node,
+          vmid: runner.vmid,
+          readyWallMs: runner.ready_wall_ms,
+          nodeEnterMs: runner.node_enter_ms
+        ]
+        updateBuildDescription()
+        withFileParameter(name: args.get('packageFileParameter', 'EX40_PACKAGE_FILE'), allowNoFile: true) {
+          withEnv([
+            'EX40_PACKAGE_URL=' + (packageUrl ?: ''),
+            'SCENE_SUITE=' + suite,
+            'SHARD_COUNT=' + shardCount.toString(),
+            'SHARD_INDEX=' + shardIndex.toString(),
+            'FAIL_ON_RENDER_FAILURE=' + failOnRenderFailure.toString(),
+            'ISOLATE_SCENES=' + isolateScenes.toString()
+          ]) {
+            stage('Acquire package') {
+              writeFile file: 'acquire-package.ps1', text: [
               '$ErrorActionPreference = "Stop"',
               '$ProgressPreference = "SilentlyContinue"',
               '$packagePath = Join-Path $env:WORKSPACE "ex40-package.zip"',
@@ -143,19 +199,54 @@ def call(Map args = [:]) {
               '$packageSize = (Get-Item -LiteralPath $packagePath).Length',
               'Write-Host ("EX40 package size: {0} bytes" -f $packageSize)',
               'Expand-Archive -LiteralPath $packagePath -DestinationPath $extractRoot -Force',
-              '$exe = Get-ChildItem -LiteralPath $extractRoot -Recurse -File -Filter "40_pathtracer*.exe" | Select-Object -First 1',
+              'function Resolve-PackagePath {',
+              '  param([Parameter(Mandatory = $true)][string] $Base, [Parameter(Mandatory = $true)][string] $Relative, [Parameter(Mandatory = $true)][string] $Name)',
+              '  if ([System.IO.Path]::IsPathRooted($Relative)) { throw "Unsafe package manifest path: $Name" }',
+              '  $segments = $Relative.Replace([char]92, [char]47).Split([char]47)',
+              '  if ($segments -contains "..") { throw "Unsafe package manifest path: $Name" }',
+              '  $baseFull = [System.IO.Path]::GetFullPath($Base)',
+              '  $candidate = [System.IO.Path]::GetFullPath((Join-Path $baseFull $Relative))',
+              '  $prefix = $baseFull.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar',
+              '  if ($candidate -ne $baseFull -and -not $candidate.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) { throw "Package manifest path escapes package root: $Name" }',
+              '  return $candidate',
+              '}',
+              '$manifestFile = Get-ChildItem -LiteralPath $extractRoot -Recurse -File -Filter "EX40Runtime.json" | Sort-Object FullName | Select-Object -First 1',
+              '$manifestUsed = $false',
+              '$manifestPath = ""',
+              'if ($manifestFile) {',
+              '  $manifest = Get-Content -LiteralPath $manifestFile.FullName -Raw | ConvertFrom-Json',
+              '  if ($manifest.schema -ne "devsh.nabla.example-runtime.v1" -or $manifest.component -ne "EX40Runtime") { throw "Unsupported EX40 runtime manifest." }',
+              '  $manifestBase = $manifestFile.DirectoryName',
+              '  $exe = Get-Item -LiteralPath (Resolve-PackagePath -Base $manifestBase -Relative $manifest.executable -Name "executable")',
+              '  $runtimeDir = Get-Item -LiteralPath (Resolve-PackagePath -Base $manifestBase -Relative $manifest.nabla_runtime -Name "nabla_runtime")',
+              '  $dxcDir = Get-Item -LiteralPath (Resolve-PackagePath -Base $manifestBase -Relative $manifest.dxc_runtime -Name "dxc_runtime")',
+              '  $reportTemplate = Resolve-PackagePath -Base $manifestBase -Relative $manifest.report_template -Name "report_template"',
+              '  $manifestUsed = $true',
+              '  $manifestPath = $manifestFile.FullName',
+              '} else {',
+              '  $exe = Get-ChildItem -LiteralPath $extractRoot -Recurse -File -Filter "40_pathtracer*.exe" | Select-Object -First 1',
+              '  if (-not $exe) { throw "40_pathtracer executable was not found in the package." }',
+              '  $runtimeDll = Get-ChildItem -LiteralPath $extractRoot -Recurse -File -Filter "Nabla*.dll" | Select-Object -First 1',
+              '  if (-not $runtimeDll) { throw "Nabla runtime DLL was not found in the package." }',
+              '  $dxcDll = Get-ChildItem -LiteralPath $extractRoot -Recurse -File -Filter "dxcompiler.dll" | Select-Object -First 1',
+              '  if (-not $dxcDll) { throw "DXC runtime DLL was not found in the package." }',
+              '  $runtimeDir = $runtimeDll.Directory',
+              '  $dxcDir = $dxcDll.Directory',
+              '  $reportTemplate = Join-Path $exe.DirectoryName "report"',
+              '}',
               'if (-not $exe) { throw "40_pathtracer executable was not found in the package." }',
-              '$runtimeDll = Get-ChildItem -LiteralPath $extractRoot -Recurse -File -Filter "Nabla*.dll" | Select-Object -First 1',
+              '$runtimeDll = Get-ChildItem -LiteralPath $runtimeDir.FullName -File -Filter "Nabla*.dll" | Select-Object -First 1',
               'if (-not $runtimeDll) { throw "Nabla runtime DLL was not found in the package." }',
-              '$dxcDll = Get-ChildItem -LiteralPath $extractRoot -Recurse -File -Filter "dxcompiler.dll" | Select-Object -First 1',
+              '$dxcDll = Get-ChildItem -LiteralPath $dxcDir.FullName -File -Filter "dxcompiler.dll" | Select-Object -First 1',
               'if (-not $dxcDll) { throw "DXC runtime DLL was not found in the package." }',
-              '$reportTemplate = Join-Path $exe.DirectoryName "report"',
               'if (-not (Test-Path -LiteralPath $reportTemplate)) { throw "Report template directory was not found next to the executable." }',
-              '$info = [pscustomobject]@{ exe = $exe.FullName; bin = $exe.DirectoryName; runtime = $runtimeDll.DirectoryName; dxc = $dxcDll.DirectoryName; reportTemplate = $reportTemplate; packageSize = $packageSize }',
+              '$info = [pscustomobject]@{ exe = $exe.FullName; bin = $exe.DirectoryName; runtime = $runtimeDir.FullName; dxc = $dxcDir.FullName; reportTemplate = $reportTemplate; packageSize = $packageSize; manifestUsed = $manifestUsed; manifest = $manifestPath }',
               '$info | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $env:WORKSPACE "package-info.json") -Encoding UTF8',
               'Write-Host ("EX40 executable: {0}" -f $exe.FullName)'
             ].join('\n')
             powershell './acquire-package.ps1'
+            packageSummary = readJSON(file: 'package-info.json', returnPojo: true)
+            updateBuildDescription()
           }
 
           stage('Materialize scenes') {
@@ -200,6 +291,10 @@ def call(Map args = [:]) {
               'Write-Host ("Selected {0}/{1} scenes for shard {2}/{3}." -f $selected.Count, $commands.Count, $shardIndex, $shardCount)'
             ].join('\n')
             powershell './select-scenes.ps1'
+            def resolved = readJSON(file: 'resolved-scenes.json', returnPojo: true)
+            selectedSceneCount = (resolved.selectedSceneCount ?: 0) as int
+            totalSceneCount = (resolved.totalSceneCount ?: 0) as int
+            updateBuildDescription()
           }
 
           if (isolateScenes) {
@@ -413,6 +508,9 @@ def call(Map args = [:]) {
             powershell './validate-report.ps1'
             def summary = readJSON(file: 'publish/summary.json', returnPojo: true)
             def failureCount = (summary.failure_count ?: 0) as int
+            reportFailureCount = failureCount
+            reportTestCount = (summary.num_of_tests ?: 0) as int
+            updateBuildDescription()
             if (!failOnRenderFailure && failureCount > 0) {
               unstable("EX40 report contains ${failureCount} failed scene(s).")
             }
@@ -440,9 +538,10 @@ def call(Map args = [:]) {
           }
 
           stage('Artifacts') {
-            archiveArtifacts artifacts: 'package-info.json,scene-cache-info.json,scene-git-request.json,git-object-cache.json,resolved-scenes.json,selected-scenes.txt,ex40.log,publish.zip,publish/index.html,publish/summary.json', allowEmptyArchive: true, fingerprint: false
+            archiveArtifacts artifacts: 'package-info.json,scene-cache-info.json,scene-git-request.json,git-object-cache.json,resolved-scenes.json,selected-scenes.txt,ex40.log,publish/index.html,publish/summary.json', allowEmptyArchive: true, fingerprint: false
           }
         }
+      }
       }
     }
 
@@ -456,9 +555,11 @@ def call(Map args = [:]) {
           pruneAfterPublish: args.get('pruneAfterPublish', true),
           deleteAfterPublish: args.get('deletePublishArtifactAfterPublish', true)
         ])
-        currentBuild.description = sourceUrl ? (result.url + '<br/>' + sourceUrl) : result.url
+        reportUrl = result.url
+        updateBuildDescription()
       } else {
         echo 'Publishing disabled by PUBLISH=false.'
+        updateBuildDescription()
       }
     }
   }
