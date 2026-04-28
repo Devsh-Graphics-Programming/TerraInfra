@@ -26,6 +26,7 @@ def call(String prefix, String filePath = 'publish.zip', Map args = [:]) {
     contentType: 'APPLICATION_OCTETSTREAM',
     httpMode: 'PUT',
     uploadFile: filePath,
+    wrapAsMultipart: false,
     url: 'http://127.0.0.1:18080/api/v1/store/publish-report-upload?' + query.join('&'),
     validResponseCodes: '100:599'
   )
