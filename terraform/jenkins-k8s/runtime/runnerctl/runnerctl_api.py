@@ -2325,6 +2325,7 @@ def acquire_ready_pool_member(client_registry, lease_store, inventory, resolved,
                     client.safe_destroy(node, vmid)
                     continue
                 client.agent_ping(node, vmid)
+                dns_configure_ms = configure_guest_dns_servers(client, node, vmid, candidate.get("dns_servers") or [])
                 client.set_tags(node, vmid, LEASED_TAGS)
             except RunnerCtlError:
                 lease_store.delete(lease_id)
@@ -2355,6 +2356,7 @@ def acquire_ready_pool_member(client_registry, lease_store, inventory, resolved,
                 {
                     "allocation_ms": elapsed_ms(acquire_started_ms),
                     "hot_pool_acquire_ms": elapsed_ms(acquire_started_ms),
+                    "guest_dns_configure_ms": dns_configure_ms,
                     "health_cache_age_seconds": health_cache_age_seconds(record),
                 },
             )
@@ -2522,6 +2524,30 @@ def run_guest_powershell_check(client, node, vmid, script, timeout_seconds=60):
         script,
     ]
     return client.guest_exec(node, vmid, command, timeout_seconds)
+
+
+def configure_guest_dns_servers(client, node, vmid, dns_servers):
+    if not dns_servers:
+        return 0
+    started_ms = monotonic_ms()
+    dns_server_values = ", ".join(powershell_string(item) for item in dns_servers)
+    script = f"""
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+$runnerctlDnsServers = @({dns_server_values})
+$dnsInterface = Get-NetIPInterface -AddressFamily IPv4 |
+  Where-Object {{ $_.ConnectionState -eq 'Connected' -and $_.InterfaceAlias -notlike 'Loopback*' }} |
+  Sort-Object InterfaceMetric |
+  Select-Object -First 1
+if (-not $dnsInterface) {{
+  throw 'No connected IPv4 interface was found.'
+}}
+Set-DnsClientServerAddress -InterfaceIndex $dnsInterface.InterfaceIndex -ServerAddresses $runnerctlDnsServers -ErrorAction Stop
+Clear-DnsClientCache -ErrorAction SilentlyContinue
+Write-Output ("runnerctl: dnsServers={{0}} interface={{1}}" -f ($runnerctlDnsServers -join ','), $dnsInterface.InterfaceAlias)
+"""
+    run_guest_powershell_check(client, node, vmid, script, timeout_seconds=30)
+    return elapsed_ms(started_ms)
 
 
 def powershell_encoded_command(script):
