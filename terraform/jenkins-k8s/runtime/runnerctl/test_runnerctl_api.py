@@ -559,6 +559,74 @@ class HelpersTests(unittest.TestCase):
         self.assertIn("--checksum", calls[0]["command"])
         self.assertEqual(calls[0]["command"][calls[0]["command"].index("--jobs") + 1], "4")
 
+    def test_publish_store_report_upload_uses_report_publish_script_without_jenkins_artifact(self):
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w") as archive:
+            archive.writestr("publishS3.py", b"print('placeholder')\n")
+            archive.writestr("index.html", b"<html></html>")
+            archive.writestr("css/report.css", b"body{}")
+            archive.writestr("summary.json", b'{"pass_status":"failed"}')
+            archive.writestr("renders/test.exr", b"exr")
+
+        calls = []
+        s3_calls = []
+
+        class FakeResponse:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+            def read(self):
+                return b""
+
+        def fake_open(request, timeout):
+            s3_calls.append((request, timeout))
+            return FakeResponse()
+
+        def fake_run(command, cwd, env, text, stdout, stderr, timeout, check):
+            calls.append({"command": command, "cwd": cwd, "env": env})
+            source = Path(command[command.index("--source") + 1])
+            self.assertTrue((source / "summary.json").is_file())
+            self.assertTrue((source / "renders" / "test.exr").is_file())
+            self.assertFalse((source / "publishS3.py").exists())
+            return subprocess.CompletedProcess(command, 0, "skip css/report.css\nuploaded summary.json\n", "")
+
+        env = {
+            "RUNNERCTL_STORE_ALLOWED_PREFIXES": "ditt/public/",
+            "RUNNERCTL_STORE_S3_BUCKET": "devsh-store-prod",
+            "RUNNERCTL_STORE_AWS_ACCESS_KEY_ID": "test-access",
+            "RUNNERCTL_STORE_AWS_SECRET_ACCESS_KEY": "test-secret",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            zip_path = Path(directory) / "upload.zip"
+            zip_path.write_bytes(zip_buffer.getvalue())
+            with mock.patch.dict(os.environ, env, clear=False), mock.patch.object(runnerctl_api.subprocess, "run", side_effect=fake_run):
+                result = runnerctl_api.publish_store_report_upload(
+                    {
+                        "prefix": "ditt/public/latest/",
+                        "job": "ci/ditt/real/ex40-public",
+                        "build": "42",
+                        "artifact": "publish.zip",
+                        "jobs": "2",
+                    },
+                    zip_path,
+                    len(zip_buffer.getvalue()),
+                    opener=fake_open,
+                )
+
+        self.assertEqual(result["result"], "published")
+        self.assertEqual(result["artifact_bytes"], len(zip_buffer.getvalue()))
+        self.assertEqual(result["uploaded_count"], 1)
+        self.assertEqual(result["skipped_count"], 1)
+        self.assertEqual(result["published_file_count"], 4)
+        self.assertTrue(s3_calls[0][0].full_url.endswith("/ditt/public/latest/publish-manifest.json"))
+        self.assertEqual(Path(calls[0]["cwd"]).name, "report")
+        self.assertEqual(calls[0]["command"][calls[0]["command"].index("--jobs") + 1], "2")
+
 
 class JenkinsApiClientTests(unittest.TestCase):
     def test_delete_artifact_file_posts_script_and_parses_deleted_size(self):

@@ -749,33 +749,33 @@ New-ZipFromDirectory -Source (Join-Path $publishRoot "o1experimental-vs-o3") -Zi
               }
 
               stage('Artifacts') {
-                archiveArtifacts artifacts: 'package-release.json,package-o1experimental.json,scene-cache-info.json,scene-git-request.json,git-object-cache.json,ex40-lds-cache.json,resolved-scenes.json,selected-scenes.txt,isolated-summaries/**/*.json,ex40-*.log,publish-*.zip,publish/index.html,publish/summary.json,publish/publishS3.py,publish/release-o3-summary.json,publish/o1experimental-summary.json,publish/release-o3/summary.json,publish/o1experimental/summary.json,publish/o1experimental-vs-o3/summary.json', allowEmptyArchive: true, fingerprint: false
+                archiveArtifacts artifacts: 'package-release.json,package-o1experimental.json,scene-cache-info.json,scene-git-request.json,git-object-cache.json,ex40-lds-cache.json,resolved-scenes.json,selected-scenes.txt,isolated-summaries/**/*.json,ex40-*.log,publish/index.html,publish/summary.json,publish/publishS3.py,publish/release-o3-summary.json,publish/o1experimental-summary.json,publish/release-o3/summary.json,publish/o1experimental/summary.json,publish/o1experimental-vs-o3/summary.json', allowEmptyArchive: true, fingerprint: false
+              }
+
+              stage('Publish comparison') {
+                if (publish) {
+                  if (!storePublishArtifacts) {
+                    error 'Store publish artifacts were not prepared.'
+                  }
+                  storePublishArtifacts.eachWithIndex { item, index ->
+                    def result = storePublishReportUpload(item.prefix, item.artifact, [
+                      jobs: args.get('publishJobs', 8),
+                      pruneAfterPublish: item.prune,
+                      artifactName: item.artifact
+                    ])
+                    if (index == 0) {
+                      reportUrl = result.url
+                    }
+                  }
+                  updateBuildDescription()
+                } else {
+                  echo 'Publishing disabled by PUBLISH=false.'
+                  updateBuildDescription()
+                }
               }
             }
           }
         }
-      }
-    }
-
-    stage('Publish comparison') {
-      if (publish) {
-        if (!storePublishArtifacts) {
-          error 'Store publish artifacts were not prepared.'
-        }
-        storePublishArtifacts.eachWithIndex { item, index ->
-          def result = storePublishReportArtifact(item.prefix, item.artifact, [
-            jobs: args.get('publishJobs', 8),
-            pruneAfterPublish: item.prune,
-            deleteAfterPublish: args.get('deletePublishArtifactAfterPublish', true)
-          ])
-          if (index == 0) {
-            reportUrl = result.url
-          }
-        }
-        updateBuildDescription()
-      } else {
-        echo 'Publishing disabled by PUBLISH=false.'
-        updateBuildDescription()
       }
     }
   }

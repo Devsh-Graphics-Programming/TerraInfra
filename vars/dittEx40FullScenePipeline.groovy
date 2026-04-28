@@ -552,28 +552,26 @@ def call(Map args = [:]) {
           }
 
           stage('Artifacts') {
-            archiveArtifacts artifacts: 'package-info.json,scene-cache-info.json,scene-git-request.json,git-object-cache.json,ex40-lds-cache.json,resolved-scenes.json,selected-scenes.txt,ex40.log,publish.zip,publish/index.html,publish/summary.json', allowEmptyArchive: true, fingerprint: false
+            archiveArtifacts artifacts: 'package-info.json,scene-cache-info.json,scene-git-request.json,git-object-cache.json,ex40-lds-cache.json,resolved-scenes.json,selected-scenes.txt,ex40.log,publish/index.html,publish/summary.json', allowEmptyArchive: true, fingerprint: false
+          }
+
+          stage('Publish report') {
+            if (publish) {
+              if (!storePublishArtifact) {
+                error 'Store publish artifact was not prepared.'
+              }
+              def result = storePublishReportUpload(storePrefix, storePublishArtifact, [
+                jobs: args.get('publishJobs', 8),
+                pruneAfterPublish: args.get('pruneAfterPublish', true)
+              ])
+              reportUrl = result.url
+              updateBuildDescription()
+            } else {
+              echo 'Publishing disabled by PUBLISH=false.'
+              updateBuildDescription()
+            }
           }
         }
-      }
-      }
-    }
-
-    stage('Publish report') {
-      if (publish) {
-        if (!storePublishArtifact) {
-          error 'Store publish artifact was not prepared.'
-        }
-        def result = storePublishReportArtifact(storePrefix, storePublishArtifact, [
-          jobs: args.get('publishJobs', 8),
-          pruneAfterPublish: args.get('pruneAfterPublish', true),
-          deleteAfterPublish: args.get('deletePublishArtifactAfterPublish', true)
-        ])
-        reportUrl = result.url
-        updateBuildDescription()
-      } else {
-        echo 'Publishing disabled by PUBLISH=false.'
-        updateBuildDescription()
       }
     }
   }

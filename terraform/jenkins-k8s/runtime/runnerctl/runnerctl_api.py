@@ -1033,16 +1033,19 @@ def report_publish_relative_paths(entries):
 
 
 def store_report_manifest(prefix, job, build_number, artifact_path, relative_paths):
-    return {
+    manifest = {
         "schema": 1,
         "prefix": prefix,
-        "job": job,
-        "build": build_number,
         "artifact": artifact_path,
         "generated_at": datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat(),
         "file_count": len(relative_paths),
         "files": relative_paths,
     }
+    if job:
+        manifest["job"] = job
+    if build_number is not None:
+        manifest["build"] = build_number
+    return manifest
 
 
 def store_prune_allowed_prefixes():
@@ -1085,27 +1088,34 @@ def summarize_publish_s3_output(output):
     }
 
 
-def publish_store_report_artifact(request_data, jenkins_client, opener=urllib.request.urlopen):
-    prefix = normalize_store_prefix(request_data.get("prefix", ""))
-    require_store_prefix_allowed(prefix)
-    job = normalize_jenkins_job_path(request_data.get("job", ""))
-    build_number = require_int(request_data.get("build", ""), "build", minimum=1)
-    artifact_path = normalize_store_file_path(request_data.get("artifact", ""), "artifact")
+def validate_report_zip_artifact_path(value, field_name="artifact", default=None):
+    artifact_path = normalize_store_file_path(value if value else default, field_name)
     if not artifact_path.lower().endswith(".zip"):
         raise RunnerCtlError(
             HTTPStatus.BAD_REQUEST,
             "invalid-request",
-            "artifact must point to a zip file.",
-            {"field": "artifact"},
+            f"{field_name} must point to a zip file.",
+            {"field": field_name},
         )
+    return artifact_path
+
+
+def publish_store_report_zip(request_data, zip_path, artifact_bytes, opener=urllib.request.urlopen):
+    prefix = normalize_store_prefix(request_data.get("prefix", ""))
+    require_store_prefix_allowed(prefix)
+    artifact_path = validate_report_zip_artifact_path(request_data.get("artifact", ""), default="upload.zip")
+    job = None
+    build_number = None
+    if request_data.get("job"):
+        job = normalize_jenkins_job_path(request_data.get("job", ""))
+    if request_data.get("build"):
+        build_number = require_int(request_data.get("build", ""), "build", minimum=1)
     jobs = require_int(request_data.get("jobs", "8"), "jobs", minimum=1, maximum=32)
     max_bytes = store_publish_max_bytes()
     store_config = store_config_from_env()
 
     with tempfile.TemporaryDirectory(prefix="runnerctl-store-report-") as directory:
         root = Path(directory)
-        zip_path = root / "artifact.zip"
-        artifact_bytes = jenkins_client.download_artifact(job, build_number, artifact_path, zip_path, max_bytes)
         entries, total_bytes = store_zip_entries(zip_path, max_bytes)
         report_dir = root / "report"
         dynamic_dir = root / "dynamic"
@@ -1204,6 +1214,28 @@ def publish_store_report_artifact(request_data, jenkins_client, opener=urllib.re
         "listed_count": prune_summary["listed_count"],
         **summary,
     }
+
+
+def publish_store_report_artifact(request_data, jenkins_client, opener=urllib.request.urlopen):
+    job = normalize_jenkins_job_path(request_data.get("job", ""))
+    build_number = require_int(request_data.get("build", ""), "build", minimum=1)
+    artifact_path = validate_report_zip_artifact_path(request_data.get("artifact", ""), "artifact")
+    max_bytes = store_publish_max_bytes()
+
+    with tempfile.TemporaryDirectory(prefix="runnerctl-store-report-artifact-") as directory:
+        zip_path = Path(directory) / "artifact.zip"
+        artifact_bytes = jenkins_client.download_artifact(job, build_number, artifact_path, zip_path, max_bytes)
+        request_copy = dict(request_data)
+        request_copy["job"] = job
+        request_copy["build"] = str(build_number)
+        request_copy["artifact"] = artifact_path
+        return publish_store_report_zip(request_copy, zip_path, artifact_bytes, opener=opener)
+
+
+def publish_store_report_upload(request_data, zip_path, upload_bytes, opener=urllib.request.urlopen):
+    request_copy = dict(request_data)
+    request_copy["artifact"] = validate_report_zip_artifact_path(request_copy.get("artifact", ""), "artifact", default="upload.zip")
+    return publish_store_report_zip(request_copy, zip_path, upload_bytes, opener=opener)
 
 
 def delete_jenkins_artifact(request_data, jenkins_client):
@@ -3896,6 +3928,37 @@ class RunnerCtlHandler(BaseHTTPRequestHandler):
                 "Request body must be valid JSON.",
             ) from exc
 
+    def _read_body_to_file(self, target_path, max_bytes):
+        raw_length = self.headers.get("Content-Length")
+        if raw_length is None:
+            raise RunnerCtlError(
+                HTTPStatus.LENGTH_REQUIRED,
+                "content-length-required",
+                "Request must include Content-Length.",
+            )
+        content_length = require_int(raw_length, "Content-Length", minimum=1, maximum=max_bytes)
+        total_bytes = 0
+        remaining = content_length
+        target = Path(target_path)
+        with target.open("wb") as handle:
+            while remaining > 0:
+                chunk = self.rfile.read(min(1024 * 1024, remaining))
+                if not chunk:
+                    raise RunnerCtlError(
+                        HTTPStatus.BAD_REQUEST,
+                        "incomplete-request-body",
+                        "Request body ended before Content-Length bytes were received.",
+                    )
+                total_bytes += len(chunk)
+                remaining -= len(chunk)
+                handle.write(chunk)
+        return total_bytes
+
+    def _query_data(self):
+        parsed = urllib.parse.urlsplit(self.path)
+        values = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+        return parsed.path, {key: items[-1] if items else "" for key, items in values.items()}
+
     def _write_json(self, status_code, payload):
         encoded = json.dumps(payload, sort_keys=True).encode("utf-8")
         self.send_response(int(status_code))
@@ -3960,6 +4023,21 @@ class RunnerCtlHandler(BaseHTTPRequestHandler):
                     )
                     return
                 self._write_json(HTTPStatus.OK, {"status": "ok", **record})
+                return
+            self._write_json(HTTPStatus.NOT_FOUND, {"status": "error", "code": "not-found", "message": "Unknown endpoint."})
+        except Exception as exc:  # noqa: BLE001
+            self._handle_exception(exc)
+
+    def do_PUT(self):
+        try:
+            path, request_data = self._query_data()
+            if path == "/api/v1/store/publish-report-upload":
+                max_bytes = store_publish_max_bytes()
+                with tempfile.TemporaryDirectory(prefix="runnerctl-store-report-upload-") as directory:
+                    zip_path = Path(directory) / "upload.zip"
+                    upload_bytes = self._read_body_to_file(zip_path, max_bytes)
+                    result = publish_store_report_upload(request_data, zip_path, upload_bytes)
+                self._write_json(HTTPStatus.OK, {"status": "ok", **result})
                 return
             self._write_json(HTTPStatus.NOT_FOUND, {"status": "error", "code": "not-found", "message": "Unknown endpoint."})
         except Exception as exc:  # noqa: BLE001

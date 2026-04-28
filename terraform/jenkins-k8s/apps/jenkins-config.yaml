@@ -1418,19 +1418,19 @@ data:
                         }
                       }
                       stage('Artifacts') {
-                        archiveArtifacts artifacts: 'package-info.json,ex40-lds-cache.json,ex40.log,publish.zip,publish/index.html,publish/summary.json', allowEmptyArchive: true, fingerprint: false
+                        archiveArtifacts artifacts: 'package-info.json,ex40-lds-cache.json,ex40.log,publish/index.html,publish/summary.json', allowEmptyArchive: true, fingerprint: false
                       }
-                    }
-                  }
-                  stage('Publish report') {
-                    if (params.PUBLISH) {
-                      if (!storePublishArtifact) {
-                        error 'Store publish artifact was not prepared.'
+                      stage('Publish report') {
+                        if (params.PUBLISH) {
+                          if (!storePublishArtifact) {
+                            error 'Store publish artifact was not prepared.'
+                          }
+                          def result = storePublishReportUpload(storePrefix, storePublishArtifact, [jobs: 4, pruneAfterPublish: true])
+                          currentBuild.description = result.url
+                        } else {
+                          echo 'Publishing disabled by PUBLISH=false.'
+                        }
                       }
-                      def result = storePublishReportArtifact(storePrefix, storePublishArtifact, [jobs: 4, pruneAfterPublish: true, deleteAfterPublish: true])
-                      currentBuild.description = result.url
-                    } else {
-                      echo 'Publishing disabled by PUBLISH=false.'
                     }
                   }
                 }''')
@@ -1775,20 +1775,20 @@ data:
                           }
                         }
                         stage('Artifacts') {
-                          archiveArtifacts artifacts: 'package-info.json,scene-cache-info.json,scene-git-request.json,git-object-cache.json,ex40-lds-cache.json,resolved-scenes.json,selected-scenes.txt,ex40.log,publish.zip,publish/index.html,publish/summary.json', allowEmptyArchive: true, fingerprint: false
+                          archiveArtifacts artifacts: 'package-info.json,scene-cache-info.json,scene-git-request.json,git-object-cache.json,ex40-lds-cache.json,resolved-scenes.json,selected-scenes.txt,ex40.log,publish/index.html,publish/summary.json', allowEmptyArchive: true, fingerprint: false
+                        }
+                        stage('Publish report') {
+                          if (params.PUBLISH) {
+                            if (!storePublishArtifact) {
+                              error 'Store publish artifact was not prepared.'
+                            }
+                            def result = storePublishReportUpload(storePrefix, storePublishArtifact, [jobs: 8, pruneAfterPublish: true])
+                            currentBuild.description = result.url
+                          } else {
+                            echo 'Publishing disabled by PUBLISH=false.'
+                          }
                         }
                       }
-                    }
-                  }
-                  stage('Publish report') {
-                    if (params.PUBLISH) {
-                      if (!storePublishArtifact) {
-                        error 'Store publish artifact was not prepared.'
-                      }
-                      def result = storePublishReportArtifact(storePrefix, storePublishArtifact, [jobs: 8, pruneAfterPublish: true, deleteAfterPublish: true])
-                      currentBuild.description = result.url
-                    } else {
-                      echo 'Publishing disabled by PUBLISH=false.'
                     }
                   }
                 }''')
