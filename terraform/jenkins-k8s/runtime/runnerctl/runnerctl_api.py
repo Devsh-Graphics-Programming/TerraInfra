@@ -1051,7 +1051,7 @@ def store_report_manifest(prefix, job, build_number, artifact_path, relative_pat
 def store_prune_allowed_prefixes():
     raw_value = os.getenv(
         "RUNNERCTL_STORE_PRUNE_ALLOWED_PREFIXES",
-        "ditt/dummy/,ditt/public/latest/,ditt/private/latest/,ditt/public/smoke/latest/,ditt/private/smoke/latest/,ditt/compare/o1experimental-vs-o3/public/latest/,ditt/compare/o1experimental-vs-o3/private/latest/",
+        "ditt/dummy/,ditt/public/latest/,ditt/private/latest/,ditt/public/o1experimental/latest/,ditt/private/o1experimental/latest/,ditt/public/smoke/latest/,ditt/private/smoke/latest/,ditt/compare/o1experimental-vs-o3/public/latest/,ditt/compare/o1experimental-vs-o3/private/latest/",
     )
     prefixes = [normalize_store_prefix(item, "RUNNERCTL_STORE_PRUNE_ALLOWED_PREFIXES") for item in raw_value.split(",") if item.strip()]
     if not prefixes:

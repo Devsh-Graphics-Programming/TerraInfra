@@ -248,6 +248,11 @@ class HelpersTests(unittest.TestCase):
             runnerctl_api.require_store_prefix_allowed("ditt/private/smoke/latest/")
             runnerctl_api.require_store_prefix_allowed("ditt/compare/o1experimental-vs-o3/public/latest/")
 
+    def test_default_store_prune_prefixes_allow_o1experimental_reports(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            runnerctl_api.require_store_prune_prefix_allowed("ditt/public/o1experimental/latest/")
+            runnerctl_api.require_store_prune_prefix_allowed("ditt/private/o1experimental/latest/")
+
     def test_normalize_store_file_path_rejects_traversal(self):
         with self.assertRaises(runnerctl_api.RunnerCtlError) as raised:
             runnerctl_api.normalize_store_file_path("../index.html")
