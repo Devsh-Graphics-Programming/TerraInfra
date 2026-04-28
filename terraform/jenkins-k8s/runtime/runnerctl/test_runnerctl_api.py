@@ -478,6 +478,7 @@ class HelpersTests(unittest.TestCase):
 
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "w") as archive:
+            archive.writestr("aaa/publishS3.py", b"raise SystemExit('wrong publisher')\n")
             archive.writestr("publishS3.py", b"print('placeholder')\n")
             archive.writestr("index.html", b"<html></html>")
             archive.writestr("css/report.css", b"body{}")
@@ -551,6 +552,8 @@ class HelpersTests(unittest.TestCase):
         self.assertEqual(result["published_file_count"], 4)
         self.assertEqual(result["manifest"], "publish-manifest.json")
         self.assertTrue(s3_calls[0][0].full_url.endswith("/ditt/public/latest/publish-manifest.json"))
+        self.assertEqual(Path(calls[0]["command"][1]).parent.name, "report")
+        self.assertEqual(Path(calls[0]["cwd"]).name, "report")
         self.assertEqual(calls[0]["env"]["AWS_ACCESS_KEY_ID"], "test-access")
         self.assertEqual(calls[0]["env"]["AWS_SECRET_ACCESS_KEY"], "test-secret")
         self.assertIn("--checksum", calls[0]["command"])

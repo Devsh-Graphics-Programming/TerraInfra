@@ -1110,7 +1110,8 @@ def publish_store_report_artifact(request_data, jenkins_client, opener=urllib.re
         dynamic_dir = root / "dynamic"
         extract_store_zip(zip_path, report_dir, entries)
         dynamic_file_count = prepare_report_dynamic_source(report_dir, dynamic_dir)
-        script_candidates = sorted(report_dir.rglob("publishS3.py"))
+        root_script_path = report_dir / "publishS3.py"
+        script_candidates = [root_script_path] if root_script_path.is_file() else sorted(report_dir.rglob("publishS3.py"))
         if not script_candidates:
             raise RunnerCtlError(
                 HTTPStatus.BAD_REQUEST,
