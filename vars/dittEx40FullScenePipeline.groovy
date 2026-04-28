@@ -261,6 +261,11 @@ def call(Map args = [:]) {
             )
           }
 
+          stage('Prepare LDS cache') {
+            dittEx40LdsCache(cacheApiUrl: runner.git_object_cache?.api_url)
+            powershell './ex40-lds-cache.ps1 -Mode Status -PackageInfoPath package-info.json'
+          }
+
           stage('Select shard') {
             writeFile file: 'select-scenes.ps1', text: [
               '$ErrorActionPreference = "Stop"',
@@ -358,6 +363,7 @@ def call(Map args = [:]) {
                 'Remove-Item -LiteralPath $summaryPath -Force -ErrorAction SilentlyContinue',
                 'Remove-Item -LiteralPath $summaryCopy -Force -ErrorAction SilentlyContinue',
                 '$env:PATH = $package.runtime + ";" + $package.dxc + ";" + $env:PATH',
+                '& (Join-Path $env:WORKSPACE "ex40-lds-cache.ps1") -Mode Restore -PackageInfoPath (Join-Path $env:WORKSPACE "package-info.json")',
                 '$runArgs = @("--scene-list", $oneSceneList, "--process-sensors", "RenderAllThenTerminate", "--headless", "--output-dir", $renders, "--report-dir", $publishRoot)',
                 'if ($scenes.referenceDir) { $runArgs += @("--reference-dir", $scenes.referenceDir) }',
                 'Write-Host ("Running isolated scene {0}." -f $SceneNumber)',
@@ -369,6 +375,7 @@ def call(Map args = [:]) {
                 '} finally {',
                 '  Pop-Location',
                 '}',
+                '& (Join-Path $env:WORKSPACE "ex40-lds-cache.ps1") -Mode Save -PackageInfoPath (Join-Path $env:WORKSPACE "package-info.json")',
                 '[System.IO.File]::WriteAllText($exitPath, [string]$exitCode)',
                 'if (Test-Path -LiteralPath $summaryPath) { Copy-Item -LiteralPath $summaryPath -Destination $summaryCopy -Force }',
                 'if ($exitCode -ne 0) {',
@@ -468,6 +475,7 @@ def call(Map args = [:]) {
                 '$env:PATH = $package.runtime + ";" + $package.dxc + ";" + $env:PATH',
                 '$log = Join-Path $env:WORKSPACE "ex40.log"',
                 'Remove-Item -LiteralPath $log -Force -ErrorAction SilentlyContinue',
+                '& (Join-Path $env:WORKSPACE "ex40-lds-cache.ps1") -Mode Restore -PackageInfoPath (Join-Path $env:WORKSPACE "package-info.json")',
                 '$runArgs = @("--scene-list", $scenes.sceneList, "--process-sensors", "RenderAllThenTerminate", "--headless", "--output-dir", $renders, "--report-dir", $publishRoot)',
                 'if ($scenes.referenceDir) { $runArgs += @("--reference-dir", $scenes.referenceDir) }',
                 '$exitCode = 0',
@@ -478,6 +486,7 @@ def call(Map args = [:]) {
                 '} finally {',
                 '  Pop-Location',
                 '}',
+                '& (Join-Path $env:WORKSPACE "ex40-lds-cache.ps1") -Mode Save -PackageInfoPath (Join-Path $env:WORKSPACE "package-info.json")',
                 'if ($exitCode -ne 0) {',
                 '  $summaryPath = Join-Path $publishRoot "summary.json"',
                 '  if ($env:FAIL_ON_RENDER_FAILURE -eq "true" -or -not (Test-Path -LiteralPath $summaryPath)) { throw "EX40 failed with exit code $exitCode." }',
@@ -504,6 +513,10 @@ def call(Map args = [:]) {
               'if ([int]$summary.num_of_tests -lt 1) { throw "Summary contains no rendered tests." }',
               '$failureCount = [int]$summary.failure_count',
               'Write-Host ("EX40 report status={0}, tests={1}, failures={2}" -f $summary.pass_status, $summary.num_of_tests, $failureCount)',
+              'if ($summary.PSObject.Properties.Name -contains "lowDiscrepancySequenceCache") {',
+              '  $lds = $summary.lowDiscrepancySequenceCache',
+              '  Write-Host ("LDS cache report status={0}, size={1}, hash={2}" -f $lds.status, $lds.sizeBytes, $lds.hash)',
+              '}',
               'if ($env:FAIL_ON_RENDER_FAILURE -eq "true" -and $failureCount -gt 0) { throw "EX40 report contains failed scenes." }'
             ].join('\n')
             powershell './validate-report.ps1'
@@ -539,7 +552,7 @@ def call(Map args = [:]) {
           }
 
           stage('Artifacts') {
-            archiveArtifacts artifacts: 'package-info.json,scene-cache-info.json,scene-git-request.json,git-object-cache.json,resolved-scenes.json,selected-scenes.txt,ex40.log,publish.zip,publish/index.html,publish/summary.json', allowEmptyArchive: true, fingerprint: false
+            archiveArtifacts artifacts: 'package-info.json,scene-cache-info.json,scene-git-request.json,git-object-cache.json,ex40-lds-cache.json,resolved-scenes.json,selected-scenes.txt,ex40.log,publish.zip,publish/index.html,publish/summary.json', allowEmptyArchive: true, fingerprint: false
           }
         }
       }

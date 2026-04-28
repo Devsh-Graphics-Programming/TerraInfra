@@ -258,6 +258,11 @@ Write-Host ("Linked O1experimental media: {0} -> {1}" -f $o1Media, $releaseMedia
                 powershell './link-o1experimental-media.ps1'
               }
 
+              stage('Prepare LDS cache') {
+                dittEx40LdsCache(cacheApiUrl: runner.git_object_cache?.api_url)
+                powershell './ex40-lds-cache.ps1 -Mode Status -PackageInfoPath package-release.json package-o1experimental.json'
+              }
+
               stage('Select shard') {
                 writeFile file: 'select-scenes.ps1', text: '''
 $ErrorActionPreference = "Stop"
@@ -316,6 +321,7 @@ New-Item -ItemType Directory -Path $sharedTmp -Force | Out-Null
 Copy-Item -Path (Join-Path $package.reportTemplate "*") -Destination $publishRoot -Recurse -Force
 $log = Join-Path $env:WORKSPACE ("ex40-" + $VariantName + ".log")
 Remove-Item -LiteralPath $log -Force -ErrorAction SilentlyContinue
+& (Join-Path $env:WORKSPACE "ex40-lds-cache.ps1") -Mode Restore -PackageInfoPath $PackageInfoPath
 $runArgs = @("--scene-list", $sceneList, "--process-sensors", "RenderAllThenTerminate", "--headless", "--output-dir", $renders, "--report-dir", $publishRoot)
 if ($ReferenceDir) { $runArgs += @("--reference-dir", $ReferenceDir) }
 Write-Host ("Running {0}: {1}" -f $VariantName, ($runArgs -join " "))
@@ -327,12 +333,18 @@ try {
 } finally {
   Pop-Location
 }
+& (Join-Path $env:WORKSPACE "ex40-lds-cache.ps1") -Mode Save -PackageInfoPath $PackageInfoPath
 $summaryPath = Join-Path $publishRoot "summary.json"
 if ($exitCode -ne 0) {
   if (-not (Test-Path -LiteralPath $summaryPath)) { throw "$VariantName failed with exit code $exitCode and did not write summary.json." }
   Write-Warning ("{0} exited with code {1}; continuing because summary.json exists." -f $VariantName, $exitCode)
 }
 if (-not (Test-Path -LiteralPath $summaryPath)) { throw "$VariantName did not write summary.json." }
+$summary = Get-Content -LiteralPath $summaryPath | ConvertFrom-Json
+if ($summary.PSObject.Properties.Name -contains "lowDiscrepancySequenceCache") {
+  $lds = $summary.lowDiscrepancySequenceCache
+  Write-Host ("{0} LDS cache report status={1}, size={2}, hash={3}" -f $VariantName, $lds.status, $lds.sizeBytes, $lds.hash)
+}
 exit 0
 '''
 
@@ -737,7 +749,7 @@ New-ZipFromDirectory -Source (Join-Path $publishRoot "o1experimental-vs-o3") -Zi
               }
 
               stage('Artifacts') {
-                archiveArtifacts artifacts: 'package-release.json,package-o1experimental.json,scene-cache-info.json,scene-git-request.json,git-object-cache.json,resolved-scenes.json,selected-scenes.txt,isolated-summaries/**/*.json,ex40-*.log,publish-*.zip,publish/index.html,publish/summary.json,publish/publishS3.py,publish/release-o3-summary.json,publish/o1experimental-summary.json,publish/release-o3/summary.json,publish/o1experimental/summary.json,publish/o1experimental-vs-o3/summary.json', allowEmptyArchive: true, fingerprint: false
+                archiveArtifacts artifacts: 'package-release.json,package-o1experimental.json,scene-cache-info.json,scene-git-request.json,git-object-cache.json,ex40-lds-cache.json,resolved-scenes.json,selected-scenes.txt,isolated-summaries/**/*.json,ex40-*.log,publish-*.zip,publish/index.html,publish/summary.json,publish/publishS3.py,publish/release-o3-summary.json,publish/o1experimental-summary.json,publish/release-o3/summary.json,publish/o1experimental/summary.json,publish/o1experimental-vs-o3/summary.json', allowEmptyArchive: true, fingerprint: false
               }
             }
           }

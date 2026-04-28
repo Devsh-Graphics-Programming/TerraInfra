@@ -89,6 +89,13 @@ Full suites use the runner-farm Git object cache from the runner lease metadata.
 Runner images should include Git. During image rollouts, `git_client_url` and
 `git_client_sha256` may provide a host-local MinGit fallback for older templates.
 
+EX40 also restores and saves the low-discrepancy sequence cache through the same
+runner-farm cache API. The cache entry is a single non-secret blob under
+`ditt/ex40/lds/` and is materialized on the Windows runner at the path EX40
+already uses, `exe/examples_tests/tmp/owen_sampler_buffer.bin`. Jenkins does not
+store this blob as a build artifact and does not transfer it through the
+controller.
+
 Current object stores are split by reuse and sensitivity:
 
 - `nabla-media-public`: shared public media used by Nabla examples beyond DITT.

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import hashlib
 import json
 import os
 import re
@@ -17,6 +18,7 @@ from pathlib import Path
 ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{7,40}$")
 REPO_PATH_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*\.git$")
+BLOB_KEY_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
 
 
 class CacheError(Exception):
@@ -81,10 +83,13 @@ def elapsed_ms(started_ms):
 
 
 class CacheConfig:
-    def __init__(self, path, root, public_git_base_url):
+    def __init__(self, path, root, public_git_base_url, blob_root=None, blob_allowed_prefixes=None, blob_max_bytes=536870912):
         self.path = Path(path)
         self.root = Path(root)
         self.public_git_base_url = public_git_base_url.rstrip("/")
+        self.blob_root = Path(blob_root) if blob_root else self.root / "blobs"
+        self.blob_allowed_prefixes = [prefix.strip().replace("\\", "/").strip("/") + "/" for prefix in (blob_allowed_prefixes or ["runner-cache/"])]
+        self.blob_max_bytes = int(blob_max_bytes)
         self._lock = threading.Lock()
         self._mtime = None
         self._repos = None
@@ -138,6 +143,29 @@ class CacheConfig:
 
     def public_url(self, repo):
         return f"{self.public_git_base_url}/{repo['path']}"
+
+    def normalize_blob_key(self, key):
+        text = str(key or "").strip().replace("\\", "/")
+        if text.startswith("/") or text.endswith("/") or "//" in text:
+            raise CacheError(HTTPStatus.BAD_REQUEST, "invalid-blob-key", "Blob cache key is invalid.")
+        parts = text.split("/")
+        if any(part in {"", ".", ".."} for part in parts):
+            raise CacheError(HTTPStatus.BAD_REQUEST, "invalid-blob-key", "Blob cache key must not contain traversal segments.")
+        if not BLOB_KEY_PATTERN.fullmatch(text):
+            raise CacheError(HTTPStatus.BAD_REQUEST, "invalid-blob-key", "Blob cache key contains unsupported characters.")
+        if not any(text.startswith(prefix) for prefix in self.blob_allowed_prefixes):
+            raise CacheError(HTTPStatus.FORBIDDEN, "blob-key-not-allowed", "Blob cache key is outside the allowed prefixes.")
+        return text
+
+    def blob_path(self, key):
+        normalized = self.normalize_blob_key(key)
+        path = (self.blob_root / normalized).resolve()
+        root = self.blob_root.resolve()
+        try:
+            path.relative_to(root)
+        except ValueError as exc:
+            raise CacheError(HTTPStatus.BAD_REQUEST, "invalid-blob-key", "Blob cache key escapes cache root.") from exc
+        return normalized, path
 
 
 class GitObjectCache:
@@ -215,6 +243,55 @@ class GitObjectCache:
                 "fetch_ms": elapsed_ms(started_ms),
             }
 
+    def blob_metadata(self, key):
+        normalized, path = self.config.blob_path(key)
+        if not path.is_file():
+            raise CacheError(HTTPStatus.NOT_FOUND, "blob-not-found", "Blob cache entry was not found.", {"key": normalized})
+        digest = hashlib.sha256()
+        size = 0
+        with path.open("rb") as handle:
+            while True:
+                chunk = handle.read(1024 * 1024)
+                if not chunk:
+                    break
+                size += len(chunk)
+                digest.update(chunk)
+        return {"key": normalized, "path": path, "size": size, "sha256": digest.hexdigest()}
+
+    def put_blob(self, key, source, content_length):
+        normalized, path = self.config.blob_path(key)
+        if content_length is None or content_length < 0:
+            raise CacheError(HTTPStatus.LENGTH_REQUIRED, "missing-content-length", "Blob upload requires Content-Length.")
+        if content_length > self.config.blob_max_bytes:
+            raise CacheError(
+                HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                "blob-too-large",
+                "Blob upload exceeds the configured size limit.",
+                {"max_bytes": self.config.blob_max_bytes},
+            )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = path.with_name(f".{path.name}.tmp.{os.getpid()}.{threading.get_ident()}")
+        digest = hashlib.sha256()
+        remaining = content_length
+        written = 0
+        try:
+            with tmp_path.open("wb") as handle:
+                while remaining > 0:
+                    chunk = source.read(min(1024 * 1024, remaining))
+                    if not chunk:
+                        raise CacheError(HTTPStatus.BAD_REQUEST, "short-blob-upload", "Blob upload ended before Content-Length bytes.")
+                    handle.write(chunk)
+                    digest.update(chunk)
+                    written += len(chunk)
+                    remaining -= len(chunk)
+            os.replace(tmp_path, path)
+        finally:
+            try:
+                tmp_path.unlink()
+            except FileNotFoundError:
+                pass
+        return {"key": normalized, "size": written, "sha256": digest.hexdigest()}
+
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "proxmox-runner-git-cache/0.1"
@@ -252,11 +329,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         try:
+            parsed_path = urllib.parse.urlsplit(self.path).path
             if self.path == "/healthz":
                 repos = self.server.cache.config.repositories()
                 self._write_json(HTTPStatus.OK, {"status": "ok", "repositories": sorted(repos)})
                 return
-            if self.path == "/api/v1/repos":
+            if parsed_path == "/api/v1/repos":
                 repos = self.server.cache.config.repositories()
                 self._write_json(
                     HTTPStatus.OK,
@@ -275,13 +353,46 @@ class Handler(BaseHTTPRequestHandler):
                     },
                 )
                 return
+            if parsed_path.startswith("/api/v1/blob/"):
+                key = urllib.parse.unquote(parsed_path[len("/api/v1/blob/") :])
+                metadata = self.server.cache.blob_metadata(key)
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Length", str(metadata["size"]))
+                self.send_header("X-Content-SHA256", metadata["sha256"])
+                self.end_headers()
+                with metadata["path"].open("rb") as handle:
+                    while True:
+                        chunk = handle.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                return
             self._write_json(HTTPStatus.NOT_FOUND, {"status": "error", "code": "not-found", "message": "Unknown endpoint."})
+        except Exception as exc:
+            self._handle_exception(exc)
+
+    def do_HEAD(self):
+        try:
+            parsed_path = urllib.parse.urlsplit(self.path).path
+            if parsed_path.startswith("/api/v1/blob/"):
+                key = urllib.parse.unquote(parsed_path[len("/api/v1/blob/") :])
+                metadata = self.server.cache.blob_metadata(key)
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Length", str(metadata["size"]))
+                self.send_header("X-Content-SHA256", metadata["sha256"])
+                self.end_headers()
+                return
+            self.send_response(HTTPStatus.NOT_FOUND)
+            self.end_headers()
         except Exception as exc:
             self._handle_exception(exc)
 
     def do_POST(self):
         try:
-            if self.path != "/api/v1/fetch":
+            parsed_path = urllib.parse.urlsplit(self.path).path
+            if parsed_path != "/api/v1/fetch":
                 self._write_json(HTTPStatus.NOT_FOUND, {"status": "error", "code": "not-found", "message": "Unknown endpoint."})
                 return
             body = self._read_json()
@@ -300,6 +411,20 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:
             self._handle_exception(exc)
 
+    def do_PUT(self):
+        try:
+            parsed_path = urllib.parse.urlsplit(self.path).path
+            if not parsed_path.startswith("/api/v1/blob/"):
+                self._write_json(HTTPStatus.NOT_FOUND, {"status": "error", "code": "not-found", "message": "Unknown endpoint."})
+                return
+            key = urllib.parse.unquote(parsed_path[len("/api/v1/blob/") :])
+            content_length = self.headers.get("Content-Length")
+            length = int(content_length) if content_length is not None else None
+            result = self.server.cache.put_blob(key, self.rfile, length)
+            self._write_json(HTTPStatus.OK, {"status": "ok", **result})
+        except Exception as exc:
+            self._handle_exception(exc)
+
 
 class Server(ThreadingHTTPServer):
     def __init__(self, address, cache):
@@ -310,11 +435,14 @@ class Server(ThreadingHTTPServer):
 def main():
     config_path = os.getenv("GIT_CACHE_CONFIG_PATH", "/etc/proxmox-runner-git-cache/repos.json")
     cache_root = os.getenv("GIT_CACHE_ROOT", "/var/lib/proxmox-runner-git-cache")
+    blob_cache_root = os.getenv("BLOB_CACHE_ROOT", str(Path(cache_root) / "blobs"))
+    blob_allowed_prefixes = [item for item in os.getenv("BLOB_CACHE_ALLOWED_PREFIXES", "runner-cache/").split(",") if item.strip()]
+    blob_max_bytes = int(os.getenv("BLOB_CACHE_MAX_BYTES", "536870912"))
     listen_host = os.getenv("GIT_CACHE_API_LISTEN_HOST", "127.0.0.1")
     listen_port = int(os.getenv("GIT_CACHE_API_PORT", "18082"))
     public_git_base_url = os.getenv("GIT_CACHE_PUBLIC_GIT_BASE_URL", "git://127.0.0.1")
 
-    config = CacheConfig(config_path, cache_root, public_git_base_url)
+    config = CacheConfig(config_path, cache_root, public_git_base_url, blob_cache_root, blob_allowed_prefixes, blob_max_bytes)
     cache = GitObjectCache(config)
     server = Server((listen_host, listen_port), cache)
     print(f"proxmox runner git cache listening on {listen_host}:{listen_port}", flush=True)

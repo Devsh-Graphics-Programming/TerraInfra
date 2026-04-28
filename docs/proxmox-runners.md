@@ -457,6 +457,10 @@ worktrees on the Proxmox host. Split reusable public media stores from
 workload-specific private stores so future jobs can reuse public media without
 depending on DITT-specific data.
 
+The same host-side API may also expose narrow runner-local blob caches for
+non-secret generated runtime data. Blob endpoints do not list keys and should
+stay limited to explicit prefixes configured on the host.
+
 Windows runtime templates should include Git when jobs need Git cache
 materialization. A host can also expose a `git_client_url` plus
 `git_client_sha256` in `git_object_cache` so older templates can download a
