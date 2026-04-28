@@ -546,6 +546,10 @@ New-Item -ItemType Directory -Force -Path $rootStage | Out-Null
 foreach ($name in @("index.html", "summary.json", "release-o3-summary.json", "o1experimental-summary.json", "publishS3.py")) {
   Copy-Item -LiteralPath (Join-Path $publishRoot $name) -Destination (Join-Path $rootStage $name) -Force
 }
+$publisher = Join-Path $publishRoot "publishS3.py"
+foreach ($subdir in @("release-o3", "o1experimental", "o1experimental-vs-o3")) {
+  Copy-Item -LiteralPath $publisher -Destination (Join-Path $publishRoot "$subdir/publishS3.py") -Force
+}
 New-ZipFromDirectory -Source $rootStage -Zip (Join-Path $env:WORKSPACE "publish-root.zip")
 New-ZipFromDirectory -Source (Join-Path $publishRoot "release-o3") -Zip (Join-Path $env:WORKSPACE "publish-release-o3.zip")
 New-ZipFromDirectory -Source (Join-Path $publishRoot "o1experimental") -Zip (Join-Path $env:WORKSPACE "publish-o1experimental.zip")
