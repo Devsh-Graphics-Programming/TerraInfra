@@ -53,7 +53,7 @@ def call(Map args = [:]) {
   def compareTestCount = null
   def compareWarningCount = null
   def reportUrl = null
-  def storePublishArtifact = null
+  def storePublishArtifacts = []
   def buildStartedAt = System.currentTimeMillis()
 
   def updateBuildDescription = {
@@ -696,24 +696,48 @@ Write-Host ("Comparison verdict: {0}; O1experimental vs O3 failures={1}/{2}; war
                   writeFile file: 'prepare-publish-zip.ps1', text: '''
 $ErrorActionPreference = "Stop"
 $publishRoot = Join-Path $env:WORKSPACE "publish"
-$zipPath = Join-Path $env:WORKSPACE "publish.zip"
 if (-not (Test-Path -LiteralPath $publishRoot)) { throw "Publish directory does not exist." }
-if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
-$files = Get-ChildItem -LiteralPath $publishRoot -Recurse -File
-if (-not $files) { throw "Publish directory is empty." }
-Compress-Archive -Path (Join-Path $publishRoot "*") -DestinationPath $zipPath -Force
-$zipSize = (Get-Item -LiteralPath $zipPath).Length
-Write-Host ("Prepared publish.zip with {0} files, {1} bytes." -f @($files).Count, $zipSize)
+
+function New-ZipFromDirectory {
+  param(
+    [Parameter(Mandatory=$true)][string]$Source,
+    [Parameter(Mandatory=$true)][string]$Zip
+  )
+  if (-not (Test-Path -LiteralPath $Source)) { throw "Publish source does not exist: $Source" }
+  if (Test-Path -LiteralPath $Zip) { Remove-Item -LiteralPath $Zip -Force }
+  $files = Get-ChildItem -LiteralPath $Source -Recurse -File
+  if (-not $files) { throw "Publish source is empty: $Source" }
+  Compress-Archive -Path (Join-Path $Source "*") -DestinationPath $Zip -Force
+  $zipSize = (Get-Item -LiteralPath $Zip).Length
+  Write-Host ("Prepared {0} with {1} files, {2} bytes." -f (Split-Path -Leaf $Zip), @($files).Count, $zipSize)
+}
+
+$rootStage = Join-Path $env:WORKSPACE "publish-root"
+if (Test-Path -LiteralPath $rootStage) { Remove-Item -LiteralPath $rootStage -Recurse -Force }
+New-Item -ItemType Directory -Force -Path $rootStage | Out-Null
+foreach ($name in @("index.html", "summary.json", "release-o3-summary.json", "o1experimental-summary.json", "publishS3.py")) {
+  Copy-Item -LiteralPath (Join-Path $publishRoot $name) -Destination (Join-Path $rootStage $name) -Force
+}
+
+New-ZipFromDirectory -Source $rootStage -Zip (Join-Path $env:WORKSPACE "publish-root.zip")
+New-ZipFromDirectory -Source (Join-Path $publishRoot "release-o3") -Zip (Join-Path $env:WORKSPACE "publish-release-o3.zip")
+New-ZipFromDirectory -Source (Join-Path $publishRoot "o1experimental") -Zip (Join-Path $env:WORKSPACE "publish-o1experimental.zip")
+New-ZipFromDirectory -Source (Join-Path $publishRoot "o1experimental-vs-o3") -Zip (Join-Path $env:WORKSPACE "publish-o1experimental-vs-o3.zip")
 '''
                   powershell './prepare-publish-zip.ps1'
-                  storePublishArtifact = 'publish.zip'
+                  storePublishArtifacts = [
+                    [artifact: 'publish-root.zip', prefix: storePrefix, prune: false],
+                    [artifact: 'publish-release-o3.zip', prefix: storePrefix + 'release-o3/', prune: args.get('pruneAfterPublish', true)],
+                    [artifact: 'publish-o1experimental.zip', prefix: storePrefix + 'o1experimental/', prune: args.get('pruneAfterPublish', true)],
+                    [artifact: 'publish-o1experimental-vs-o3.zip', prefix: storePrefix + 'o1experimental-vs-o3/', prune: args.get('pruneAfterPublish', true)]
+                  ]
                 } else {
                   echo 'Publishing disabled by PUBLISH=false.'
                 }
               }
 
               stage('Artifacts') {
-                archiveArtifacts artifacts: 'package-release.json,package-o1experimental.json,scene-cache-info.json,scene-git-request.json,git-object-cache.json,resolved-scenes.json,selected-scenes.txt,isolated-summaries/**/*.json,ex40-*.log,publish.zip,publish/index.html,publish/summary.json,publish/publishS3.py,publish/release-o3-summary.json,publish/o1experimental-summary.json,publish/release-o3/summary.json,publish/o1experimental/summary.json,publish/o1experimental-vs-o3/summary.json', allowEmptyArchive: true, fingerprint: false
+                archiveArtifacts artifacts: 'package-release.json,package-o1experimental.json,scene-cache-info.json,scene-git-request.json,git-object-cache.json,resolved-scenes.json,selected-scenes.txt,isolated-summaries/**/*.json,ex40-*.log,publish-*.zip,publish/index.html,publish/summary.json,publish/publishS3.py,publish/release-o3-summary.json,publish/o1experimental-summary.json,publish/release-o3/summary.json,publish/o1experimental/summary.json,publish/o1experimental-vs-o3/summary.json', allowEmptyArchive: true, fingerprint: false
               }
             }
           }
@@ -723,15 +747,19 @@ Write-Host ("Prepared publish.zip with {0} files, {1} bytes." -f @($files).Count
 
     stage('Publish comparison') {
       if (publish) {
-        if (!storePublishArtifact) {
-          error 'Store publish artifact was not prepared.'
+        if (!storePublishArtifacts) {
+          error 'Store publish artifacts were not prepared.'
         }
-        def result = storePublishReportArtifact(storePrefix, storePublishArtifact, [
-          jobs: args.get('publishJobs', 8),
-          pruneAfterPublish: args.get('pruneAfterPublish', true),
-          deleteAfterPublish: args.get('deletePublishArtifactAfterPublish', true)
-        ])
-        reportUrl = result.url
+        storePublishArtifacts.eachWithIndex { item, index ->
+          def result = storePublishReportArtifact(item.prefix, item.artifact, [
+            jobs: args.get('publishJobs', 8),
+            pruneAfterPublish: item.prune,
+            deleteAfterPublish: args.get('deletePublishArtifactAfterPublish', true)
+          ])
+          if (index == 0) {
+            reportUrl = result.url
+          }
+        }
         updateBuildDescription()
       } else {
         echo 'Publishing disabled by PUBLISH=false.'

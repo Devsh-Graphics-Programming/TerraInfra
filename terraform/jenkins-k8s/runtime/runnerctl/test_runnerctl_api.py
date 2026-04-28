@@ -629,22 +629,46 @@ class JenkinsApiClientTests(unittest.TestCase):
         self.assertEqual(result["bytes"], 7)
         self.assertEqual(jenkins.calls, [("ci/ditt/real/ex40-public", 3, "publish.zip")])
 
+    def test_delete_jenkins_artifact_accepts_split_publish_zip(self):
+        class FakeJenkinsClient:
+            def __init__(self):
+                self.calls = []
+
+            def delete_artifact_file(self, job, build_number, artifact_path):
+                self.calls.append((job, build_number, artifact_path))
+                return {"result": "deleted", "bytes": 7}
+
+        jenkins = FakeJenkinsClient()
+        result = runnerctl_api.delete_jenkins_artifact(
+            {
+                "job": "ci/ditt/compare/o1experimental-vs-o3-public",
+                "build": "9",
+                "artifact": "publish-o1experimental-vs-o3.zip",
+            },
+            jenkins,
+        )
+
+        self.assertEqual(result["result"], "deleted")
+        self.assertEqual(jenkins.calls, [("ci/ditt/compare/o1experimental-vs-o3-public", 9, "publish-o1experimental-vs-o3.zip")])
+
     def test_delete_jenkins_artifact_rejects_non_publish_zip(self):
         class FakeJenkinsClient:
             def delete_artifact_file(self, job, build_number, artifact_path):
                 raise AssertionError("must not be called")
 
-        with self.assertRaises(runnerctl_api.RunnerCtlError) as raised:
-            runnerctl_api.delete_jenkins_artifact(
-                {
-                    "job": "ci/ditt/real/ex40-public",
-                    "build": "3",
-                    "artifact": "summary.json",
-                },
-                FakeJenkinsClient(),
-            )
+        for artifact in ["summary.json", "reports/publish.zip", "publish-.zip"]:
+            with self.subTest(artifact=artifact):
+                with self.assertRaises(runnerctl_api.RunnerCtlError) as raised:
+                    runnerctl_api.delete_jenkins_artifact(
+                        {
+                            "job": "ci/ditt/real/ex40-public",
+                            "build": "3",
+                            "artifact": artifact,
+                        },
+                        FakeJenkinsClient(),
+                    )
 
-        self.assertEqual(raised.exception.code, "invalid-request")
+                self.assertEqual(raised.exception.code, "invalid-request")
 
     def test_post_refreshes_crumb_and_retries_after_stale_403(self):
         class FakeResponse:

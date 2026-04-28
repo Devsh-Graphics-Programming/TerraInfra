@@ -37,6 +37,7 @@ LEASE_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 STORE_PATH_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/+-]*$")
 GIT_CACHE_REPO_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*\.git$")
 CONTENT_TYPE_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*(; ?[A-Za-z0-9_.-]+=[A-Za-z0-9_.-]+)*$")
+TRANSIENT_PUBLISH_ARTIFACT_PATTERN = re.compile(r"^publish(?:-[a-z0-9][a-z0-9_.-]*)?\.zip$")
 ACTIVE_RUNNER_STATES = {"creating", "ready", "leased", "booting", "healthy", "agent-online"}
 READY_POOL_STATES = {"ready"}
 HOT_POOL_TAGS_READY = "runnerctl;lifecycle-ephemeral;hot-pool;ready"
@@ -1209,11 +1210,11 @@ def delete_jenkins_artifact(request_data, jenkins_client):
     job = normalize_jenkins_job_path(request_data.get("job", ""))
     build_number = require_int(request_data.get("build", ""), "build", minimum=1)
     artifact_path = normalize_store_file_path(request_data.get("artifact", ""), "artifact")
-    if artifact_path != "publish.zip":
+    if "/" in artifact_path or not TRANSIENT_PUBLISH_ARTIFACT_PATTERN.fullmatch(artifact_path):
         raise RunnerCtlError(
             HTTPStatus.BAD_REQUEST,
             "invalid-request",
-            "Only the transient publish.zip artifact can be deleted through runnerctl.",
+            "Only transient publish*.zip artifacts can be deleted through runnerctl.",
             {"field": "artifact"},
         )
     result = jenkins_client.delete_artifact_file(job, build_number, artifact_path)
