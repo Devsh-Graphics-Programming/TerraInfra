@@ -147,6 +147,13 @@ data:
             description('Read-only runner platform status and diagnostics.')
           }
 
+          def abortPreviousBuilds = { project ->
+            def properties = project / 'properties'
+            properties << 'org.jenkinsci.plugins.workflow.job.properties.DisableConcurrentBuildsJobProperty' {
+              abortPrevious(true)
+            }
+          }
+
           pipelineJob('system/smoke') {
             description('Verifies the controller can load configuration and run a lightweight pipeline.')
             definition {
@@ -1230,6 +1237,7 @@ data:
               booleanParam('PUBLISH', true, 'Publish the generated dummy report to store.devsh.eu.')
             }
             configure { project ->
+              abortPreviousBuilds(project)
               def parameterDefinitions = project / 'properties' / 'hudson.model.ParametersDefinitionProperty' / 'parameterDefinitions'
               parameterDefinitions << 'io.jenkins.plugins.file_parameters.StashedFileParameterDefinition' {
                 name('EX40_PACKAGE_FILE')
@@ -1465,6 +1473,7 @@ data:
               booleanParam('PUBLISH', true, 'Publish the generated report to store.devsh.eu.')
             }
             configure { project ->
+              abortPreviousBuilds(project)
               def parameterDefinitions = project / 'properties' / 'hudson.model.ParametersDefinitionProperty' / 'parameterDefinitions'
               parameterDefinitions << 'io.jenkins.plugins.file_parameters.StashedFileParameterDefinition' {
                 name('EX40_PACKAGE_FILE')
@@ -1826,6 +1835,7 @@ data:
               booleanParam('PUBLISH', true, 'Publish the generated report to store.devsh.eu.')
             }
             configure { project ->
+              abortPreviousBuilds(project)
               def parameterDefinitions = project / 'properties' / 'hudson.model.ParametersDefinitionProperty' / 'parameterDefinitions'
               parameterDefinitions << 'io.jenkins.plugins.file_parameters.StashedFileParameterDefinition' {
                 name('EX40_PACKAGE_FILE')
@@ -1875,6 +1885,7 @@ data:
               booleanParam('PUBLISH', true, 'Publish the generated report to store.devsh.eu.')
             }
             configure { project ->
+              abortPreviousBuilds(project)
               def parameterDefinitions = project / 'properties' / 'hudson.model.ParametersDefinitionProperty' / 'parameterDefinitions'
               parameterDefinitions << 'io.jenkins.plugins.file_parameters.StashedFileParameterDefinition' {
                 name('EX40_PACKAGE_FILE')
@@ -1924,6 +1935,7 @@ data:
               booleanParam('PUBLISH', true, 'Publish the generated comparison report to store.devsh.eu.')
             }
             configure { project ->
+              abortPreviousBuilds(project)
               def parameterDefinitions = project / 'properties' / 'hudson.model.ParametersDefinitionProperty' / 'parameterDefinitions'
               parameterDefinitions << 'io.jenkins.plugins.file_parameters.StashedFileParameterDefinition' {
                 name('EX40_RELEASE_PACKAGE_FILE')
@@ -1976,6 +1988,7 @@ data:
               booleanParam('PUBLISH', true, 'Publish the generated comparison report to store.devsh.eu.')
             }
             configure { project ->
+              abortPreviousBuilds(project)
               def parameterDefinitions = project / 'properties' / 'hudson.model.ParametersDefinitionProperty' / 'parameterDefinitions'
               parameterDefinitions << 'io.jenkins.plugins.file_parameters.StashedFileParameterDefinition' {
                 name('EX40_RELEASE_PACKAGE_FILE')
@@ -2026,6 +2039,7 @@ data:
               booleanParam('PUBLISH', true, 'Publish the generated comparison report to store.devsh.eu.')
             }
             configure { project ->
+              abortPreviousBuilds(project)
               def parameterDefinitions = project / 'properties' / 'hudson.model.ParametersDefinitionProperty' / 'parameterDefinitions'
               parameterDefinitions << 'io.jenkins.plugins.file_parameters.StashedFileParameterDefinition' {
                 name('EX40_COMPARE_PACKAGE_FILE')
@@ -2076,6 +2090,7 @@ data:
               booleanParam('PUBLISH', true, 'Publish the generated comparison report to store.devsh.eu.')
             }
             configure { project ->
+              abortPreviousBuilds(project)
               def parameterDefinitions = project / 'properties' / 'hudson.model.ParametersDefinitionProperty' / 'parameterDefinitions'
               parameterDefinitions << 'io.jenkins.plugins.file_parameters.StashedFileParameterDefinition' {
                 name('EX40_COMPARE_PACKAGE_FILE')

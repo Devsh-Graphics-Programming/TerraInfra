@@ -66,6 +66,11 @@ Current jobs:
 - `ci/ditt/compare/report-bundle-o1experimental-vs-o3-public` and `ci/ditt/compare/report-bundle-o1experimental-vs-o3-private`: compare already generated report bundles without materializing scenes or rendering frames. These jobs take one EX40 compare-capable runtime package and either two report bundle zips or two `store.devsh.eu` report URLs backed by `publish-manifest.json`, then publish the combined latest comparison index.
 - `ci/ditt/ex40-report-plan`: validates EX40 report publish parameters and stays in dry-run mode until the runtime backend is connected.
 
+DITT GPU jobs that lease Windows runners use Jenkins `disableConcurrentBuilds`
+with `abortPrevious=true`. A newer build of the same Jenkins job aborts the older
+one, which prevents superseded GitHub pushes from keeping the single GPU runner
+busy after Actions concurrency has moved on.
+
 Proxmox API credentials stay in the `proxmox-runner-api` Kubernetes Secret and Jenkins API credentials stay in the `jenkins-admin` Kubernetes Secret. Both are consumed by the `runnerctl` sidecar, not by JCasC job definitions. Store publish credentials stay in the optional `jenkins-store-publisher` Kubernetes Secret and are consumed only by `runnerctl`, so Windows runners receive no Object Storage keys. Do not add plaintext credentials to job definitions or workflow inputs.
 
 Runner platform design is documented in `docs/proxmox-runners.md`. DITT and EX40 jobs should consume that generic layer by labels, not by Proxmox node names, VM IDs, storage names, PCI IDs, or mutable pet templates.
