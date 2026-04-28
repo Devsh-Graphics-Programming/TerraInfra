@@ -10,6 +10,7 @@ import threading
 import time
 import traceback
 import urllib.parse
+import urllib.request
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -82,14 +83,33 @@ def elapsed_ms(started_ms):
     return max(0, monotonic_ms() - started_ms)
 
 
+class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, file_pointer, code, message, headers, new_url):
+        return None
+
+
 class CacheConfig:
-    def __init__(self, path, root, public_git_base_url, blob_root=None, blob_allowed_prefixes=None, blob_max_bytes=536870912):
+    def __init__(
+        self,
+        path,
+        root,
+        public_git_base_url,
+        blob_root=None,
+        blob_allowed_prefixes=None,
+        blob_max_bytes=536870912,
+        blob_fetch_allowed_url_prefixes=None,
+        blob_fetch_timeout_seconds=300,
+        url_opener=None,
+    ):
         self.path = Path(path)
         self.root = Path(root)
         self.public_git_base_url = public_git_base_url.rstrip("/")
         self.blob_root = Path(blob_root) if blob_root else self.root / "blobs"
         self.blob_allowed_prefixes = [prefix.strip().replace("\\", "/").strip("/") + "/" for prefix in (blob_allowed_prefixes or ["runner-cache/"])]
         self.blob_max_bytes = int(blob_max_bytes)
+        self.blob_fetch_allowed_url_prefixes = [prefix.strip() for prefix in (blob_fetch_allowed_url_prefixes or []) if prefix.strip()]
+        self.blob_fetch_timeout_seconds = int(blob_fetch_timeout_seconds)
+        self.url_opener = url_opener or urllib.request.build_opener(NoRedirectHandler)
         self._lock = threading.Lock()
         self._mtime = None
         self._repos = None
@@ -166,6 +186,17 @@ class CacheConfig:
         except ValueError as exc:
             raise CacheError(HTTPStatus.BAD_REQUEST, "invalid-blob-key", "Blob cache key escapes cache root.") from exc
         return normalized, path
+
+    def normalize_fetch_url(self, url):
+        text = str(url or "").strip()
+        parsed = urllib.parse.urlsplit(text)
+        if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password or parsed.fragment:
+            raise CacheError(HTTPStatus.BAD_REQUEST, "invalid-fetch-url", "Blob fetch URL must be a plain HTTPS URL.")
+        if not self.blob_fetch_allowed_url_prefixes:
+            raise CacheError(HTTPStatus.FORBIDDEN, "fetch-url-not-allowed", "Blob fetch is disabled.")
+        if not any(text.startswith(prefix) for prefix in self.blob_fetch_allowed_url_prefixes):
+            raise CacheError(HTTPStatus.FORBIDDEN, "fetch-url-not-allowed", "Blob fetch URL is outside the allowed prefixes.")
+        return text
 
 
 class GitObjectCache:
@@ -292,6 +323,55 @@ class GitObjectCache:
                 pass
         return {"key": normalized, "size": written, "sha256": digest.hexdigest()}
 
+    def fetch_blob(self, key, url, refresh=False):
+        normalized, path = self.config.blob_path(key)
+        if path.is_file() and not refresh:
+            metadata = self.blob_metadata(normalized)
+            return {"cached": True, "key": normalized, "size": metadata["size"], "sha256": metadata["sha256"]}
+
+        fetch_url = self.config.normalize_fetch_url(url)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = path.with_name(f".{path.name}.fetch.{os.getpid()}.{threading.get_ident()}")
+        digest = hashlib.sha256()
+        written = 0
+        started_ms = monotonic_ms()
+        try:
+            request = urllib.request.Request(fetch_url, headers={"User-Agent": "proxmox-runner-git-cache/0.1"})
+            with self.config.url_opener.open(request, timeout=self.config.blob_fetch_timeout_seconds) as response:
+                status = getattr(response, "status", response.getcode())
+                if status != 200:
+                    raise CacheError(HTTPStatus.BAD_GATEWAY, "blob-fetch-failed", "Blob fetch returned a non-200 response.", {"status": status})
+                content_length = response.headers.get("Content-Length")
+                if content_length is not None and int(content_length) > self.config.blob_max_bytes:
+                    raise CacheError(
+                        HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                        "blob-too-large",
+                        "Fetched blob exceeds the configured size limit.",
+                        {"max_bytes": self.config.blob_max_bytes},
+                    )
+                with tmp_path.open("wb") as handle:
+                    while True:
+                        chunk = response.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        written += len(chunk)
+                        if written > self.config.blob_max_bytes:
+                            raise CacheError(
+                                HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                                "blob-too-large",
+                                "Fetched blob exceeds the configured size limit.",
+                                {"max_bytes": self.config.blob_max_bytes},
+                            )
+                        handle.write(chunk)
+                        digest.update(chunk)
+            os.replace(tmp_path, path)
+        finally:
+            try:
+                tmp_path.unlink()
+            except FileNotFoundError:
+                pass
+        return {"cached": False, "key": normalized, "size": written, "sha256": digest.hexdigest(), "fetch_ms": elapsed_ms(started_ms)}
+
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "proxmox-runner-git-cache/0.1"
@@ -392,6 +472,11 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             parsed_path = urllib.parse.urlsplit(self.path).path
+            if parsed_path == "/api/v1/blob/fetch":
+                body = self._read_json()
+                result = self.server.cache.fetch_blob(body.get("key"), body.get("url"), bool(body.get("refresh", False)))
+                self._write_json(HTTPStatus.OK, {"status": "ok", **result})
+                return
             if parsed_path != "/api/v1/fetch":
                 self._write_json(HTTPStatus.NOT_FOUND, {"status": "error", "code": "not-found", "message": "Unknown endpoint."})
                 return
@@ -438,11 +523,22 @@ def main():
     blob_cache_root = os.getenv("BLOB_CACHE_ROOT", str(Path(cache_root) / "blobs"))
     blob_allowed_prefixes = [item for item in os.getenv("BLOB_CACHE_ALLOWED_PREFIXES", "runner-cache/").split(",") if item.strip()]
     blob_max_bytes = int(os.getenv("BLOB_CACHE_MAX_BYTES", "536870912"))
+    blob_fetch_allowed_url_prefixes = [item for item in os.getenv("BLOB_FETCH_ALLOWED_URL_PREFIXES", "").split(",") if item.strip()]
+    blob_fetch_timeout_seconds = int(os.getenv("BLOB_FETCH_TIMEOUT_SECONDS", "300"))
     listen_host = os.getenv("GIT_CACHE_API_LISTEN_HOST", "127.0.0.1")
     listen_port = int(os.getenv("GIT_CACHE_API_PORT", "18082"))
     public_git_base_url = os.getenv("GIT_CACHE_PUBLIC_GIT_BASE_URL", "git://127.0.0.1")
 
-    config = CacheConfig(config_path, cache_root, public_git_base_url, blob_cache_root, blob_allowed_prefixes, blob_max_bytes)
+    config = CacheConfig(
+        config_path,
+        cache_root,
+        public_git_base_url,
+        blob_cache_root,
+        blob_allowed_prefixes,
+        blob_max_bytes,
+        blob_fetch_allowed_url_prefixes,
+        blob_fetch_timeout_seconds,
+    )
     cache = GitObjectCache(config)
     server = Server((listen_host, listen_port), cache)
     print(f"proxmox runner git cache listening on {listen_host}:{listen_port}", flush=True)

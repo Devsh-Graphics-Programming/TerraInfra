@@ -172,6 +172,8 @@ def call(Map args = [:]) {
                 'SCENE_SUITE=' + suite,
                 'BASELINE_REPORT_URL=' + (baselineReportUrl ?: ''),
                 'CANDIDATE_REPORT_URL=' + (candidateReportUrl ?: ''),
+                'STORE_BLOB_CACHE_API_URL=' + (runner.git_object_cache?.api_url ?: ''),
+                'STORE_BLOB_CACHE_SCOPE=' + (sourceSha ?: env.BUILD_TAG ?: env.BUILD_NUMBER ?: ''),
                 'STORE_HOST_ALIASES_JSON=' + (storeHostAliases ? groovy.json.JsonOutput.toJson(storeHostAliases) : '[]')
               ]) {
               stage('Acquire compare package') {
@@ -293,9 +295,36 @@ function Get-CurlResolveArgs {
   }
   return $resolveArgs
 }
+function ConvertTo-SafeCacheSegment {
+  param([Parameter(Mandatory = $true)][string] $Text)
+  $safe = $Text.Trim() -replace "[^A-Za-z0-9._-]", "-"
+  if (-not $safe) { throw "Store blob cache scope is empty." }
+  return $safe
+}
+function New-StoreCacheKey {
+  param([Parameter(Mandatory = $true)][string] $Name, [Parameter(Mandatory = $true)][string] $Relative)
+  $nameSegment = ConvertTo-SafeCacheSegment -Text $Name
+  $scope = if ($env:STORE_BLOB_CACHE_SCOPE) { $env:STORE_BLOB_CACHE_SCOPE } else { $env:BUILD_TAG }
+  $scopeSegment = ConvertTo-SafeCacheSegment -Text $scope
+  $relativeText = $Relative.Replace([char]92, [char]47)
+  if (-not (Test-SafeRelativePath -Relative $relativeText)) { throw "Store blob cache relative path is unsafe: $relativeText" }
+  return "store-cache/ditt/$env:SCENE_SUITE/$nameSegment/$scopeSegment/$relativeText"
+}
 function Invoke-StoreDownload {
-  param([Parameter(Mandatory = $true)][System.Uri] $Uri, [Parameter(Mandatory = $true)][string] $OutFile, [Parameter(Mandatory = $true)][string] $Name)
+  param([Parameter(Mandatory = $true)][System.Uri] $Uri, [Parameter(Mandatory = $true)][string] $OutFile, [Parameter(Mandatory = $true)][string] $Name, [Parameter(Mandatory = $true)][string] $CacheKey)
   if ($Uri.Scheme -ne "https" -or $Uri.Host -ne "store.devsh.eu") { throw "$Name must use https://store.devsh.eu." }
+  if ($env:STORE_BLOB_CACHE_API_URL) {
+    if (($CacheKey -notmatch "^[A-Za-z0-9][A-Za-z0-9._/-]*$") -or $CacheKey.Contains("..") -or $CacheKey.StartsWith("/") -or $CacheKey.EndsWith("/")) {
+      throw "Store blob cache key is invalid: $CacheKey"
+    }
+    $apiUrl = ([string]$env:STORE_BLOB_CACHE_API_URL).TrimEnd("/")
+    $fetchBody = @{ key = $CacheKey; url = $Uri.AbsoluteUri; refresh = $false } | ConvertTo-Json -Depth 4
+    $fetch = Invoke-RestMethod -Uri ($apiUrl + "/api/v1/blob/fetch") -Method Post -Body $fetchBody -ContentType "application/json"
+    if ($fetch.status -ne "ok") { throw "Store blob cache fetch failed for $Name." }
+    Invoke-WebRequest -Uri ($apiUrl + "/api/v1/blob/" + $CacheKey) -OutFile $OutFile -UseBasicParsing
+    Write-Host ("Store blob cache {0}: cached={1}, size={2}, key={3}" -f $Name, $fetch.cached, $fetch.size, $CacheKey)
+    return
+  }
   $resolveArgs = @(Get-CurlResolveArgs -HostName $Uri.Host)
   if ($resolveArgs.Count -gt 0) {
     $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
@@ -320,7 +349,7 @@ function Install-ReportBundleFromStore {
   if (Test-Path -LiteralPath $destination) { Remove-Item -LiteralPath $destination -Recurse -Force }
   New-Item -ItemType Directory -Path $destination -Force | Out-Null
   $manifestPath = Join-Path $env:WORKSPACE ("store-manifest-" + $Name + ".json")
-  Invoke-StoreDownload -Uri ([System.Uri]($SourceUrl + "publish-manifest.json")) -OutFile $manifestPath -Name "$Name store manifest"
+  Invoke-StoreDownload -Uri ([System.Uri]($SourceUrl + "publish-manifest.json")) -OutFile $manifestPath -Name "$Name store manifest" -CacheKey (New-StoreCacheKey -Name $Name -Relative "publish-manifest.json")
   $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
   if ([int]$manifest.schema -ne 1 -or -not $manifest.files) { throw "$Name store manifest is unsupported." }
   $files = @($manifest.files)
@@ -335,7 +364,7 @@ function Install-ReportBundleFromStore {
     if ($target -ne $destinationFull -and -not $target.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) { throw "$Name report path escapes destination: $relativeText" }
     New-Item -ItemType Directory -Path ([System.IO.Path]::GetDirectoryName($target)) -Force | Out-Null
     $relativeUrl = $relativeText.Replace([char]92, [char]47)
-    Invoke-StoreDownload -Uri ([System.Uri]($SourceUrl + $relativeUrl)) -OutFile $target -Name ("$Name report file " + $relativeUrl)
+    Invoke-StoreDownload -Uri ([System.Uri]($SourceUrl + $relativeUrl)) -OutFile $target -Name ("$Name report file " + $relativeUrl) -CacheKey (New-StoreCacheKey -Name $Name -Relative $relativeUrl)
   }
   $elapsedMs = [int]((Get-Date) - $started).TotalMilliseconds
   $summary = Get-Content -LiteralPath (Join-Path $destination "summary.json") | ConvertFrom-Json

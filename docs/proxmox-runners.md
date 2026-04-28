@@ -460,6 +460,9 @@ depending on DITT-specific data.
 The same host-side API may also expose narrow runner-local blob caches for
 non-secret generated runtime data. Blob endpoints do not list keys and should
 stay limited to explicit prefixes configured on the host.
+Hosts may additionally allow fetching specific HTTPS URL prefixes into those
+blob caches. Keep this allowlist narrow, for example a report store prefix, so
+the cache cannot become a general-purpose network proxy.
 
 Windows runtime templates should include Git when jobs need Git cache
 materialization. A host can also expose a `git_client_url` plus

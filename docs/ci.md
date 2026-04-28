@@ -111,6 +111,10 @@ Current object stores are split by reuse and sensitivity:
 - `ditt-reference-renders`: DITT reference renders.
 
 Jenkins does not upload media, scenes, or reference renders. It only passes commit SHAs, suite name, shard index, and the small EX40 runtime package. Object cache remotes and any read-only credentials are host-side configuration and must not be committed.
+Report-bundle compare jobs can also materialize allowlisted `store.devsh.eu`
+report files through the runner-farm blob cache API. This keeps Windows runners
+on the runner VLAN and avoids routing public store traffic through the VM while
+still keeping the cache endpoint generic and prefix-limited.
 Large EX40 reports are published through a transient workspace `publish.zip`
 upload to the generic `runnerctl` store endpoint. Jenkins does not archive the
 zip and the build keeps only small diagnostics such as logs, metadata,
