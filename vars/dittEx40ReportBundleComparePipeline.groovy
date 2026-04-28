@@ -307,16 +307,16 @@ function Install-StoreHostAliases {
   if (-not $env:STORE_HOST_ALIASES_JSON) { return }
   $aliases = @($env:STORE_HOST_ALIASES_JSON | ConvertFrom-Json)
   if ($aliases.Count -lt 1) { return }
-  $hostsPath = Join-Path $env:WINDIR "System32\drivers\etc\hosts"
+  $hostsPath = Join-Path $env:WINDIR "System32/drivers/etc/hosts"
   $lines = @()
   if (Test-Path -LiteralPath $hostsPath) {
-    $lines = @([System.IO.File]::ReadAllLines($hostsPath) | Where-Object { $_ -notmatch "\s# devsh-ci-store-host-alias$" })
+    $lines = @([System.IO.File]::ReadAllLines($hostsPath) | Where-Object { -not $_.EndsWith(" # devsh-ci-store-host-alias") })
   }
   foreach ($alias in $aliases) {
     $hostName = [string]$alias.host
     $address = [string]$alias.address
     if (-not ($hostName -match "^[A-Za-z0-9.-]+$")) { throw "Unsafe store host alias name: $hostName" }
-    if (-not ($address -match "^[0-9]{1,3}(\.[0-9]{1,3}){3}$")) { throw "Unsafe store host alias address: $address" }
+    if (-not ($address -match "^[0-9]{1,3}([.][0-9]{1,3}){3}$")) { throw "Unsafe store host alias address: $address" }
     $lines += ("{0} {1} # devsh-ci-store-host-alias" -f $address, $hostName)
     Write-Host ("Store host alias: {0} -> {1}" -f $hostName, $address)
   }
