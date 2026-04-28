@@ -63,7 +63,7 @@ Current jobs:
 - `ci/ditt/real/ex40-public`: runs the full public EX40 DITT scene suite from Git object cache commits and publishes the real report to `https://store.devsh.eu/ditt/public/latest/`.
 - `ci/ditt/real/ex40-private`: runs the full private EX40 DITT scene suite from Git object cache commits and publishes the real report to `https://store.devsh.eu/ditt/private/latest/`. Private full-scene jobs run isolated scenes with a 15 minute per-scene timeout and a larger runner lease budget so slow scenes fail as report data rather than aborting the infrastructure job.
 - `ci/ditt/compare/o1experimental-vs-o3-public` and `ci/ditt/compare/o1experimental-vs-o3-private`: legacy diagnostic jobs that render Release/O3 and O1experimental packages on the same runner, then publish a comparison report.
-- `ci/ditt/compare/report-bundle-o1experimental-vs-o3-public` and `ci/ditt/compare/report-bundle-o1experimental-vs-o3-private`: compare already generated report bundles without materializing scenes or rendering frames. These jobs take one EX40 compare-capable runtime package plus two report bundle zips and publish the combined latest comparison index.
+- `ci/ditt/compare/report-bundle-o1experimental-vs-o3-public` and `ci/ditt/compare/report-bundle-o1experimental-vs-o3-private`: compare already generated report bundles without materializing scenes or rendering frames. These jobs take one EX40 compare-capable runtime package and either two report bundle zips or two `store.devsh.eu` report URLs backed by `publish-manifest.json`, then publish the combined latest comparison index.
 - `ci/ditt/ex40-report-plan`: validates EX40 report publish parameters and stays in dry-run mode until the runtime backend is connected.
 
 Proxmox API credentials stay in the `proxmox-runner-api` Kubernetes Secret and Jenkins API credentials stay in the `jenkins-admin` Kubernetes Secret. Both are consumed by the `runnerctl` sidecar, not by JCasC job definitions. Store publish credentials stay in the optional `jenkins-store-publisher` Kubernetes Secret and are consumed only by `runnerctl`, so Windows runners receive no Object Storage keys. Do not add plaintext credentials to job definitions or workflow inputs.
@@ -121,7 +121,10 @@ from becoming the long-term report store.
 Report upload logs include zip compression time, controller-to-runnerctl stream
 time, runnerctl processing time, `publishS3.py` time, and prune time. Jenkins
 Prometheus metrics include controller disk usage, and production alerts warn at
-80% and go critical at 90% usage on the Jenkins data volume.
+80% and go critical at 90% usage on the Jenkins data volume. The
+`Jenkins DITT Observability` Grafana dashboard tracks the Jenkins data volume,
+Jenkins node CPU, Jenkins node memory, and node exporter scrape health from the
+central Prometheus.
 When `FAIL_ON_RENDER_FAILURE=false`, EX40 may return a comparison-failure exit
 code and the Jenkins job still proceeds if `summary.json` was produced and no
 runtime/load errors appear in the log. If the report contains failed scenes, the

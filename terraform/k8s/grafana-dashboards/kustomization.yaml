@@ -9,5 +9,6 @@ configMapGenerator:
   - name: grafana-dashboards
     files:
       - node-exporter-full.json
+      - jenkins-ditt-observability.json
       - kubernetes-cluster-monitoring.json
       - prometheus-2-overview.json

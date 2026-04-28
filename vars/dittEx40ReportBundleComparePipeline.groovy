@@ -30,6 +30,8 @@ def call(Map args = [:]) {
   def sourceRunAttempt = null
   def sourceWorkflow = null
   def sourceUrl = null
+  def baselineReportUrl = null
+  def candidateReportUrl = null
   def runnerTimeoutMinutes = null
   def runnerSummary = [:]
   def compareFailureCount = null
@@ -75,6 +77,28 @@ def call(Map args = [:]) {
       runnerTimeoutMinutes = requireNumber(args.get('runnerTimeoutMinutes', '180'), 'runnerTimeoutMinutes', 10, 720)
       def rawPrefix = params.STORE_PREFIX?.trim() ?: args.defaultStorePrefix ?: defaultPrefixForSuite(suite)
       storePrefix = storeNormalizePrefix(rawPrefix, ['ditt/compare/o1experimental-vs-o3/' + suite + '/'])
+      def normalizeReportUrl = { Object value, String name ->
+        def text = value?.toString()?.trim()
+        if (!text) {
+          return null
+        }
+        if (!text.endsWith('/')) {
+          text += '/'
+        }
+        def expectedPrefix = 'https://store.devsh.eu/ditt/' + suite + '/'
+        if (!text.startsWith(expectedPrefix)) {
+          error(name + ' must stay under ' + expectedPrefix)
+        }
+        if (!(text ==~ /https:\/\/store\.devsh\.eu\/ditt\/[a-z]+\/[A-Za-z0-9._\/-]*\//)) {
+          error(name + ' contains unsupported characters.')
+        }
+        return text
+      }
+      baselineReportUrl = normalizeReportUrl(params.BASELINE_REPORT_URL, 'BASELINE_REPORT_URL')
+      candidateReportUrl = normalizeReportUrl(params.CANDIDATE_REPORT_URL, 'CANDIDATE_REPORT_URL')
+      if ((baselineReportUrl && !candidateReportUrl) || (!baselineReportUrl && candidateReportUrl)) {
+        error('BASELINE_REPORT_URL and CANDIDATE_REPORT_URL must be provided together.')
+      }
       publish = params.PUBLISH == null ? (args.get('publishDefault', true) as boolean) : (params.PUBLISH as boolean)
       sourceRepository = params.SOURCE_REPOSITORY?.trim()
       sourceBranch = params.SOURCE_BRANCH?.trim()
@@ -130,9 +154,13 @@ def call(Map args = [:]) {
         ]
         updateBuildDescription()
         withFileParameter(name: 'EX40_COMPARE_PACKAGE_FILE', allowNoFile: false) {
-          withFileParameter(name: 'BASELINE_REPORT_FILE', allowNoFile: false) {
-            withFileParameter(name: 'CANDIDATE_REPORT_FILE', allowNoFile: false) {
-              withEnv(['SCENE_SUITE=' + suite]) {
+          withFileParameter(name: 'BASELINE_REPORT_FILE', allowNoFile: true) {
+            withFileParameter(name: 'CANDIDATE_REPORT_FILE', allowNoFile: true) {
+              withEnv([
+                'SCENE_SUITE=' + suite,
+                'BASELINE_REPORT_URL=' + (baselineReportUrl ?: ''),
+                'CANDIDATE_REPORT_URL=' + (candidateReportUrl ?: '')
+              ]) {
               stage('Acquire compare package') {
                 writeFile file: 'acquire-compare-package.ps1', text: '''
 $ErrorActionPreference = "Stop"
@@ -221,11 +249,63 @@ function Install-ReportBundle {
   if ([int]$summary.num_of_tests -lt 1) { throw "$Name report contains no tests." }
   Write-Host ("Installed {0} report: status={1}, tests={2}, failures={3}" -f $Name, $summary.pass_status, $summary.num_of_tests, $summary.failure_count)
 }
+function Test-SafeRelativePath {
+  param([Parameter(Mandatory = $true)][string] $Relative)
+  $path = $Relative.Replace([char]92, [char]47)
+  if ($path.StartsWith("/") -or $path.Contains("//")) { return $false }
+  $segments = $path.Split([char]47)
+  if ($segments -contains ".." -or $segments -contains "") { return $false }
+  return $true
+}
+function Install-ReportBundleFromStore {
+  param([Parameter(Mandatory = $true)][string] $SourceUrl, [Parameter(Mandatory = $true)][string] $Name, [Parameter(Mandatory = $true)][string] $DestinationRelative)
+  $uri = [System.Uri]$SourceUrl
+  if ($uri.Scheme -ne "https" -or $uri.Host -ne "store.devsh.eu") { throw "$Name report URL must use https://store.devsh.eu." }
+  if (-not $uri.AbsolutePath.StartsWith("/ditt/$env:SCENE_SUITE/")) { throw "$Name report URL does not match suite $env:SCENE_SUITE." }
+  if (-not $SourceUrl.EndsWith("/")) { $SourceUrl += "/" }
+  $destination = Join-Path $env:WORKSPACE $DestinationRelative
+  if (Test-Path -LiteralPath $destination) { Remove-Item -LiteralPath $destination -Recurse -Force }
+  New-Item -ItemType Directory -Path $destination -Force | Out-Null
+  $manifestPath = Join-Path $env:WORKSPACE ("store-manifest-" + $Name + ".json")
+  Invoke-WebRequest -Uri ($SourceUrl + "publish-manifest.json") -OutFile $manifestPath -UseBasicParsing
+  $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+  if ([int]$manifest.schema -ne 1 -or -not $manifest.files) { throw "$Name store manifest is unsupported." }
+  $files = @($manifest.files)
+  if ($files.Count -lt 1) { throw "$Name store manifest contains no files." }
+  $started = Get-Date
+  foreach ($relative in $files) {
+    $relativeText = [string]$relative
+    if (-not (Test-SafeRelativePath -Relative $relativeText)) { throw "$Name store manifest contains an unsafe path: $relativeText" }
+    $target = [System.IO.Path]::GetFullPath((Join-Path $destination $relativeText))
+    $destinationFull = [System.IO.Path]::GetFullPath($destination)
+    $prefix = $destinationFull.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
+    if ($target -ne $destinationFull -and -not $target.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) { throw "$Name report path escapes destination: $relativeText" }
+    New-Item -ItemType Directory -Path ([System.IO.Path]::GetDirectoryName($target)) -Force | Out-Null
+    Invoke-WebRequest -Uri ($SourceUrl + ($relativeText -replace "\\", "/")) -OutFile $target -UseBasicParsing
+  }
+  $elapsedMs = [int]((Get-Date) - $started).TotalMilliseconds
+  $summary = Get-Content -LiteralPath (Join-Path $destination "summary.json") | ConvertFrom-Json
+  if ([int]$summary.num_of_tests -lt 1) { throw "$Name report contains no tests." }
+  if (-not (Test-Path -LiteralPath (Join-Path $destination "index.html"))) { throw "$Name report is missing index.html." }
+  Write-Host ("Installed {0} report from store: status={1}, tests={2}, failures={3}, files={4}, elapsed_ms={5}" -f $Name, $summary.pass_status, $summary.num_of_tests, $summary.failure_count, $files.Count, $elapsedMs)
+}
 $publishRoot = Join-Path $env:WORKSPACE "publish"
 if (Test-Path -LiteralPath $publishRoot) { Remove-Item -LiteralPath $publishRoot -Recurse -Force }
 New-Item -ItemType Directory -Path $publishRoot -Force | Out-Null
-Install-ReportBundle -Source $env:BASELINE_REPORT_FILE -Name "baseline" -DestinationRelative "publish/release-o3"
-Install-ReportBundle -Source $env:CANDIDATE_REPORT_FILE -Name "candidate" -DestinationRelative "publish/o1experimental"
+if ($env:BASELINE_REPORT_FILE -and (Test-Path -LiteralPath $env:BASELINE_REPORT_FILE)) {
+  Install-ReportBundle -Source $env:BASELINE_REPORT_FILE -Name "baseline" -DestinationRelative "publish/release-o3"
+} elseif ($env:BASELINE_REPORT_URL) {
+  Install-ReportBundleFromStore -SourceUrl $env:BASELINE_REPORT_URL -Name "baseline" -DestinationRelative "publish/release-o3"
+} else {
+  throw "Provide BASELINE_REPORT_FILE or BASELINE_REPORT_URL."
+}
+if ($env:CANDIDATE_REPORT_FILE -and (Test-Path -LiteralPath $env:CANDIDATE_REPORT_FILE)) {
+  Install-ReportBundle -Source $env:CANDIDATE_REPORT_FILE -Name "candidate" -DestinationRelative "publish/o1experimental"
+} elseif ($env:CANDIDATE_REPORT_URL) {
+  Install-ReportBundleFromStore -SourceUrl $env:CANDIDATE_REPORT_URL -Name "candidate" -DestinationRelative "publish/o1experimental"
+} else {
+  throw "Provide CANDIDATE_REPORT_FILE or CANDIDATE_REPORT_URL."
+}
 '''
                 powershell './extract-report-bundles.ps1'
               }

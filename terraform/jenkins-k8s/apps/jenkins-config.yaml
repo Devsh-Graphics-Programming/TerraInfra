@@ -2015,6 +2015,8 @@ data:
             }
             parameters {
               stringParam('STORE_PREFIX', 'ditt/compare/o1experimental-vs-o3/public/latest/', 'Destination prefix under store.devsh.eu. Must stay under ditt/compare/o1experimental-vs-o3/public/.')
+              stringParam('BASELINE_REPORT_URL', 'https://store.devsh.eu/ditt/public/latest/', 'Optional Release/O3 report URL. When set, Jenkins downloads the report from store.devsh.eu instead of requiring BASELINE_REPORT_FILE.')
+              stringParam('CANDIDATE_REPORT_URL', 'https://store.devsh.eu/ditt/public/o1experimental/latest/', 'Optional O1experimental report URL. When set, Jenkins downloads the report from store.devsh.eu instead of requiring CANDIDATE_REPORT_FILE.')
               stringParam('SOURCE_REPOSITORY', '', 'Optional GitHub repository owner/name that requested this run.')
               stringParam('SOURCE_BRANCH', '', 'Optional GitHub branch that requested this run.')
               stringParam('SOURCE_SHA', '', 'Optional GitHub commit SHA that requested this run.')
@@ -2063,6 +2065,8 @@ data:
             }
             parameters {
               stringParam('STORE_PREFIX', 'ditt/compare/o1experimental-vs-o3/private/latest/', 'Destination prefix under store.devsh.eu. Must stay under ditt/compare/o1experimental-vs-o3/private/.')
+              stringParam('BASELINE_REPORT_URL', 'https://store.devsh.eu/ditt/private/latest/', 'Optional Release/O3 report URL. When set, Jenkins downloads the report from store.devsh.eu instead of requiring BASELINE_REPORT_FILE.')
+              stringParam('CANDIDATE_REPORT_URL', 'https://store.devsh.eu/ditt/private/o1experimental/latest/', 'Optional O1experimental report URL. When set, Jenkins downloads the report from store.devsh.eu instead of requiring CANDIDATE_REPORT_FILE.')
               stringParam('SOURCE_REPOSITORY', '', 'Optional GitHub repository owner/name that requested this run.')
               stringParam('SOURCE_BRANCH', '', 'Optional GitHub branch that requested this run.')
               stringParam('SOURCE_SHA', '', 'Optional GitHub commit SHA that requested this run.')
