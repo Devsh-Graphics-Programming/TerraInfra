@@ -136,6 +136,7 @@ EOF
 chmod 0644 "${GIT_SERVICE_FILE}"
 
 systemctl daemon-reload
-systemctl enable --now "${API_SERVICE_NAME}" "${GIT_SERVICE_NAME}"
+systemctl enable "${API_SERVICE_NAME}" "${GIT_SERVICE_NAME}"
+systemctl restart "${API_SERVICE_NAME}" "${GIT_SERVICE_NAME}"
 systemctl is-active --quiet "${API_SERVICE_NAME}"
 systemctl is-active --quiet "${GIT_SERVICE_NAME}"
