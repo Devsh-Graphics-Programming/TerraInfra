@@ -102,14 +102,14 @@ def call(Map args = [:]) {
       }
       storeHostAliases = []
       [baselineReportUrl, candidateReportUrl].findAll { it }.collect { new URI(it).host }.unique().each { host ->
-        def addresses = java.net.InetAddress.getAllByName(host).findAll { it instanceof java.net.Inet4Address }.collect { it.hostAddress }
+        def addresses = java.net.InetAddress.getAllByName(host).findAll { it instanceof java.net.Inet4Address }.collect { it.getHostAddress().toString() }
         if (!addresses) {
           error('Could not resolve an IPv4 address for ' + host + '.')
         }
-        storeHostAliases << [host: host, address: addresses[0]]
+        storeHostAliases << [host: host.toString(), ip: addresses[0].toString()]
       }
       if (storeHostAliases) {
-        echo('Store host aliases: ' + storeHostAliases.collect { it.host + '=' + it.address }.join(', '))
+        echo('Store host aliases: ' + storeHostAliases.collect { it.host + '=' + it.ip }.join(', '))
       }
       publish = params.PUBLISH == null ? (args.get('publishDefault', true) as boolean) : (params.PUBLISH as boolean)
       sourceRepository = params.SOURCE_REPOSITORY?.trim()
@@ -314,7 +314,7 @@ function Install-StoreHostAliases {
   }
   foreach ($alias in $aliases) {
     $hostName = [string]$alias.host
-    $address = [string]$alias.address
+    $address = [string]$alias.ip
     if (-not ($hostName -match "^[A-Za-z0-9.-]+$")) { throw "Unsafe store host alias name: $hostName" }
     if (-not ($address -match "^[0-9]{1,3}([.][0-9]{1,3}){3}$")) { throw "Unsafe store host alias address: $address" }
     $lines += ("{0} {1} # devsh-ci-store-host-alias" -f $address, $hostName)
