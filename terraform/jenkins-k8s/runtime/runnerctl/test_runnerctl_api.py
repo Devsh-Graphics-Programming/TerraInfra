@@ -51,6 +51,7 @@ SAMPLE_INVENTORY = {
                     "bridge": "vmbr0",
                     "vlan_tag": 69,
                     "jenkins_host_alias_ip": "10.254.254.254",
+                    "dns_servers": ["1.1.1.1", "8.8.8.8"],
                 },
                 "git_object_cache": {
                     "api_url": "http://10.254.254.254:18082",
@@ -948,6 +949,7 @@ class CreateLeaseTests(unittest.TestCase):
             self.assertIn("clone_ms", result["timings"])
             record = lease_store.get(result["lease_id"])
             self.assertEqual(record["jenkins_host_alias_ip"], "10.254.254.254")
+            self.assertEqual(record["dns_servers"], ["1.1.1.1", "8.8.8.8"])
             self.assertEqual(record["git_object_cache"]["stores"][0]["git_url"], "git://10.254.254.254:9418/nabla-media-public.git")
             self.assertEqual(record["git_object_cache"]["git_client_sha256"], "04f937e1f0918b17b9be6f2294cb2bb66e96e1d9832d1c298e2de088a1d0e668")
             self.assertEqual(result["git_object_cache"]["stores"][1]["id"], "ditt-reference-scenes")
@@ -1005,6 +1007,7 @@ class CreateLeaseTests(unittest.TestCase):
             self.assertEqual(record["state"], "leased")
             self.assertFalse(record["pool_member"])
             self.assertEqual(record["jenkins_host_alias_ip"], "10.254.254.254")
+            self.assertEqual(record["dns_servers"], ["1.1.1.1", "8.8.8.8"])
             self.assertEqual(record["git_object_cache"]["api_url"], "http://10.254.254.254:18082")
             self.assertEqual(record["git_object_cache"]["git_client_url"], "http://10.254.254.254:18081/MinGit.zip")
 
@@ -1083,6 +1086,10 @@ class CreateLeaseTests(unittest.TestCase):
             self.assertIn("jenkins.example.invalid", script)
             self.assertIn("Register-ScheduledTask", script)
             self.assertIn("Clear-DnsClientCache", script)
+            self.assertIn("Set-DnsClientServerAddress", script)
+            self.assertIn("1.1.1.1", script)
+            self.assertIn("8.8.8.8", script)
+            self.assertIn("runnerctl: dnsServers={0}", script)
             self.assertIn("Sysnative/drivers/etc/hosts", script)
             self.assertIn("Test-RunnerctlHostsAlias", script)
             self.assertIn('"{0} {1} # runnerctl-jenkins"', script)

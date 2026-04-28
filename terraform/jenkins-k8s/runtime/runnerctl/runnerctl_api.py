@@ -1456,6 +1456,13 @@ def build_candidate(host, template, runner_class):
     host_alias_ip = optional_ipv4_address(network.get("jenkins_host_alias_ip"), "network.jenkins_host_alias_ip")
     if host_alias_ip:
         candidate["jenkins_host_alias_ip"] = host_alias_ip
+    dns_servers = [
+        optional_ipv4_address(item, f"network.dns_servers[{index}]")
+        for index, item in enumerate(require_list(network.get("dns_servers", []), "network.dns_servers"))
+    ]
+    dns_servers = [item for item in dns_servers if item]
+    if dns_servers:
+        candidate["dns_servers"] = dns_servers
     git_cache = host_git_object_cache(host)
     if git_cache:
         candidate["git_object_cache"] = git_cache
@@ -1475,6 +1482,7 @@ def public_candidate(candidate):
         "bridge": candidate["bridge"],
         "vlan_tag": candidate["vlan_tag"],
         "jenkins_host_alias_ip": candidate.get("jenkins_host_alias_ip"),
+        "dns_servers": candidate.get("dns_servers"),
         "git_object_cache": candidate.get("git_object_cache"),
     }
 
@@ -2338,6 +2346,7 @@ def acquire_ready_pool_member(client_registry, lease_store, inventory, resolved,
                     "policy": build_policy_record(resolved),
                     "health_checks": resolved["health_checks"],
                     "jenkins_host_alias_ip": candidate.get("jenkins_host_alias_ip"),
+                    "dns_servers": candidate.get("dns_servers"),
                     "git_object_cache": candidate.get("git_object_cache"),
                 },
             )
@@ -2451,6 +2460,7 @@ def create_lease(client_registry, lease_store, inventory, request_data):
                     "policy": build_policy_record(resolved),
                     "health_checks": resolved["health_checks"],
                     "jenkins_host_alias_ip": candidate.get("jenkins_host_alias_ip"),
+                    "dns_servers": candidate.get("dns_servers"),
                     "git_object_cache": candidate.get("git_object_cache"),
                     "timings": {
                         "clone_ms": clone_ms,
@@ -2546,9 +2556,11 @@ def start_jenkins_remoting_agent(
     secret,
     work_dir,
     host_alias_ip=None,
+    dns_servers=None,
     timeout_seconds=60,
 ):
     public_host = jenkins_public_hostname(jenkins_client.public_url)
+    dns_server_values = ", ".join(powershell_string(item) for item in (dns_servers or []))
     script = f"""
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -2559,8 +2571,22 @@ $jar = Join-Path $agentRoot 'agent.jar'
 $baseUrl = {powershell_string(jenkins_client.public_url)}
 $jenkinsHost = {powershell_string(public_host)}
 $hostAliasIp = {powershell_string(host_alias_ip or "")}
+$runnerctlDnsServers = @({dns_server_values})
 $javaHostsFile = Join-Path $agentRoot 'java-hosts'
 Write-Output ("runnerctl: jenkinsHost={{0}}; hostAliasIp={{1}}" -f $jenkinsHost, $(if ($hostAliasIp) {{ $hostAliasIp }} else {{ '<empty>' }}))
+if ($runnerctlDnsServers.Count -gt 0) {{
+  $dnsInterface = Get-NetIPInterface -AddressFamily IPv4 |
+    Where-Object {{ $_.ConnectionState -eq 'Connected' -and $_.InterfaceAlias -notlike 'Loopback*' }} |
+    Sort-Object InterfaceMetric |
+    Select-Object -First 1
+  if ($dnsInterface) {{
+    Set-DnsClientServerAddress -InterfaceIndex $dnsInterface.InterfaceIndex -ServerAddresses $runnerctlDnsServers -ErrorAction Stop
+    Clear-DnsClientCache -ErrorAction SilentlyContinue
+    Write-Output ("runnerctl: dnsServers={{0}} interface={{1}}" -f ($runnerctlDnsServers -join ','), $dnsInterface.InterfaceAlias)
+  }} else {{
+    Write-Output 'runnerctl: dnsServersSkipped=no-connected-ipv4-interface'
+  }}
+}}
 $hostAliasPresent = $false
 function Test-RunnerctlHostsAlias {{
   param([string]$Path, [string]$Address, [string]$HostName)
@@ -2822,6 +2848,7 @@ def attach_jenkins_agent_to_record(
             record.get("jenkins_host_alias_ip") or network.get("jenkins_host_alias_ip"),
             "network.jenkins_host_alias_ip",
         )
+        dns_servers = record.get("dns_servers") or network.get("dns_servers") or []
         start_jenkins_remoting_agent(
             client,
             node,
@@ -2831,6 +2858,7 @@ def attach_jenkins_agent_to_record(
             secret,
             work_dir,
             host_alias_ip=host_alias_ip,
+            dns_servers=dns_servers,
         )
         jenkins_client.wait_agent_online(node_name, timeout_seconds)
         return {
@@ -3526,6 +3554,7 @@ def build_ready_pool_member(client_registry, lease_store, inventory, resolved, c
         "policy": build_policy_record(resolved),
         "health_checks": resolved["health_checks"],
         "jenkins_host_alias_ip": candidate.get("jenkins_host_alias_ip"),
+        "dns_servers": candidate.get("dns_servers"),
         "git_object_cache": candidate.get("git_object_cache"),
     }
     lease_store.put(pool_id, record)

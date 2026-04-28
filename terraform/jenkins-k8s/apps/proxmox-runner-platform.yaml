@@ -56,7 +56,8 @@ data:
             "network": {
               "bridge": "vmbr0",
               "vlan_tag": 69,
-              "jenkins_host_alias_ip": "10.254.254.254"
+              "jenkins_host_alias_ip": "10.254.254.254",
+              "dns_servers": ["1.1.1.1", "8.8.8.8"]
             },
             "git_object_cache": {
               "api_url": "http://10.254.254.254:18082",
