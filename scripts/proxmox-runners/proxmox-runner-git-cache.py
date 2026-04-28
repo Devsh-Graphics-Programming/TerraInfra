@@ -19,7 +19,7 @@ from pathlib import Path
 ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{7,40}$")
 REPO_PATH_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*\.git$")
-BLOB_KEY_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
+BLOB_KEY_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/+-]*$")
 
 
 class CacheError(Exception):

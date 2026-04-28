@@ -314,7 +314,7 @@ function Invoke-StoreDownload {
   param([Parameter(Mandatory = $true)][System.Uri] $Uri, [Parameter(Mandatory = $true)][string] $OutFile, [Parameter(Mandatory = $true)][string] $Name, [Parameter(Mandatory = $true)][string] $CacheKey)
   if ($Uri.Scheme -ne "https" -or $Uri.Host -ne "store.devsh.eu") { throw "$Name must use https://store.devsh.eu." }
   if ($env:STORE_BLOB_CACHE_API_URL) {
-    if (($CacheKey -notmatch "^[A-Za-z0-9][A-Za-z0-9._/-]*$") -or $CacheKey.Contains("..") -or $CacheKey.StartsWith("/") -or $CacheKey.EndsWith("/")) {
+    if (($CacheKey -notmatch "^[A-Za-z0-9][A-Za-z0-9._/+-]*$") -or $CacheKey.Contains("..") -or $CacheKey.StartsWith("/") -or $CacheKey.EndsWith("/")) {
       throw "Store blob cache key is invalid: $CacheKey"
     }
     $apiUrl = ([string]$env:STORE_BLOB_CACHE_API_URL).TrimEnd("/")

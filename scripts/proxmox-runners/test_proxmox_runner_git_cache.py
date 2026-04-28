@@ -78,6 +78,12 @@ class BlobCacheTests(unittest.TestCase):
                 cache.put_blob("ditt/ex40/lds/v1/owen_sampler_buffer.bin", io.BytesIO(b"x" * 2048), 2048)
             self.assertEqual(raised.exception.code, "blob-too-large")
 
+    def test_blob_key_accepts_plus_signs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache = self.make_fetch_cache(directory, object())
+            key, _ = cache.config.blob_path("store-cache/ditt/public/references/render_cube_x+/render_cube_x+.exr")
+            self.assertEqual(key, "store-cache/ditt/public/references/render_cube_x+/render_cube_x+.exr")
+
     def test_fetch_blob_writes_allowed_https_url(self):
         class FakeResponse:
             status = 200
