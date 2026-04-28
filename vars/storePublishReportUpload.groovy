@@ -1,4 +1,55 @@
+import com.cloudbees.groovy.cps.NonCPS
 import groovy.json.JsonSlurperClassic
+
+@NonCPS
+private Map uploadZipToRunnerctl(hudson.FilePath remoteFile, String urlText, long fileLength, int connectTimeoutMs, int readTimeoutMs) {
+  HttpURLConnection connection = null
+  InputStream input = null
+  OutputStream output = null
+  InputStream responseStream = null
+  long streamMs = 0L
+  try {
+    connection = (HttpURLConnection) new URL(urlText).openConnection()
+    connection.setRequestMethod('PUT')
+    connection.setDoOutput(true)
+    connection.setConnectTimeout(connectTimeoutMs)
+    connection.setReadTimeout(readTimeoutMs)
+    connection.setRequestProperty('Content-Type', 'application/octet-stream')
+    connection.setFixedLengthStreamingMode(fileLength)
+
+    long streamStarted = System.currentTimeMillis()
+    input = remoteFile.read()
+    output = connection.outputStream
+    byte[] buffer = new byte[1024 * 1024]
+    int count = 0
+    while ((count = input.read(buffer)) >= 0) {
+      output.write(buffer, 0, count)
+    }
+    output.close()
+    output = null
+    input.close()
+    input = null
+    streamMs = System.currentTimeMillis() - streamStarted
+
+    int status = connection.responseCode
+    responseStream = status >= 400 ? connection.errorStream : connection.inputStream
+    String responseText = responseStream == null ? '' : responseStream.getText('UTF-8')
+    return [status: status, responseText: responseText, streamMs: streamMs]
+  } finally {
+    if (responseStream != null) {
+      responseStream.close()
+    }
+    if (output != null) {
+      output.close()
+    }
+    if (input != null) {
+      input.close()
+    }
+    if (connection != null) {
+      connection.disconnect()
+    }
+  }
+}
 
 def call(String prefix, String filePath = 'publish.zip', Map args = [:]) {
   def artifactName = (args.get('artifactName') ?: filePath.tokenize('/\\').last())?.toString()
@@ -33,35 +84,17 @@ def call(String prefix, String filePath = 'publish.zip', Map args = [:]) {
   }
   def fileLength = remoteFile.length()
   echo('Publishing report zip: artifact=' + artifactName + ', bytes=' + fileLength + ', prefix=' + prefix)
-  def url = new URL('http://127.0.0.1:18080/api/v1/store/publish-report-upload?' + query.join('&'))
-  def connection = (HttpURLConnection) url.openConnection()
-  connection.setRequestMethod('PUT')
-  connection.setDoOutput(true)
-  connection.setConnectTimeout(((args.get('connectTimeoutSeconds') ?: 30) as int) * 1000)
-  connection.setReadTimeout(((args.get('readTimeoutSeconds') ?: 7200) as int) * 1000)
-  connection.setRequestProperty('Content-Type', 'application/octet-stream')
-  connection.setFixedLengthStreamingMode(fileLength)
-  def streamStarted = System.currentTimeMillis()
-  def input = remoteFile.read()
-  try {
-    def output = connection.outputStream
-    try {
-      byte[] buffer = new byte[1024 * 1024]
-      int count = 0
-      while ((count = input.read(buffer)) >= 0) {
-        output.write(buffer, 0, count)
-      }
-    } finally {
-      output.close()
-    }
-  } finally {
-    input.close()
-  }
-  def streamMs = System.currentTimeMillis() - streamStarted
+  def upload = uploadZipToRunnerctl(
+    remoteFile,
+    'http://127.0.0.1:18080/api/v1/store/publish-report-upload?' + query.join('&'),
+    fileLength as long,
+    ((args.get('connectTimeoutSeconds') ?: 30) as int) * 1000,
+    ((args.get('readTimeoutSeconds') ?: 7200) as int) * 1000
+  )
+  def streamMs = upload.streamMs as long
   echo('Report zip stream completed in ' + runnerFormatDuration(streamMs) + '. Waiting for store publish result.')
-  def status = connection.responseCode
-  def responseStream = status >= 400 ? connection.errorStream : connection.inputStream
-  def responseText = responseStream == null ? '' : responseStream.getText('UTF-8')
+  def status = upload.status as int
+  def responseText = upload.responseText ?: ''
   def result = responseText ? new JsonSlurperClassic().parseText(responseText) : [:]
   result.runnerctl_http_ms = System.currentTimeMillis() - started
   if (status != 200 || result.status != 'ok') {
