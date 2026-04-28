@@ -99,6 +99,24 @@ spec:
           annotations:
             summary: Jenkins metrics scrape down
             description: Central Prometheus cannot scrape Jenkins application metrics for more than 5 minutes.
+        - alert: JenkinsDataVolumeUsageHigh
+          expr: (1 - (node_filesystem_avail_bytes{job="devsh-node-exporters",node="jenkins-prod",mountpoint="/mnt/data",fstype!~"tmpfs|ramfs"} / node_filesystem_size_bytes{job="devsh-node-exporters",node="jenkins-prod",mountpoint="/mnt/data",fstype!~"tmpfs|ramfs"})) * 100 >= 80
+          for: 15m
+          labels:
+            severity: warning
+            team: devops
+          annotations:
+            summary: Jenkins data volume usage >= 80%
+            description: Jenkins data volume on {{ $labels.instance }} is above 80% for 15 minutes.
+        - alert: JenkinsDataVolumeUsageCritical
+          expr: (1 - (node_filesystem_avail_bytes{job="devsh-node-exporters",node="jenkins-prod",mountpoint="/mnt/data",fstype!~"tmpfs|ramfs"} / node_filesystem_size_bytes{job="devsh-node-exporters",node="jenkins-prod",mountpoint="/mnt/data",fstype!~"tmpfs|ramfs"})) * 100 >= 90
+          for: 5m
+          labels:
+            severity: critical
+            team: devops
+          annotations:
+            summary: Jenkins data volume usage >= 90%
+            description: Jenkins data volume on {{ $labels.instance }} is above 90% for 5 minutes.
         - alert: RestartStorm
           expr: rate(kube_pod_container_status_restarts_total[10m]) > 5
           for: 10m

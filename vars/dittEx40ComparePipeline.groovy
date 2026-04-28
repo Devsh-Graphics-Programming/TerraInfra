@@ -394,8 +394,8 @@ exit 0
 '''
 
               if (isolateScenes) {
-                def sceneTimeoutSeconds = args.get('sceneTimeoutSeconds', 900) as int
-                if (sceneTimeoutSeconds < 60 || sceneTimeoutSeconds > 7200) {
+                def sceneTimeoutSeconds = args.get('sceneTimeoutSeconds', 1800) as int
+                if (sceneTimeoutSeconds < 60 || sceneTimeoutSeconds > 14400) {
                   error('sceneTimeoutSeconds is outside the allowed range.')
                 }
 
@@ -719,9 +719,11 @@ function New-ZipFromDirectory {
   if (Test-Path -LiteralPath $Zip) { Remove-Item -LiteralPath $Zip -Force }
   $files = Get-ChildItem -LiteralPath $Source -Recurse -File
   if (-not $files) { throw "Publish source is empty: $Source" }
+  $started = Get-Date
   Compress-Archive -Path (Join-Path $Source "*") -DestinationPath $Zip -Force
+  $elapsedMs = [int]((Get-Date) - $started).TotalMilliseconds
   $zipSize = (Get-Item -LiteralPath $Zip).Length
-  Write-Host ("Prepared {0} with {1} files, {2} bytes." -f (Split-Path -Leaf $Zip), @($files).Count, $zipSize)
+  Write-Host ("Prepared {0} with {1} files, {2} bytes in {3} ms." -f (Split-Path -Leaf $Zip), @($files).Count, $zipSize, $elapsedMs)
 }
 
 $rootStage = Join-Path $env:WORKSPACE "publish-root"

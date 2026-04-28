@@ -304,8 +304,8 @@ def call(Map args = [:]) {
           }
 
           if (isolateScenes) {
-            def sceneTimeoutSeconds = args.get('sceneTimeoutSeconds', 240) as int
-            if (sceneTimeoutSeconds < 30 || sceneTimeoutSeconds > 3600) {
+            def sceneTimeoutSeconds = args.get('sceneTimeoutSeconds', 900) as int
+            if (sceneTimeoutSeconds < 30 || sceneTimeoutSeconds > 14400) {
               error('sceneTimeoutSeconds is outside the allowed range.')
             }
 
@@ -540,9 +540,11 @@ def call(Map args = [:]) {
                 'if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }',
                 '$files = Get-ChildItem -LiteralPath $publishRoot -Recurse -File',
                 'if (-not $files) { throw "Publish directory is empty." }',
+                '$started = Get-Date',
                 'Compress-Archive -Path (Join-Path $publishRoot "*") -DestinationPath $zipPath -Force',
+                '$elapsedMs = [int]((Get-Date) - $started).TotalMilliseconds',
                 '$zipSize = (Get-Item -LiteralPath $zipPath).Length',
-                'Write-Host ("Prepared publish.zip with {0} files, {1} bytes." -f @($files).Count, $zipSize)'
+                'Write-Host ("Prepared publish.zip with {0} files, {1} bytes in {2} ms." -f @($files).Count, $zipSize, $elapsedMs)'
               ].join('\n')
               powershell './prepare-publish-zip.ps1'
               storePublishArtifact = 'publish.zip'

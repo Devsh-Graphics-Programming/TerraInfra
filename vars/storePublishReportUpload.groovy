@@ -31,6 +31,8 @@ def call(String prefix, String filePath = 'publish.zip', Map args = [:]) {
   if (!remoteFile.exists()) {
     error('Report upload file does not exist: ' + filePath)
   }
+  def fileLength = remoteFile.length()
+  echo('Publishing report zip: artifact=' + artifactName + ', bytes=' + fileLength + ', prefix=' + prefix)
   def url = new URL('http://127.0.0.1:18080/api/v1/store/publish-report-upload?' + query.join('&'))
   def connection = (HttpURLConnection) url.openConnection()
   connection.setRequestMethod('PUT')
@@ -38,7 +40,8 @@ def call(String prefix, String filePath = 'publish.zip', Map args = [:]) {
   connection.setConnectTimeout(((args.get('connectTimeoutSeconds') ?: 30) as int) * 1000)
   connection.setReadTimeout(((args.get('readTimeoutSeconds') ?: 7200) as int) * 1000)
   connection.setRequestProperty('Content-Type', 'application/octet-stream')
-  connection.setFixedLengthStreamingMode(remoteFile.length())
+  connection.setFixedLengthStreamingMode(fileLength)
+  def streamStarted = System.currentTimeMillis()
   def input = remoteFile.read()
   try {
     def output = connection.outputStream
@@ -54,6 +57,8 @@ def call(String prefix, String filePath = 'publish.zip', Map args = [:]) {
   } finally {
     input.close()
   }
+  def streamMs = System.currentTimeMillis() - streamStarted
+  echo('Report zip stream completed in ' + runnerFormatDuration(streamMs) + '. Waiting for store publish result.')
   def status = connection.responseCode
   def responseStream = status >= 400 ? connection.errorStream : connection.inputStream
   def responseText = responseStream == null ? '' : responseStream.getText('UTF-8')
@@ -66,6 +71,7 @@ def call(String prefix, String filePath = 'publish.zip', Map args = [:]) {
     }
     error('runnerctl report upload failed: ' + message)
   }
+  def timings = result.timings ?: [:]
   echo(
     'Published report with ' + result.publisher +
     ': uploaded=' + result.uploaded_count +
@@ -73,7 +79,11 @@ def call(String prefix, String filePath = 'publish.zip', Map args = [:]) {
     ', files=' + result.file_count +
     ', bytes=' + result.bytes +
     ', pruned=' + (result.pruned_count ?: 0) +
-    ', url=' + result.url
+    ', url=' + result.url +
+    ', stream=' + runnerFormatDuration(streamMs) +
+    ', runnerctl=' + runnerFormatDuration(result.runnerctl_http_ms as long) +
+    ', publish_s3=' + runnerFormatDuration((timings.publish_s3_ms ?: 0) as long) +
+    ', prune=' + runnerFormatDuration((timings.prune_ms ?: 0) as long)
   )
   return result
 }

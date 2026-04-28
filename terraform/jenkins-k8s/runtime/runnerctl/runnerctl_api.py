@@ -1101,6 +1101,7 @@ def validate_report_zip_artifact_path(value, field_name="artifact", default=None
 
 
 def publish_store_report_zip(request_data, zip_path, artifact_bytes, opener=urllib.request.urlopen):
+    started = time.monotonic()
     prefix = normalize_store_prefix(request_data.get("prefix", ""))
     require_store_prefix_allowed(prefix)
     artifact_path = validate_report_zip_artifact_path(request_data.get("artifact", ""), default="upload.zip")
@@ -1116,11 +1117,15 @@ def publish_store_report_zip(request_data, zip_path, artifact_bytes, opener=urll
 
     with tempfile.TemporaryDirectory(prefix="runnerctl-store-report-") as directory:
         root = Path(directory)
+        scan_started = time.monotonic()
         entries, total_bytes = store_zip_entries(zip_path, max_bytes)
+        scan_ms = round((time.monotonic() - scan_started) * 1000)
         report_dir = root / "report"
         dynamic_dir = root / "dynamic"
+        extract_started = time.monotonic()
         extract_store_zip(zip_path, report_dir, entries)
         dynamic_file_count = prepare_report_dynamic_source(report_dir, dynamic_dir)
+        extract_ms = round((time.monotonic() - extract_started) * 1000)
         root_script_path = report_dir / "publishS3.py"
         script_candidates = [root_script_path] if root_script_path.is_file() else sorted(report_dir.rglob("publishS3.py"))
         if not script_candidates:
@@ -1157,6 +1162,7 @@ def publish_store_report_zip(request_data, zip_path, artifact_bytes, opener=urll
             minimum=60,
             maximum=86400,
         )
+        publish_started = time.monotonic()
         completed = subprocess.run(
             command,
             cwd=str(script_path.parent),
@@ -1167,6 +1173,7 @@ def publish_store_report_zip(request_data, zip_path, artifact_bytes, opener=urll
             timeout=timeout_seconds,
             check=False,
         )
+        publish_ms = round((time.monotonic() - publish_started) * 1000)
         if completed.returncode != 0:
             raise RunnerCtlError(
                 HTTPStatus.BAD_GATEWAY,
@@ -1185,16 +1192,21 @@ def publish_store_report_zip(request_data, zip_path, artifact_bytes, opener=urll
         expected_keys = [prefix + path for path in relative_paths] + [manifest_key]
         manifest = store_report_manifest(prefix, job, build_number, artifact_path, relative_paths)
         publisher = S3StorePublisher(store_config, opener=opener)
+        manifest_started = time.monotonic()
         publisher.put_object(
             manifest_key,
             json.dumps(manifest, indent=2, sort_keys=True).encode("utf-8"),
             "application/json",
             "no-store",
         )
+        manifest_ms = round((time.monotonic() - manifest_started) * 1000)
         prune_summary = {"listed_count": 0, "deleted_count": 0}
+        prune_ms = 0
         if optional_bool(request_data.get("prune"), default=False):
             require_store_prune_prefix_allowed(prefix)
+            prune_started = time.monotonic()
             prune_summary = publisher.prune_prefix(prefix, expected_keys)
+            prune_ms = round((time.monotonic() - prune_started) * 1000)
 
     return {
         "result": "published",
@@ -1212,6 +1224,14 @@ def publish_store_report_zip(request_data, zip_path, artifact_bytes, opener=urll
         "manifest": manifest_path,
         "pruned_count": prune_summary["deleted_count"],
         "listed_count": prune_summary["listed_count"],
+        "timings": {
+            "scan_zip_ms": scan_ms,
+            "extract_prepare_ms": extract_ms,
+            "publish_s3_ms": publish_ms,
+            "manifest_ms": manifest_ms,
+            "prune_ms": prune_ms,
+            "total_ms": round((time.monotonic() - started) * 1000),
+        },
         **summary,
     }
 
