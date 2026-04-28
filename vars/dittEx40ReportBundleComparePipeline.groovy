@@ -270,18 +270,57 @@ function Test-SafeRelativePath {
   if ($segments -contains ".." -or $segments -contains "") { return $false }
   return $true
 }
+function Get-StoreHostAliases {
+  if (-not $env:STORE_HOST_ALIASES_JSON) { return @() }
+  $rawAliases = @($env:STORE_HOST_ALIASES_JSON | ConvertFrom-Json)
+  $aliases = @()
+  foreach ($alias in $rawAliases) {
+    $hostName = [string]$alias.host
+    $address = [string]$alias.ip
+    if (-not ($hostName -match "^[A-Za-z0-9.-]+$")) { throw "Unsafe store host alias name: $hostName" }
+    if (-not ($address -match "^[0-9]{1,3}([.][0-9]{1,3}){3}$")) { throw "Unsafe store host alias address: $address" }
+    $aliases += [pscustomobject]@{ HostName = $hostName; Address = $address }
+  }
+  return $aliases
+}
+function Get-CurlResolveArgs {
+  param([Parameter(Mandatory = $true)][string] $HostName)
+  $resolveArgs = @()
+  foreach ($alias in (Get-StoreHostAliases)) {
+    if ($alias.HostName -ieq $HostName) {
+      $resolveArgs += @("--resolve", ("{0}:443:{1}" -f $alias.HostName, $alias.Address))
+    }
+  }
+  return $resolveArgs
+}
+function Invoke-StoreDownload {
+  param([Parameter(Mandatory = $true)][System.Uri] $Uri, [Parameter(Mandatory = $true)][string] $OutFile, [Parameter(Mandatory = $true)][string] $Name)
+  if ($Uri.Scheme -ne "https" -or $Uri.Host -ne "store.devsh.eu") { throw "$Name must use https://store.devsh.eu." }
+  $resolveArgs = @(Get-CurlResolveArgs -HostName $Uri.Host)
+  if ($resolveArgs.Count -gt 0) {
+    $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
+    if (-not $curl) { throw "curl.exe is required for DNS-pinned store downloads." }
+    $curlArgs = @("--fail", "--silent", "--show-error", "--location") + $resolveArgs + @("--output", $OutFile, $Uri.AbsoluteUri)
+    & $curl.Source @curlArgs
+    if ($LASTEXITCODE -ne 0) { throw "curl.exe failed while downloading $Name with exit code $LASTEXITCODE." }
+  } else {
+    Invoke-WebRequest -Uri $Uri.AbsoluteUri -OutFile $OutFile -UseBasicParsing
+  }
+}
 function Install-ReportBundleFromStore {
   param([Parameter(Mandatory = $true)][string] $SourceUrl, [Parameter(Mandatory = $true)][string] $Name, [Parameter(Mandatory = $true)][string] $DestinationRelative)
   $uri = [System.Uri]$SourceUrl
   if ($uri.Scheme -ne "https" -or $uri.Host -ne "store.devsh.eu") { throw "$Name report URL must use https://store.devsh.eu." }
   if (-not $uri.AbsolutePath.StartsWith("/ditt/$env:SCENE_SUITE/")) { throw "$Name report URL does not match suite $env:SCENE_SUITE." }
   if (-not $SourceUrl.EndsWith("/")) { $SourceUrl += "/" }
-  Install-StoreHostAliases
+  foreach ($alias in (Get-StoreHostAliases | Where-Object { $_.HostName -ieq $uri.Host })) {
+    Write-Host ("Store download resolver: {0} -> {1}" -f $alias.HostName, $alias.Address)
+  }
   $destination = Join-Path $env:WORKSPACE $DestinationRelative
   if (Test-Path -LiteralPath $destination) { Remove-Item -LiteralPath $destination -Recurse -Force }
   New-Item -ItemType Directory -Path $destination -Force | Out-Null
   $manifestPath = Join-Path $env:WORKSPACE ("store-manifest-" + $Name + ".json")
-  Invoke-WebRequest -Uri ($SourceUrl + "publish-manifest.json") -OutFile $manifestPath -UseBasicParsing
+  Invoke-StoreDownload -Uri ([System.Uri]($SourceUrl + "publish-manifest.json")) -OutFile $manifestPath -Name "$Name store manifest"
   $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
   if ([int]$manifest.schema -ne 1 -or -not $manifest.files) { throw "$Name store manifest is unsupported." }
   $files = @($manifest.files)
@@ -295,34 +334,14 @@ function Install-ReportBundleFromStore {
     $prefix = $destinationFull.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
     if ($target -ne $destinationFull -and -not $target.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) { throw "$Name report path escapes destination: $relativeText" }
     New-Item -ItemType Directory -Path ([System.IO.Path]::GetDirectoryName($target)) -Force | Out-Null
-    Invoke-WebRequest -Uri ($SourceUrl + ($relativeText -replace "\\", "/")) -OutFile $target -UseBasicParsing
+    $relativeUrl = $relativeText.Replace([char]92, [char]47)
+    Invoke-StoreDownload -Uri ([System.Uri]($SourceUrl + $relativeUrl)) -OutFile $target -Name ("$Name report file " + $relativeUrl)
   }
   $elapsedMs = [int]((Get-Date) - $started).TotalMilliseconds
   $summary = Get-Content -LiteralPath (Join-Path $destination "summary.json") | ConvertFrom-Json
   if ([int]$summary.num_of_tests -lt 1) { throw "$Name report contains no tests." }
   if (-not (Test-Path -LiteralPath (Join-Path $destination "index.html"))) { throw "$Name report is missing index.html." }
   Write-Host ("Installed {0} report from store: status={1}, tests={2}, failures={3}, files={4}, elapsed_ms={5}" -f $Name, $summary.pass_status, $summary.num_of_tests, $summary.failure_count, $files.Count, $elapsedMs)
-}
-function Install-StoreHostAliases {
-  if (-not $env:STORE_HOST_ALIASES_JSON) { return }
-  $aliases = @($env:STORE_HOST_ALIASES_JSON | ConvertFrom-Json)
-  if ($aliases.Count -lt 1) { return }
-  $hostsPath = Join-Path $env:WINDIR "System32/drivers/etc/hosts"
-  $lines = @()
-  if (Test-Path -LiteralPath $hostsPath) {
-    $lines = @([System.IO.File]::ReadAllLines($hostsPath) | Where-Object { -not $_.EndsWith(" # devsh-ci-store-host-alias") })
-  }
-  foreach ($alias in $aliases) {
-    $hostName = [string]$alias.host
-    $address = [string]$alias.ip
-    if (-not ($hostName -match "^[A-Za-z0-9.-]+$")) { throw "Unsafe store host alias name: $hostName" }
-    if (-not ($address -match "^[0-9]{1,3}([.][0-9]{1,3}){3}$")) { throw "Unsafe store host alias address: $address" }
-    $lines += ("{0} {1} # devsh-ci-store-host-alias" -f $address, $hostName)
-    Write-Host ("Store host alias: {0} -> {1}" -f $hostName, $address)
-  }
-  $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-  [System.IO.File]::WriteAllText($hostsPath, (($lines -join [Environment]::NewLine) + [Environment]::NewLine), $utf8NoBom)
-  Clear-DnsClientCache -ErrorAction SilentlyContinue
 }
 $publishRoot = Join-Path $env:WORKSPACE "publish"
 if (Test-Path -LiteralPath $publishRoot) { Remove-Item -LiteralPath $publishRoot -Recurse -Force }
