@@ -32,6 +32,7 @@ def call(Map args = [:]) {
   def sourceUrl = null
   def baselineReportUrl = null
   def candidateReportUrl = null
+  def storeHostAliases = []
   def runnerTimeoutMinutes = null
   def runnerSummary = [:]
   def compareFailureCount = null
@@ -99,6 +100,17 @@ def call(Map args = [:]) {
       if ((baselineReportUrl && !candidateReportUrl) || (!baselineReportUrl && candidateReportUrl)) {
         error('BASELINE_REPORT_URL and CANDIDATE_REPORT_URL must be provided together.')
       }
+      storeHostAliases = []
+      [baselineReportUrl, candidateReportUrl].findAll { it }.collect { new URI(it).host }.unique().each { host ->
+        def addresses = java.net.InetAddress.getAllByName(host).findAll { it instanceof java.net.Inet4Address }.collect { it.hostAddress }
+        if (!addresses) {
+          error('Could not resolve an IPv4 address for ' + host + '.')
+        }
+        storeHostAliases << [host: host, address: addresses[0]]
+      }
+      if (storeHostAliases) {
+        echo('Store host aliases: ' + storeHostAliases.collect { it.host + '=' + it.address }.join(', '))
+      }
       publish = params.PUBLISH == null ? (args.get('publishDefault', true) as boolean) : (params.PUBLISH as boolean)
       sourceRepository = params.SOURCE_REPOSITORY?.trim()
       sourceBranch = params.SOURCE_BRANCH?.trim()
@@ -159,7 +171,8 @@ def call(Map args = [:]) {
               withEnv([
                 'SCENE_SUITE=' + suite,
                 'BASELINE_REPORT_URL=' + (baselineReportUrl ?: ''),
-                'CANDIDATE_REPORT_URL=' + (candidateReportUrl ?: '')
+                'CANDIDATE_REPORT_URL=' + (candidateReportUrl ?: ''),
+                'STORE_HOST_ALIASES_JSON=' + (storeHostAliases ? groovy.json.JsonOutput.toJson(storeHostAliases) : '[]')
               ]) {
               stage('Acquire compare package') {
                 writeFile file: 'acquire-compare-package.ps1', text: '''
@@ -263,6 +276,7 @@ function Install-ReportBundleFromStore {
   if ($uri.Scheme -ne "https" -or $uri.Host -ne "store.devsh.eu") { throw "$Name report URL must use https://store.devsh.eu." }
   if (-not $uri.AbsolutePath.StartsWith("/ditt/$env:SCENE_SUITE/")) { throw "$Name report URL does not match suite $env:SCENE_SUITE." }
   if (-not $SourceUrl.EndsWith("/")) { $SourceUrl += "/" }
+  Install-StoreHostAliases
   $destination = Join-Path $env:WORKSPACE $DestinationRelative
   if (Test-Path -LiteralPath $destination) { Remove-Item -LiteralPath $destination -Recurse -Force }
   New-Item -ItemType Directory -Path $destination -Force | Out-Null
@@ -288,6 +302,27 @@ function Install-ReportBundleFromStore {
   if ([int]$summary.num_of_tests -lt 1) { throw "$Name report contains no tests." }
   if (-not (Test-Path -LiteralPath (Join-Path $destination "index.html"))) { throw "$Name report is missing index.html." }
   Write-Host ("Installed {0} report from store: status={1}, tests={2}, failures={3}, files={4}, elapsed_ms={5}" -f $Name, $summary.pass_status, $summary.num_of_tests, $summary.failure_count, $files.Count, $elapsedMs)
+}
+function Install-StoreHostAliases {
+  if (-not $env:STORE_HOST_ALIASES_JSON) { return }
+  $aliases = @($env:STORE_HOST_ALIASES_JSON | ConvertFrom-Json)
+  if ($aliases.Count -lt 1) { return }
+  $hostsPath = Join-Path $env:WINDIR "System32\drivers\etc\hosts"
+  $lines = @()
+  if (Test-Path -LiteralPath $hostsPath) {
+    $lines = @([System.IO.File]::ReadAllLines($hostsPath) | Where-Object { $_ -notmatch "\s# devsh-ci-store-host-alias$" })
+  }
+  foreach ($alias in $aliases) {
+    $hostName = [string]$alias.host
+    $address = [string]$alias.address
+    if (-not ($hostName -match "^[A-Za-z0-9.-]+$")) { throw "Unsafe store host alias name: $hostName" }
+    if (-not ($address -match "^[0-9]{1,3}(\.[0-9]{1,3}){3}$")) { throw "Unsafe store host alias address: $address" }
+    $lines += ("{0} {1} # devsh-ci-store-host-alias" -f $address, $hostName)
+    Write-Host ("Store host alias: {0} -> {1}" -f $hostName, $address)
+  }
+  $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+  [System.IO.File]::WriteAllText($hostsPath, (($lines -join [Environment]::NewLine) + [Environment]::NewLine), $utf8NoBom)
+  Clear-DnsClientCache -ErrorAction SilentlyContinue
 }
 $publishRoot = Join-Path $env:WORKSPACE "publish"
 if (Test-Path -LiteralPath $publishRoot) { Remove-Item -LiteralPath $publishRoot -Recurse -Force }
