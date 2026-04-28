@@ -149,9 +149,11 @@ data:
 
           def abortPreviousBuilds = { project ->
             def properties = project / 'properties'
-            properties << 'org.jenkinsci.plugins.workflow.job.properties.DisableConcurrentBuildsJobProperty' {
-              abortPrevious(true)
+            properties.children().removeAll {
+              it.name().toString() == 'org.jenkinsci.plugins.workflow.job.properties.DisableConcurrentBuildsJobProperty'
             }
+            def property = new Node(properties, 'org.jenkinsci.plugins.workflow.job.properties.DisableConcurrentBuildsJobProperty')
+            new Node(property, 'abortPrevious', 'true')
           }
 
           pipelineJob('system/smoke') {
