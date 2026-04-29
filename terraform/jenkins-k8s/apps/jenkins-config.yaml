@@ -122,11 +122,6 @@ data:
             description('Full DITT scene validation jobs backed by runner-farm Git object caches.')
           }
 
-          folder('ci/ditt/compare') {
-            displayName('Compare')
-            description('DITT diagnostic comparison jobs.')
-          }
-
           folder('ci/runners') {
             displayName('Runners')
             description('Generic runtime runner planning jobs managed by configuration as code.')
@@ -1812,7 +1807,7 @@ data:
           }
 
           pipelineJob('ci/ditt/real/ex40-public') {
-            description('Runs the full public EX40 DITT scene suite from a runtime package on a Windows GPU runner, materializes public media and references through the runner-farm Git object cache, and publishes to store.devsh.eu/ditt/public/latest/.')
+            description('Runs the full public EX40 DITT scene suite from a runtime package on a Windows GPU runner, publishes a tiny compare smoke to store.devsh.eu/ditt/public/smoke/latest/, then publishes the real report to store.devsh.eu/ditt/public/latest/.')
             logRotator {
               daysToKeep(31)
               numToKeep(100)
@@ -1824,10 +1819,9 @@ data:
               stringParam('PUBLIC_REFERENCES_COMMIT', '043f8a0aa074f134b3230d56f27ed7d0c645f6b3', 'Nabla CI commit containing public reference renders.')
               stringParam('EX40_PACKAGE_URL', '', 'Optional HTTPS URL of an EX40 runtime package zip. Leave empty when uploading EX40_PACKAGE_FILE.')
               stringParam('STORE_PREFIX', 'ditt/public/latest/', 'Destination prefix under store.devsh.eu. Must stay under ditt/public/.')
-              stringParam('SCRATCH_ID', '', 'Optional runner-local scratch id used by compare orchestration.')
-              stringParam('SCRATCH_VARIANT', '', 'Optional report variant directory under SCRATCH_ID.')
               stringParam('SHARD_COUNT', '1', 'Number of scene shards. Use 1 for a full single-run validation.')
               stringParam('SHARD_INDEX', '0', 'Zero-based shard index for this run.')
+              stringParam('COMPARE_SMOKE_STORE_PREFIX', 'ditt/public/smoke/latest/', 'Destination prefix for the tiny public compare smoke report. Must stay under ditt/public/.')
               stringParam('SOURCE_REPOSITORY', '', 'Optional GitHub repository owner/name that requested this run.')
               stringParam('SOURCE_BRANCH', '', 'Optional GitHub branch that requested this run.')
               stringParam('SOURCE_SHA', '', 'Optional GitHub commit SHA that requested this run.')
@@ -1835,6 +1829,7 @@ data:
               stringParam('SOURCE_RUN_ATTEMPT', '', 'Optional GitHub Actions run attempt that requested this run.')
               stringParam('SOURCE_WORKFLOW', '', 'Optional GitHub Actions workflow name that requested this run.')
               booleanParam('FAIL_ON_RENDER_FAILURE', false, 'Fail the Jenkins build when the EX40 comparison report contains failed scenes.')
+              booleanParam('RUN_COMPARE_SMOKE', true, 'Render a tiny public scene three times and publish the compare-set smoke before the full public suite.')
               booleanParam('ISOLATE_SCENES', false, 'Run each selected scene in a separate EX40 process and merge the report.')
               booleanParam('PUBLISH', true, 'Publish the generated report to store.devsh.eu.')
             }
@@ -1854,6 +1849,9 @@ data:
                   mediaCommitDefault: '0f7ad42b33abe3143a5d69c4d14b26cf3e538c88',
                   publicReferencesCommitDefault: '043f8a0aa074f134b3230d56f27ed7d0c645f6b3',
                   defaultStorePrefix: 'ditt/public/latest/',
+                  compareSmokeDefault: true,
+                  compareSmokeStorePrefix: 'ditt/public/smoke/latest/',
+                  compareSmokePublishJobs: 4,
                   isolateScenesDefault: false,
                   leaseTtlMinutes: 360,
                   maxReadySeconds: 180,
@@ -1876,8 +1874,6 @@ data:
               stringParam('PRIVATE_REFERENCES_COMMIT', '201d9726ce69c6807fc5c326b3388315ecb2797b', 'DITT reference renders commit for the private full suite.')
               stringParam('EX40_PACKAGE_URL', '', 'Optional HTTPS URL of an EX40 runtime package zip. Leave empty when uploading EX40_PACKAGE_FILE.')
               stringParam('STORE_PREFIX', 'ditt/private/latest/', 'Destination prefix under store.devsh.eu. Must stay under ditt/private/.')
-              stringParam('SCRATCH_ID', '', 'Optional runner-local scratch id used by compare orchestration.')
-              stringParam('SCRATCH_VARIANT', '', 'Optional report variant directory under SCRATCH_ID.')
               stringParam('SHARD_COUNT', '1', 'Number of scene shards. Use 1 for a full single-run validation.')
               stringParam('SHARD_INDEX', '0', 'Zero-based shard index for this run.')
               stringParam('SOURCE_REPOSITORY', '', 'Optional GitHub repository owner/name that requested this run.')
@@ -1910,203 +1906,6 @@ data:
                   runnerTimeoutMinutes: 720,
                   sceneTimeoutSeconds: 900,
                   leaseTtlMinutes: 720,
-                  maxReadySeconds: 180,
-                  publishJobs: 8
-                )''')
-              }
-            }
-          }
-
-          pipelineJob('ci/ditt/compare/o1experimental-vs-o3-public') {
-            description('Runs public EX40 DITT diagnostics comparing Release/O3 and RelWithDebInfo/O1experimental packages on the same Windows GPU runner, then publishes the latest comparison report to store.devsh.eu/ditt/compare/o1experimental-vs-o3/public/latest/.')
-            logRotator {
-              daysToKeep(31)
-              numToKeep(100)
-              artifactDaysToKeep(2)
-              artifactNumToKeep(3)
-            }
-            parameters {
-              stringParam('MEDIA_COMMIT', '0f7ad42b33abe3143a5d69c4d14b26cf3e538c88', 'Nabla examples media commit for the public full suite.')
-              stringParam('PUBLIC_REFERENCES_COMMIT', '043f8a0aa074f134b3230d56f27ed7d0c645f6b3', 'Nabla CI commit containing public reference renders.')
-              stringParam('STORE_PREFIX', 'ditt/compare/o1experimental-vs-o3/public/latest/', 'Destination prefix under store.devsh.eu. Must stay under ditt/compare/o1experimental-vs-o3/public/.')
-              stringParam('SHARD_COUNT', '1', 'Number of scene shards. Use 1 for a full single-run validation.')
-              stringParam('SHARD_INDEX', '0', 'Zero-based shard index for this run.')
-              stringParam('SOURCE_REPOSITORY', '', 'Optional GitHub repository owner/name that requested this run.')
-              stringParam('SOURCE_BRANCH', '', 'Optional GitHub branch that requested this run.')
-              stringParam('SOURCE_SHA', '', 'Optional GitHub commit SHA that requested this run.')
-              stringParam('SOURCE_RUN_ID', '', 'Optional GitHub Actions run id that requested this run.')
-              stringParam('SOURCE_RUN_ATTEMPT', '', 'Optional GitHub Actions run attempt that requested this run.')
-              stringParam('SOURCE_WORKFLOW', '', 'Optional GitHub Actions workflow name that requested this run.')
-              booleanParam('ISOLATE_SCENES', false, 'Run each selected scene in a separate EX40 process and merge the comparison report.')
-              booleanParam('PUBLISH', true, 'Publish the generated comparison report to store.devsh.eu.')
-            }
-            configure { project ->
-              abortPreviousBuilds(project)
-              def parameterDefinitions = project / 'properties' / 'hudson.model.ParametersDefinitionProperty' / 'parameterDefinitions'
-              parameterDefinitions << 'io.jenkins.plugins.file_parameters.StashedFileParameterDefinition' {
-                name('EX40_RELEASE_PACKAGE_FILE')
-                description('Release/O3 EX40 runtime package zip.')
-              }
-              parameterDefinitions << 'io.jenkins.plugins.file_parameters.StashedFileParameterDefinition' {
-                name('EX40_O1_PACKAGE_FILE')
-                description('RelWithDebInfo/O1experimental EX40 runtime package zip.')
-              }
-            }
-            definition {
-              cps {
-                sandbox()
-                script('''dittEx40ComparePipeline(
-                  suite: 'public',
-                  mediaCommitDefault: '0f7ad42b33abe3143a5d69c4d14b26cf3e538c88',
-                  publicReferencesCommitDefault: '043f8a0aa074f134b3230d56f27ed7d0c645f6b3',
-                  defaultStorePrefix: 'ditt/compare/o1experimental-vs-o3/public/latest/',
-                  runnerTimeoutMinutes: 420,
-                  isolateScenesDefault: false,
-                  leaseTtlMinutes: 480,
-                  maxReadySeconds: 180,
-                  publishJobs: 8
-                )''')
-              }
-            }
-          }
-
-          pipelineJob('ci/ditt/compare/o1experimental-vs-o3-private') {
-            description('Runs private EX40 DITT diagnostics comparing Release/O3 and RelWithDebInfo/O1experimental packages on the same Windows GPU runner, then publishes the latest comparison report to store.devsh.eu/ditt/compare/o1experimental-vs-o3/private/latest/.')
-            logRotator {
-              daysToKeep(31)
-              numToKeep(100)
-              artifactDaysToKeep(2)
-              artifactNumToKeep(3)
-            }
-            parameters {
-              stringParam('DITT_SCENES_COMMIT', 'fe7cd7bf9b462e3bb5ef46e1e0658ed08899f5ee', 'DITT reference scenes commit for the private full suite.')
-              stringParam('PRIVATE_REFERENCES_COMMIT', '201d9726ce69c6807fc5c326b3388315ecb2797b', 'DITT reference renders commit for the private full suite.')
-              stringParam('STORE_PREFIX', 'ditt/compare/o1experimental-vs-o3/private/latest/', 'Destination prefix under store.devsh.eu. Must stay under ditt/compare/o1experimental-vs-o3/private/.')
-              stringParam('SHARD_COUNT', '1', 'Number of scene shards. Use 1 for a full single-run validation.')
-              stringParam('SHARD_INDEX', '0', 'Zero-based shard index for this run.')
-              stringParam('SOURCE_REPOSITORY', '', 'Optional GitHub repository owner/name that requested this run.')
-              stringParam('SOURCE_BRANCH', '', 'Optional GitHub branch that requested this run.')
-              stringParam('SOURCE_SHA', '', 'Optional GitHub commit SHA that requested this run.')
-              stringParam('SOURCE_RUN_ID', '', 'Optional GitHub Actions run id that requested this run.')
-              stringParam('SOURCE_RUN_ATTEMPT', '', 'Optional GitHub Actions run attempt that requested this run.')
-              stringParam('SOURCE_WORKFLOW', '', 'Optional GitHub Actions workflow name that requested this run.')
-              booleanParam('ISOLATE_SCENES', true, 'Run each selected scene in a separate EX40 process and merge the comparison report.')
-              booleanParam('PUBLISH', true, 'Publish the generated comparison report to store.devsh.eu.')
-            }
-            configure { project ->
-              abortPreviousBuilds(project)
-              def parameterDefinitions = project / 'properties' / 'hudson.model.ParametersDefinitionProperty' / 'parameterDefinitions'
-              parameterDefinitions << 'io.jenkins.plugins.file_parameters.StashedFileParameterDefinition' {
-                name('EX40_RELEASE_PACKAGE_FILE')
-                description('Release/O3 EX40 runtime package zip.')
-              }
-              parameterDefinitions << 'io.jenkins.plugins.file_parameters.StashedFileParameterDefinition' {
-                name('EX40_O1_PACKAGE_FILE')
-                description('RelWithDebInfo/O1experimental EX40 runtime package zip.')
-              }
-            }
-            definition {
-              cps {
-                sandbox()
-                script('''dittEx40ComparePipeline(
-                  suite: 'private',
-                  dittScenesCommitDefault: 'fe7cd7bf9b462e3bb5ef46e1e0658ed08899f5ee',
-                  privateReferencesCommitDefault: '201d9726ce69c6807fc5c326b3388315ecb2797b',
-                  defaultStorePrefix: 'ditt/compare/o1experimental-vs-o3/private/latest/',
-                  runnerTimeoutMinutes: 720,
-                  isolateScenesDefault: true,
-                  sceneTimeoutSeconds: 1800,
-                  leaseTtlMinutes: 720,
-                  maxReadySeconds: 180,
-                  publishJobs: 8
-                )''')
-              }
-            }
-          }
-
-          pipelineJob('ci/ditt/compare/report-bundle-o1experimental-vs-o3-public') {
-            description('Compares already generated public EX40 reports from runner-local scratch without rendering scenes, then publishes the latest comparison report to store.devsh.eu/ditt/compare/o1experimental-vs-o3/public/latest/.')
-            logRotator {
-              daysToKeep(31)
-              numToKeep(100)
-              artifactDaysToKeep(2)
-              artifactNumToKeep(3)
-            }
-            parameters {
-              stringParam('STORE_PREFIX', 'ditt/compare/o1experimental-vs-o3/public/latest/', 'Destination prefix under store.devsh.eu. Must stay under ditt/compare/o1experimental-vs-o3/public/.')
-              stringParam('SCRATCH_ID', '', 'Runner-local scratch id containing release-o3 and o1experimental report directories.')
-              stringParam('BASELINE_VARIANT', 'release-o3', 'Scratch report directory for the Release/O3 report.')
-              stringParam('CANDIDATE_VARIANT', 'o1experimental', 'Scratch report directory for the O1experimental report.')
-              stringParam('SOURCE_REPOSITORY', '', 'Optional GitHub repository owner/name that requested this run.')
-              stringParam('SOURCE_BRANCH', '', 'Optional GitHub branch that requested this run.')
-              stringParam('SOURCE_SHA', '', 'Optional GitHub commit SHA that requested this run.')
-              stringParam('SOURCE_RUN_ID', '', 'Optional GitHub Actions run id that requested this run.')
-              stringParam('SOURCE_RUN_ATTEMPT', '', 'Optional GitHub Actions run attempt that requested this run.')
-              stringParam('SOURCE_WORKFLOW', '', 'Optional GitHub Actions workflow name that requested this run.')
-              booleanParam('PUBLISH', true, 'Publish the generated comparison report to store.devsh.eu.')
-              booleanParam('DELETE_SCRATCH', true, 'Delete the runner-local scratch directory after comparison.')
-            }
-            configure { project ->
-              abortPreviousBuilds(project)
-              def parameterDefinitions = project / 'properties' / 'hudson.model.ParametersDefinitionProperty' / 'parameterDefinitions'
-              parameterDefinitions << 'io.jenkins.plugins.file_parameters.StashedFileParameterDefinition' {
-                name('EX40_COMPARE_PACKAGE_FILE')
-                description('EX40 runtime package zip containing the report comparison executable.')
-              }
-            }
-            definition {
-              cps {
-                sandbox()
-                script('''dittEx40ReportBundleComparePipeline(
-                  suite: 'public',
-                  defaultStorePrefix: 'ditt/compare/o1experimental-vs-o3/public/latest/',
-                  runnerTimeoutMinutes: 180,
-                  leaseTtlMinutes: 240,
-                  maxReadySeconds: 180,
-                  publishJobs: 8
-                )''')
-              }
-            }
-          }
-
-          pipelineJob('ci/ditt/compare/report-bundle-o1experimental-vs-o3-private') {
-            description('Compares already generated private EX40 reports from runner-local scratch without rendering scenes, then publishes the latest comparison report to store.devsh.eu/ditt/compare/o1experimental-vs-o3/private/latest/.')
-            logRotator {
-              daysToKeep(31)
-              numToKeep(100)
-              artifactDaysToKeep(2)
-              artifactNumToKeep(3)
-            }
-            parameters {
-              stringParam('STORE_PREFIX', 'ditt/compare/o1experimental-vs-o3/private/latest/', 'Destination prefix under store.devsh.eu. Must stay under ditt/compare/o1experimental-vs-o3/private/.')
-              stringParam('SCRATCH_ID', '', 'Runner-local scratch id containing release-o3 and o1experimental report directories.')
-              stringParam('BASELINE_VARIANT', 'release-o3', 'Scratch report directory for the Release/O3 report.')
-              stringParam('CANDIDATE_VARIANT', 'o1experimental', 'Scratch report directory for the O1experimental report.')
-              stringParam('SOURCE_REPOSITORY', '', 'Optional GitHub repository owner/name that requested this run.')
-              stringParam('SOURCE_BRANCH', '', 'Optional GitHub branch that requested this run.')
-              stringParam('SOURCE_SHA', '', 'Optional GitHub commit SHA that requested this run.')
-              stringParam('SOURCE_RUN_ID', '', 'Optional GitHub Actions run id that requested this run.')
-              stringParam('SOURCE_RUN_ATTEMPT', '', 'Optional GitHub Actions run attempt that requested this run.')
-              stringParam('SOURCE_WORKFLOW', '', 'Optional GitHub Actions workflow name that requested this run.')
-              booleanParam('PUBLISH', true, 'Publish the generated comparison report to store.devsh.eu.')
-              booleanParam('DELETE_SCRATCH', true, 'Delete the runner-local scratch directory after comparison.')
-            }
-            configure { project ->
-              abortPreviousBuilds(project)
-              def parameterDefinitions = project / 'properties' / 'hudson.model.ParametersDefinitionProperty' / 'parameterDefinitions'
-              parameterDefinitions << 'io.jenkins.plugins.file_parameters.StashedFileParameterDefinition' {
-                name('EX40_COMPARE_PACKAGE_FILE')
-                description('EX40 runtime package zip containing the report comparison executable.')
-              }
-            }
-            definition {
-              cps {
-                sandbox()
-                script('''dittEx40ReportBundleComparePipeline(
-                  suite: 'private',
-                  defaultStorePrefix: 'ditt/compare/o1experimental-vs-o3/private/latest/',
-                  runnerTimeoutMinutes: 180,
-                  leaseTtlMinutes: 240,
                   maxReadySeconds: 180,
                   publishJobs: 8
                 )''')

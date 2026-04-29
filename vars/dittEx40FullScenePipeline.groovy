@@ -59,12 +59,20 @@ def call(Map args = [:]) {
   def reportFailureCount = null
   def reportTestCount = null
   def reportUrl = null
+  def runCompareSmoke = false
+  def compareSmokeStorePrefix = null
+  def compareSmokeUrl = null
+  def compareSmokeFailureCount = null
+  def compareSmokeTestCount = null
   def buildStartedAt = System.currentTimeMillis()
 
   def updateBuildDescription = {
     def lines = []
     if (reportUrl) {
       lines << reportUrl
+    }
+    if (compareSmokeUrl) {
+      lines << ('smoke=' + compareSmokeUrl)
     }
     if (sourceUrl) {
       lines << ('source=' + sourceUrl)
@@ -78,6 +86,9 @@ def call(Map args = [:]) {
     }
     if (reportFailureCount != null && reportTestCount != null) {
       lines << ('report_failures=' + reportFailureCount + '/' + reportTestCount)
+    }
+    if (compareSmokeFailureCount != null && compareSmokeTestCount != null) {
+      lines << ('smoke_failures=' + compareSmokeFailureCount + '/' + compareSmokeTestCount)
     }
     if (runnerSummary.vmid) {
       lines << ('vmid=' + runnerSummary.vmid)
@@ -160,6 +171,11 @@ function Sync-PublishSummaryToWorkspace {
       failOnRenderFailure = params.FAIL_ON_RENDER_FAILURE == null ? (args.get('failOnRenderFailureDefault', false) as boolean) : (params.FAIL_ON_RENDER_FAILURE as boolean)
       isolateScenes = params.ISOLATE_SCENES == null ? (args.get('isolateScenesDefault', false) as boolean) : (params.ISOLATE_SCENES as boolean)
       publish = params.PUBLISH == null ? (args.get('publishDefault', true) as boolean) : (params.PUBLISH as boolean)
+      runCompareSmoke = suite == 'public' && (params.RUN_COMPARE_SMOKE == null ? (args.get('compareSmokeDefault', false) as boolean) : (params.RUN_COMPARE_SMOKE as boolean))
+      if (runCompareSmoke) {
+        def rawSmokePrefix = params.COMPARE_SMOKE_STORE_PREFIX?.trim() ?: args.get('compareSmokeStorePrefix', 'ditt/public/smoke/latest/')
+        compareSmokeStorePrefix = storeNormalizePrefix(rawSmokePrefix, ['ditt/public/'])
+      }
       scratchId = params.SCRATCH_ID?.trim()
       scratchVariant = params.SCRATCH_VARIANT?.trim()
       if ((scratchId && !scratchVariant) || (!scratchId && scratchVariant)) {
@@ -204,7 +220,7 @@ function Sync-PublishSummaryToWorkspace {
         currentBuild.description = sourceUrl
         echo('Source Actions run: ' + sourceUrl)
       }
-      echo('Suite: ' + suite + ', shard=' + shardIndex + '/' + shardCount + ', store_prefix=' + storePrefix + ', isolate_scenes=' + isolateScenes + ', publish=' + publish)
+      echo('Suite: ' + suite + ', shard=' + shardIndex + '/' + shardCount + ', store_prefix=' + storePrefix + ', isolate_scenes=' + isolateScenes + ', publish=' + publish + ', compare_smoke=' + runCompareSmoke)
       updateBuildDescription()
     }
 
@@ -332,6 +348,145 @@ function Sync-PublishSummaryToWorkspace {
           stage('Prepare LDS cache') {
             dittEx40LdsCache(cacheApiUrl: runner.git_object_cache?.api_url)
             powershell './ex40-lds-cache.ps1 -Mode Status -PackageInfoPath package-info.json'
+          }
+
+          if (runCompareSmoke) {
+            stage('Prepare compare smoke') {
+              writeFile file: 'run-compare-smoke-render.ps1', text: [
+                'param(',
+                '  [Parameter(Mandatory = $true)][string] $Id,',
+                '  [Parameter(Mandatory = $true)][string] $Name',
+                ')',
+                '$ErrorActionPreference = "Stop"',
+                'if (-not ($Id -match "^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$")) { throw "Invalid smoke input id: $Id" }',
+                '$package = Get-Content -LiteralPath (Join-Path $env:WORKSPACE "package-info.json") | ConvertFrom-Json',
+                '$sceneInfo = Get-Content -LiteralPath (Join-Path $env:WORKSPACE "scene-cache-info.json") | ConvertFrom-Json',
+                '$scene = Join-Path $sceneInfo.root "mitsuba\\shapetest.xml"',
+                'if (-not (Test-Path -LiteralPath $scene)) { throw "Compare smoke scene was not materialized: $scene" }',
+                '$root = Join-Path $env:WORKSPACE "compare-smoke"',
+                '$reportRoot = Join-Path $root $Id',
+                '$renders = Join-Path $reportRoot "renders"',
+                '$sharedTmp = Join-Path $package.bin "../../tmp"',
+                'if (Test-Path -LiteralPath $reportRoot) { Remove-Item -LiteralPath $reportRoot -Recurse -Force }',
+                'New-Item -ItemType Directory -Path $renders -Force | Out-Null',
+                'New-Item -ItemType Directory -Path $sharedTmp -Force | Out-Null',
+                'Copy-Item -Path (Join-Path $package.reportTemplate "*") -Destination $reportRoot -Recurse -Force',
+                '$env:PATH = $package.runtime + ";" + $package.dxc + ";" + $env:PATH',
+                '$log = Join-Path $env:WORKSPACE ("ex40-compare-smoke-" + $Id + ".log")',
+                'Remove-Item -LiteralPath $log -Force -ErrorAction SilentlyContinue',
+                '& (Join-Path $env:WORKSPACE "ex40-lds-cache.ps1") -Mode Restore -PackageInfoPath (Join-Path $env:WORKSPACE "package-info.json")',
+                '$runArgs = @("--scene", $scene, "--process-sensors", "RenderAllThenTerminate", "--headless", "--output-dir", $renders, "--report-dir", $reportRoot)',
+                'Write-Host ("Running compare smoke input {0}: {1}" -f $Name, ($runArgs -join " "))',
+                '$exitCode = 0',
+                'Push-Location -LiteralPath $package.bin',
+                'try {',
+                '  & $package.exe @runArgs 2>&1 | Tee-Object -FilePath $log -Append | ForEach-Object { Write-Host $_ }',
+                '  $exitCode = $LASTEXITCODE',
+                '} finally {',
+                '  Pop-Location',
+                '}',
+                '& (Join-Path $env:WORKSPACE "ex40-lds-cache.ps1") -Mode Save -PackageInfoPath (Join-Path $env:WORKSPACE "package-info.json")',
+                '$summaryPath = Join-Path $reportRoot "summary.json"',
+                'if ($exitCode -ne 0) { throw "Compare smoke input $Name failed with exit code $exitCode." }',
+                'if (-not (Test-Path -LiteralPath $summaryPath)) { throw "Compare smoke input $Name did not write summary.json." }',
+                '$summary = Get-Content -LiteralPath $summaryPath | ConvertFrom-Json',
+                'if ([int]$summary.num_of_tests -lt 1) { throw "Compare smoke input $Name contains no tests." }',
+                'Write-Host ("Compare smoke input {0}: status={1}, tests={2}, failures={3}." -f $Name, $summary.pass_status, $summary.num_of_tests, $summary.failure_count)'
+              ].join('\n')
+
+              writeFile file: 'run-compare-smoke-set.ps1', text: [
+                '$ErrorActionPreference = "Stop"',
+                '$package = Get-Content -LiteralPath (Join-Path $env:WORKSPACE "package-info.json") | ConvertFrom-Json',
+                '$root = Join-Path $env:WORKSPACE "compare-smoke"',
+                '$publishRoot = Join-Path $env:WORKSPACE "compare-smoke-publish"',
+                'if (Test-Path -LiteralPath $publishRoot) { Remove-Item -LiteralPath $publishRoot -Recurse -Force }',
+                '$manifestPath = Join-Path $root "manifest.json"',
+                '$manifest = [ordered]@{',
+                '  name = "EX40 release compare smoke"',
+                '  baseline = "nvidia"',
+                '  inputs = @(',
+                '    [ordered]@{ id = "nvidia"; name = "NVIDIA"; reportDir = "nvidia" },',
+                '    [ordered]@{ id = "amd"; name = "AMD"; reportDir = "amd" },',
+                '    [ordered]@{ id = "intel"; name = "Intel"; reportDir = "intel" }',
+                '  )',
+                '}',
+                '$utf8NoBom = New-Object System.Text.UTF8Encoding($false)',
+                '[System.IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 8), $utf8NoBom)',
+                'Copy-Item -LiteralPath $manifestPath -Destination (Join-Path $env:WORKSPACE "compare-smoke-manifest.json") -Force',
+                '$env:PATH = $package.runtime + ";" + $package.dxc + ";" + $env:PATH',
+                '$log = Join-Path $env:WORKSPACE "ex40-compare-smoke-set.log"',
+                'Remove-Item -LiteralPath $log -Force -ErrorAction SilentlyContinue',
+                '$runArgs = @("--compare-report-set", $manifestPath, "--report-dir", $publishRoot)',
+                'Write-Host ("Running compare smoke set: {0}" -f ($runArgs -join " "))',
+                '$exitCode = 0',
+                'Push-Location -LiteralPath $package.bin',
+                'try {',
+                '  & $package.exe @runArgs 2>&1 | Tee-Object -FilePath $log -Append | ForEach-Object { Write-Host $_ }',
+                '  $exitCode = $LASTEXITCODE',
+                '} finally {',
+                '  Pop-Location',
+                '}',
+                '$summaryPath = Join-Path $publishRoot "summary.json"',
+                'if ($exitCode -ne 0) { throw "Compare smoke set failed with exit code $exitCode." }',
+                'if (-not (Test-Path -LiteralPath $summaryPath)) { throw "Compare smoke set did not write summary.json." }',
+                'Copy-Item -LiteralPath $summaryPath -Destination (Join-Path $env:WORKSPACE "compare-smoke-summary.json") -Force',
+                'foreach ($relative in @("index.html", "summary.json", "pairs/amd_vs_nvidia/index.html", "pairs/intel_vs_nvidia/index.html")) {',
+                '  if (-not (Test-Path -LiteralPath (Join-Path $publishRoot $relative))) { throw "Compare smoke output is missing: $relative" }',
+                '}'
+              ].join('\n')
+
+              writeFile file: 'prepare-compare-smoke-publish.ps1', text: [
+                '$ErrorActionPreference = "Stop"',
+                '$publishRoot = Join-Path $env:WORKSPACE "compare-smoke-publish"',
+                '$zipPath = Join-Path $env:WORKSPACE "publish-compare-smoke.zip"',
+                'if (-not (Test-Path -LiteralPath $publishRoot)) { throw "Compare smoke publish directory does not exist." }',
+                'if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }',
+                '$files = Get-ChildItem -LiteralPath $publishRoot -Recurse -File',
+                'if (-not $files) { throw "Compare smoke publish directory is empty." }',
+                '$started = Get-Date',
+                'Compress-Archive -Path (Join-Path $publishRoot "*") -DestinationPath $zipPath -Force',
+                '$elapsedMs = [int]((Get-Date) - $started).TotalMilliseconds',
+                '$zipSize = (Get-Item -LiteralPath $zipPath).Length',
+                'Write-Host ("Prepared publish-compare-smoke.zip with {0} files, {1} bytes in {2} ms." -f @($files).Count, $zipSize, $elapsedMs)'
+              ].join('\n')
+            }
+
+            [
+              [id: 'nvidia', name: 'NVIDIA'],
+              [id: 'amd', name: 'AMD'],
+              [id: 'intel', name: 'Intel']
+            ].each { smokeInput ->
+              stage('Compare smoke render ' + smokeInput.name) {
+                powershell('./run-compare-smoke-render.ps1 -Id "' + smokeInput.id + '" -Name "' + smokeInput.name + '"')
+              }
+            }
+
+            stage('Compare smoke set') {
+              powershell './run-compare-smoke-set.ps1'
+              def smokeSummary = readJSON(file: 'compare-smoke-publish/summary.json', returnPojo: true)
+              compareSmokeFailureCount = (smokeSummary.failure_count ?: 0) as int
+              compareSmokeTestCount = (smokeSummary.num_of_tests ?: 0) as int
+              updateBuildDescription()
+              def warningCount = (smokeSummary.warning_count ?: 0) as int
+              if (compareSmokeFailureCount > 0 || warningCount > 0) {
+                error("Compare smoke failed: failures=${compareSmokeFailureCount}, warnings=${warningCount}.")
+              }
+            }
+
+            stage('Publish compare smoke') {
+              if (publish) {
+                powershell './prepare-compare-smoke-publish.ps1'
+                def result = storePublishReportUpload(compareSmokeStorePrefix, 'publish-compare-smoke.zip', [
+                  jobs: args.get('compareSmokePublishJobs', 4),
+                  pruneAfterPublish: args.get('compareSmokePruneAfterPublish', true),
+                  artifactName: 'publish-compare-smoke.zip'
+                ])
+                compareSmokeUrl = result.url
+                updateBuildDescription()
+              } else {
+                echo 'Compare smoke publishing disabled by PUBLISH=false.'
+              }
+            }
           }
 
           stage('Select shard') {
@@ -630,7 +785,7 @@ function Sync-PublishSummaryToWorkspace {
           }
 
           stage('Artifacts') {
-            archiveArtifacts artifacts: 'package-info.json,scene-cache-info.json,scene-git-request.json,git-object-cache.json,ex40-lds-cache.json,resolved-scenes.json,selected-scenes.txt,ex40.log,publish/index.html,publish/summary.json', allowEmptyArchive: true, fingerprint: false
+            archiveArtifacts artifacts: 'package-info.json,scene-cache-info.json,scene-git-request.json,git-object-cache.json,ex40-lds-cache.json,resolved-scenes.json,selected-scenes.txt,ex40.log,publish/index.html,publish/summary.json,compare-smoke-manifest.json,compare-smoke-summary.json,ex40-compare-smoke-*.log,compare-smoke-publish/index.html,compare-smoke-publish/summary.json', allowEmptyArchive: true, fingerprint: false
           }
 
           stage('Publish report') {

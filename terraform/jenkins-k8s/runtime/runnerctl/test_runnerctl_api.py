@@ -242,21 +242,24 @@ class HelpersTests(unittest.TestCase):
 
     def test_store_allowed_prefixes_accepts_public_and_private_reports(self):
         env = {
-            "RUNNERCTL_STORE_ALLOWED_PREFIXES": "ditt/dummy/,ditt/public/,ditt/private/,ditt/compare/",
+            "RUNNERCTL_STORE_ALLOWED_PREFIXES": "ditt/dummy/,ditt/public/,ditt/private/",
         }
         with mock.patch.dict(os.environ, env, clear=False):
             self.assertEqual(
                 runnerctl_api.store_allowed_prefixes(),
-                ["ditt/dummy/", "ditt/public/", "ditt/private/", "ditt/compare/"],
+                ["ditt/dummy/", "ditt/public/", "ditt/private/"],
             )
             runnerctl_api.require_store_prefix_allowed("ditt/public/smoke/latest/")
             runnerctl_api.require_store_prefix_allowed("ditt/private/smoke/latest/")
-            runnerctl_api.require_store_prefix_allowed("ditt/compare/o1experimental-vs-o3/public/latest/")
+            with self.assertRaises(runnerctl_api.RunnerCtlError):
+                runnerctl_api.require_store_prefix_allowed("ditt/archive/latest/")
 
-    def test_default_store_prune_prefixes_allow_o1experimental_reports(self):
+    def test_default_store_prune_prefixes_allow_latest_and_smoke_reports(self):
         with mock.patch.dict(os.environ, {}, clear=True):
-            runnerctl_api.require_store_prune_prefix_allowed("ditt/public/o1experimental/latest/")
-            runnerctl_api.require_store_prune_prefix_allowed("ditt/private/o1experimental/latest/")
+            runnerctl_api.require_store_prune_prefix_allowed("ditt/public/latest/")
+            runnerctl_api.require_store_prune_prefix_allowed("ditt/private/latest/")
+            runnerctl_api.require_store_prune_prefix_allowed("ditt/public/smoke/latest/")
+            runnerctl_api.require_store_prune_prefix_allowed("ditt/private/smoke/latest/")
 
     def test_normalize_store_file_path_rejects_traversal(self):
         with self.assertRaises(runnerctl_api.RunnerCtlError) as raised:
@@ -719,15 +722,15 @@ class JenkinsApiClientTests(unittest.TestCase):
         jenkins = FakeJenkinsClient()
         result = runnerctl_api.delete_jenkins_artifact(
             {
-                "job": "ci/ditt/compare/o1experimental-vs-o3-public",
+                "job": "ci/ditt/real/ex40-public",
                 "build": "9",
-                "artifact": "publish-o1experimental-vs-o3.zip",
+                "artifact": "publish-smoke.zip",
             },
             jenkins,
         )
 
         self.assertEqual(result["result"], "deleted")
-        self.assertEqual(jenkins.calls, [("ci/ditt/compare/o1experimental-vs-o3-public", 9, "publish-o1experimental-vs-o3.zip")])
+        self.assertEqual(jenkins.calls, [("ci/ditt/real/ex40-public", 9, "publish-smoke.zip")])
 
     def test_delete_jenkins_artifact_rejects_non_publish_zip(self):
         class FakeJenkinsClient:
