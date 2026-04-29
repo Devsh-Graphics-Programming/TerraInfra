@@ -60,10 +60,8 @@ Current jobs:
 - `ci/ditt/store-smoke`: validates `store.devsh.eu` public/private report endpoint behavior without Proxmox credentials.
 - `ci/ditt/ex40-dummy-smoke`: accepts an uploaded EX40 runtime package or HTTPS package URL, leases a Windows GPU runtime runner, renders a tiny inline dummy scene, validates the report bundle, and publishes it to `https://store.devsh.eu/ditt/dummy/`.
 - `ci/ditt/ex40-scene-smoke`: accepts an uploaded EX40 runtime package or HTTPS package URL, materializes `public-smoke` and `private-smoke` from the small smoke zip cache or `public` and `private` from the runner-farm Git object cache, renders the selected shard on a Windows GPU runtime runner, and publishes the report under `ditt/public/` or `ditt/private/`.
-- `ci/ditt/real/ex40-public`: runs the full public EX40 DITT scene suite from Git object cache commits and publishes the real report to `https://store.devsh.eu/ditt/public/latest/`.
+- `ci/ditt/real/ex40-public`: first runs and publishes a tiny three-input EX40 report-set compare smoke under `https://store.devsh.eu/ditt/public/smoke/latest/`, then runs the full public EX40 DITT scene suite from Git object cache commits and publishes the real report to `https://store.devsh.eu/ditt/public/latest/`.
 - `ci/ditt/real/ex40-private`: runs the full private EX40 DITT scene suite from Git object cache commits and publishes the real report to `https://store.devsh.eu/ditt/private/latest/`. Private full-scene jobs run isolated scenes with a 15 minute per-scene timeout and a larger runner lease budget so slow scenes fail as report data rather than aborting the infrastructure job.
-- `ci/ditt/compare/o1experimental-vs-o3-public` and `ci/ditt/compare/o1experimental-vs-o3-private`: legacy diagnostic jobs that render Release/O3 and O1experimental packages on the same runner, then publish a comparison report.
-- `ci/ditt/compare/report-bundle-o1experimental-vs-o3-public` and `ci/ditt/compare/report-bundle-o1experimental-vs-o3-private`: compare already generated report bundles without materializing scenes, rendering frames, or downloading full reports back from `store.devsh.eu`. The paired render jobs write their full report bundles to a short-lived runner-local scratch share near the Proxmox host, and the compare job reads those two variant directories from the same scratch id before publishing the latest comparison index.
 - `ci/ditt/ex40-report-plan`: validates EX40 report publish parameters and stays in dry-run mode until the runtime backend is connected.
 
 DITT GPU jobs that lease Windows runners use Jenkins `disableConcurrentBuilds`
@@ -111,12 +109,10 @@ Current object stores are split by reuse and sensitivity:
 - `ditt-reference-renders`: DITT reference renders.
 
 Jenkins does not upload media, scenes, or reference renders. It only passes commit SHAs, suite name, shard index, and the small EX40 runtime package. Object cache remotes and any read-only credentials are host-side configuration and must not be committed.
-Report-bundle compare jobs use the generic runner-local scratch share exposed by
-the runner-farm cache API. The cache service only creates, describes, and deletes
-opaque scratch ids. DITT-specific variant names, report layout, publish policy,
-and cleanup orchestration stay in Jenkins shared-library code and the workload
-repository. Full reports are never round-tripped through Object Storage for
-comparison.
+The public full-scene job also exercises EX40 report-set compare with a tiny
+dummy scene before starting the expensive public render. This keeps compare UI
+and relocatable compare bundles covered by the normal release pipeline without
+running a second full render mode.
 Large EX40 reports are published through a transient workspace `publish.zip`
 upload to the generic `runnerctl` store endpoint. Jenkins does not archive the
 zip and the build keeps only small diagnostics such as logs, metadata,
