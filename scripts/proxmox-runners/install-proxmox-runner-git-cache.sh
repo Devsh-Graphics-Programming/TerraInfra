@@ -113,6 +113,7 @@ if [[ "${ENABLE_SCRATCH_SMB}" == "true" ]]; then
   guest ok = no
   valid users = ${SCRATCH_SMB_USER}
   force user = ${SCRATCH_SMB_USER}
+  force group = ${SCRATCH_SMB_USER}
   create mask = 0660
   directory mask = 0770
   hosts allow = ${SCRATCH_SMB_HOSTS_ALLOW}
