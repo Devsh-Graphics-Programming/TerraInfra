@@ -99,11 +99,14 @@ def call(Map args = [:]) {
     writeFile file: 'scratch-reports.ps1', text: '''
 function Mount-RunnerScratch {
   if ([string]::IsNullOrWhiteSpace($env:SCRATCH_UNC_PATH)) { throw "SCRATCH_UNC_PATH is required." }
+  if ([string]::IsNullOrWhiteSpace($env:SCRATCH_ID)) { throw "SCRATCH_ID is required." }
   if ([string]::IsNullOrWhiteSpace($env:SCRATCH_SMB_USERNAME) -or [string]::IsNullOrWhiteSpace($env:SCRATCH_SMB_CREDENTIAL)) { throw "Scratch SMB credentials are required." }
+  $scratchMapTarget = if ([string]::IsNullOrWhiteSpace($env:SCRATCH_UNC_ROOT)) { $env:SCRATCH_UNC_PATH } else { $env:SCRATCH_UNC_ROOT }
   & cmd.exe /d /c "net use R: /delete /y >nul 2>nul"
-  & net.exe use R: $env:SCRATCH_UNC_PATH $env:SCRATCH_SMB_CREDENTIAL /user:$env:SCRATCH_SMB_USERNAME /persistent:no | Out-Host
+  & net.exe use R: $scratchMapTarget $env:SCRATCH_SMB_CREDENTIAL /user:$env:SCRATCH_SMB_USERNAME /persistent:no | Out-Host
   if ($LASTEXITCODE -ne 0) { throw "Could not map runner scratch share." }
-  return [System.IO.Path]::GetFullPath("R:\\")
+  $root = if ([string]::IsNullOrWhiteSpace($env:SCRATCH_UNC_ROOT)) { "R:\\" } else { Join-Path "R:\\" $env:SCRATCH_ID }
+  return [System.IO.Path]::GetFullPath($root)
 }
 
 function Resolve-ScratchReport {
@@ -202,6 +205,8 @@ function Resolve-ScratchReport {
           withFileParameter(name: 'EX40_COMPARE_PACKAGE_FILE', allowNoFile: false) {
             withEnv([
               'SCENE_SUITE=' + suite,
+              'SCRATCH_ID=' + scratchId,
+              'SCRATCH_UNC_ROOT=' + (scratchInfo?.unc_root ?: ''),
               'SCRATCH_UNC_PATH=' + (scratchInfo?.unc_path ?: ''),
               'SCRATCH_SMB_USERNAME=' + (scratchInfo?.smb_username ?: ''),
               'SCRATCH_SMB_CREDENTIAL=' + (scratchInfo?.smb_credential ?: ''),

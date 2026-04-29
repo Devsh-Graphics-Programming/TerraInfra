@@ -103,12 +103,14 @@ def call(Map args = [:]) {
 function Initialize-PublishRoot {
   param([switch] $Clean)
   if (-not [string]::IsNullOrWhiteSpace($env:SCRATCH_UNC_PATH)) {
+    if ([string]::IsNullOrWhiteSpace($env:SCRATCH_ID)) { throw "SCRATCH_ID is required when SCRATCH_UNC_PATH is set." }
     if ([string]::IsNullOrWhiteSpace($env:SCRATCH_VARIANT)) { throw "SCRATCH_VARIANT is required when SCRATCH_UNC_PATH is set." }
     if ([string]::IsNullOrWhiteSpace($env:SCRATCH_SMB_USERNAME) -or [string]::IsNullOrWhiteSpace($env:SCRATCH_SMB_CREDENTIAL)) { throw "Scratch SMB credentials are required." }
+    $scratchMapTarget = if ([string]::IsNullOrWhiteSpace($env:SCRATCH_UNC_ROOT)) { $env:SCRATCH_UNC_PATH } else { $env:SCRATCH_UNC_ROOT }
     & cmd.exe /d /c "net use R: /delete /y >nul 2>nul"
-    & net.exe use R: $env:SCRATCH_UNC_PATH $env:SCRATCH_SMB_CREDENTIAL /user:$env:SCRATCH_SMB_USERNAME /persistent:no | Out-Host
+    & net.exe use R: $scratchMapTarget $env:SCRATCH_SMB_CREDENTIAL /user:$env:SCRATCH_SMB_USERNAME /persistent:no | Out-Host
     if ($LASTEXITCODE -ne 0) { throw "Could not map runner scratch share." }
-    $root = Join-Path "R:\\" $env:SCRATCH_VARIANT
+    $root = Join-Path (Join-Path "R:\\" $env:SCRATCH_ID) $env:SCRATCH_VARIANT
   } else {
     $root = Join-Path $env:WORKSPACE "publish"
   }
@@ -236,6 +238,8 @@ function Sync-PublishSummaryToWorkspace {
             'SHARD_INDEX=' + shardIndex.toString(),
             'FAIL_ON_RENDER_FAILURE=' + failOnRenderFailure.toString(),
             'ISOLATE_SCENES=' + isolateScenes.toString(),
+            'SCRATCH_ID=' + (scratchId ?: ''),
+            'SCRATCH_UNC_ROOT=' + (scratchInfo?.unc_root ?: ''),
             'SCRATCH_UNC_PATH=' + (scratchInfo?.unc_path ?: ''),
             'SCRATCH_VARIANT=' + (scratchVariant ?: ''),
             'SCRATCH_SMB_USERNAME=' + (scratchInfo?.smb_username ?: ''),
