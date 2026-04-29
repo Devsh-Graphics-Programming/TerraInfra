@@ -27,7 +27,7 @@ PUBLIC_GIT_BASE_URL="${PUBLIC_GIT_BASE_URL:-git://${LISTEN_HOST}:${GIT_PORT}}"
 SCRATCH_ROOT="${SCRATCH_ROOT:-/var/lib/proxmox-runner-scratch}"
 SCRATCH_SMB_SHARE="${SCRATCH_SMB_SHARE:-runner-scratch}"
 SCRATCH_SMB_USER="${SCRATCH_SMB_USER:-proxmox-runner-scratch}"
-SCRATCH_SMB_PASSWORD_FILE="${SCRATCH_SMB_PASSWORD_FILE:-${INSTALL_DIR}/scratch-smb-password}"
+SCRATCH_SMB_CREDENTIAL_FILE="${SCRATCH_SMB_CREDENTIAL_FILE:-${INSTALL_DIR}/scratch-smb-credential}"
 SCRATCH_SMB_HOSTS_ALLOW="${SCRATCH_SMB_HOSTS_ALLOW:-10.254.254.0/24 127.}"
 SCRATCH_UNC_ROOT="${SCRATCH_UNC_ROOT:-\\\\${LISTEN_HOST}\\${SCRATCH_SMB_SHARE}}"
 ENABLE_SCRATCH_SMB="${ENABLE_SCRATCH_SMB:-true}"
@@ -84,15 +84,15 @@ if [[ "${ENABLE_SCRATCH_SMB}" == "true" ]]; then
     apt-get update
     DEBIAN_FRONTEND=noninteractive apt-get install -y samba
   fi
-  if [[ ! -f "${SCRATCH_SMB_PASSWORD_FILE}" ]]; then
+  if [[ ! -f "${SCRATCH_SMB_CREDENTIAL_FILE}" ]]; then
     old_umask="$(umask)"
     umask 077
-    openssl rand -base64 48 >"${SCRATCH_SMB_PASSWORD_FILE}"
+    openssl rand -base64 48 >"${SCRATCH_SMB_CREDENTIAL_FILE}"
     umask "${old_umask}"
   fi
-  chmod 0600 "${SCRATCH_SMB_PASSWORD_FILE}"
-  scratch_smb_password="$(cat "${SCRATCH_SMB_PASSWORD_FILE}")"
-  printf '%s\n%s\n' "${scratch_smb_password}" "${scratch_smb_password}" | smbpasswd -s -a "${SCRATCH_SMB_USER}" >/dev/null
+  chmod 0600 "${SCRATCH_SMB_CREDENTIAL_FILE}"
+  scratch_smb_credential="$(cat "${SCRATCH_SMB_CREDENTIAL_FILE}")"
+  printf '%s\n%s\n' "${scratch_smb_credential}" "${scratch_smb_credential}" | smbpasswd -s -a "${SCRATCH_SMB_USER}" >/dev/null
   smbpasswd -e "${SCRATCH_SMB_USER}" >/dev/null
   smb_filtered="$(mktemp)"
   smb_tmp="$(mktemp)"
@@ -147,7 +147,7 @@ BLOB_FETCH_TIMEOUT_SECONDS=${BLOB_FETCH_TIMEOUT_SECONDS}
 SCRATCH_ROOT=${SCRATCH_ROOT}
 SCRATCH_UNC_ROOT='${SCRATCH_UNC_ROOT}'
 SCRATCH_SMB_USERNAME=${SCRATCH_SMB_USER}
-SCRATCH_SMB_PASSWORD_FILE=${SCRATCH_SMB_PASSWORD_FILE}
+SCRATCH_SMB_CREDENTIAL_FILE=${SCRATCH_SMB_CREDENTIAL_FILE}
 GIT_CACHE_API_LISTEN_HOST=${LISTEN_HOST}
 GIT_CACHE_API_PORT=${API_PORT}
 GIT_CACHE_PUBLIC_GIT_BASE_URL=${PUBLIC_GIT_BASE_URL}

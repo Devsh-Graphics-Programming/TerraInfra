@@ -104,9 +104,9 @@ function Initialize-PublishRoot {
   param([switch] $Clean)
   if (-not [string]::IsNullOrWhiteSpace($env:SCRATCH_UNC_PATH)) {
     if ([string]::IsNullOrWhiteSpace($env:SCRATCH_VARIANT)) { throw "SCRATCH_VARIANT is required when SCRATCH_UNC_PATH is set." }
-    if ([string]::IsNullOrWhiteSpace($env:SCRATCH_SMB_USERNAME) -or [string]::IsNullOrWhiteSpace($env:SCRATCH_SMB_PASSWORD)) { throw "Scratch SMB credentials are required." }
+    if ([string]::IsNullOrWhiteSpace($env:SCRATCH_SMB_USERNAME) -or [string]::IsNullOrWhiteSpace($env:SCRATCH_SMB_CREDENTIAL)) { throw "Scratch SMB credentials are required." }
     & cmd.exe /d /c "net use R: /delete /y >nul 2>nul"
-    & net.exe use R: $env:SCRATCH_UNC_PATH $env:SCRATCH_SMB_PASSWORD /user:$env:SCRATCH_SMB_USERNAME /persistent:no | Out-Host
+    & net.exe use R: $env:SCRATCH_UNC_PATH $env:SCRATCH_SMB_CREDENTIAL /user:$env:SCRATCH_SMB_USERNAME /persistent:no | Out-Host
     if ($LASTEXITCODE -ne 0) { throw "Could not map runner scratch share." }
     $root = Join-Path "R:\\" $env:SCRATCH_VARIANT
   } else {
@@ -239,7 +239,7 @@ function Sync-PublishSummaryToWorkspace {
             'SCRATCH_UNC_PATH=' + (scratchInfo?.unc_path ?: ''),
             'SCRATCH_VARIANT=' + (scratchVariant ?: ''),
             'SCRATCH_SMB_USERNAME=' + (scratchInfo?.smb_username ?: ''),
-            'SCRATCH_SMB_PASSWORD=' + (scratchInfo?.smb_password ?: '')
+            'SCRATCH_SMB_CREDENTIAL=' + (scratchInfo?.smb_credential ?: '')
           ]) {
             writePublishRootHelper()
             stage('Acquire package') {

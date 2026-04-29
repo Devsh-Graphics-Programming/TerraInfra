@@ -228,19 +228,19 @@ class ScratchTests(unittest.TestCase):
 
     def test_scratch_returns_smb_auth_when_configured(self):
         with tempfile.TemporaryDirectory() as directory:
-            password_file = Path(directory) / "scratch-password"
-            password_file.write_text("dummy-scratch-password\n", encoding="utf-8")
+            credential_file = Path(directory) / "scratch-credential"
+            credential_file.write_text("dummy-scratch-credential\n", encoding="utf-8")
             cache = self.make_cache(
                 directory,
                 scratch_smb_username="scratch-user",
-                scratch_smb_password_file=password_file,
+                scratch_smb_credential_file=credential_file,
             )
 
             created = cache.create_scratch("gh-123-public")
 
             self.assertEqual(
                 created["smb_auth"],
-                {"username": "scratch-user", "password": "dummy-scratch-password"},
+                {"username": "scratch-user", "credential": "dummy-scratch-credential"},
             )
 
 

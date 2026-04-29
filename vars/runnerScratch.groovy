@@ -38,7 +38,7 @@ def call(Map args = [:]) {
   }
   if (result.smb_auth instanceof Map) {
     result.smb_username = result.smb_auth.username?.toString()
-    result.smb_password = result.smb_auth.password?.toString()
+    result.smb_credential = result.smb_auth.credential?.toString()
     result.remove('smb_auth')
   }
   echo('Runner scratch ' + action + ': id=' + result.id + ', unc_path=' + result.unc_path)

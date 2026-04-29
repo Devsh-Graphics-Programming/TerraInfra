@@ -142,7 +142,7 @@ class CacheConfig:
         scratch_root=None,
         scratch_unc_root="",
         scratch_smb_username="",
-        scratch_smb_password_file=None,
+        scratch_smb_credential_file=None,
         url_opener=None,
     ):
         self.path = Path(path)
@@ -161,7 +161,7 @@ class CacheConfig:
         self.scratch_root = Path(scratch_root) if scratch_root else self.root / "scratch"
         self.scratch_unc_root = str(scratch_unc_root or "").rstrip("\\/")
         self.scratch_smb_username = str(scratch_smb_username or "")
-        self.scratch_smb_password_file = Path(scratch_smb_password_file) if scratch_smb_password_file else None
+        self.scratch_smb_credential_file = Path(scratch_smb_credential_file) if scratch_smb_credential_file else None
         self.url_opener = url_opener or urllib.request.build_opener(NoRedirectHandler)
         self._lock = threading.Lock()
         self._mtime = None
@@ -275,15 +275,15 @@ class CacheConfig:
     def scratch_smb_auth(self):
         if not self.scratch_smb_username:
             return None
-        if not self.scratch_smb_password_file:
-            raise CacheError(HTTPStatus.INTERNAL_SERVER_ERROR, "scratch-auth-missing", "Scratch SMB password file is not configured.")
+        if not self.scratch_smb_credential_file:
+            raise CacheError(HTTPStatus.INTERNAL_SERVER_ERROR, "scratch-auth-missing", "Scratch SMB credential file is not configured.")
         try:
-            password = self.scratch_smb_password_file.read_text(encoding="utf-8").strip()
+            credential = self.scratch_smb_credential_file.read_text(encoding="utf-8").strip()
         except OSError as exc:
-            raise CacheError(HTTPStatus.INTERNAL_SERVER_ERROR, "scratch-auth-unreadable", "Scratch SMB password file is not readable.") from exc
-        if not password:
-            raise CacheError(HTTPStatus.INTERNAL_SERVER_ERROR, "scratch-auth-empty", "Scratch SMB password is empty.")
-        return {"username": self.scratch_smb_username, "password": password}
+            raise CacheError(HTTPStatus.INTERNAL_SERVER_ERROR, "scratch-auth-unreadable", "Scratch SMB credential file is not readable.") from exc
+        if not credential:
+            raise CacheError(HTTPStatus.INTERNAL_SERVER_ERROR, "scratch-auth-empty", "Scratch SMB credential is empty.")
+        return {"username": self.scratch_smb_username, "credential": credential}
 
 
 class GitObjectCache:
@@ -666,7 +666,7 @@ def main():
     scratch_root = os.getenv("SCRATCH_ROOT", str(Path(cache_root) / "scratch"))
     scratch_unc_root = os.getenv("SCRATCH_UNC_ROOT", "")
     scratch_smb_username = os.getenv("SCRATCH_SMB_USERNAME", "")
-    scratch_smb_password_file = os.getenv("SCRATCH_SMB_PASSWORD_FILE", "")
+    scratch_smb_credential_file = os.getenv("SCRATCH_SMB_CREDENTIAL_FILE", "")
     listen_host = os.getenv("GIT_CACHE_API_LISTEN_HOST", "127.0.0.1")
     listen_port = int(os.getenv("GIT_CACHE_API_PORT", "18082"))
     public_git_base_url = os.getenv("GIT_CACHE_PUBLIC_GIT_BASE_URL", "git://127.0.0.1")
@@ -684,7 +684,7 @@ def main():
         scratch_root,
         scratch_unc_root,
         scratch_smb_username,
-        scratch_smb_password_file,
+        scratch_smb_credential_file,
     )
     cache = GitObjectCache(config)
     server = Server((listen_host, listen_port), cache)

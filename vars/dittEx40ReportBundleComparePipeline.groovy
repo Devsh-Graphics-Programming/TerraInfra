@@ -99,9 +99,9 @@ def call(Map args = [:]) {
     writeFile file: 'scratch-reports.ps1', text: '''
 function Mount-RunnerScratch {
   if ([string]::IsNullOrWhiteSpace($env:SCRATCH_UNC_PATH)) { throw "SCRATCH_UNC_PATH is required." }
-  if ([string]::IsNullOrWhiteSpace($env:SCRATCH_SMB_USERNAME) -or [string]::IsNullOrWhiteSpace($env:SCRATCH_SMB_PASSWORD)) { throw "Scratch SMB credentials are required." }
+  if ([string]::IsNullOrWhiteSpace($env:SCRATCH_SMB_USERNAME) -or [string]::IsNullOrWhiteSpace($env:SCRATCH_SMB_CREDENTIAL)) { throw "Scratch SMB credentials are required." }
   & cmd.exe /d /c "net use R: /delete /y >nul 2>nul"
-  & net.exe use R: $env:SCRATCH_UNC_PATH $env:SCRATCH_SMB_PASSWORD /user:$env:SCRATCH_SMB_USERNAME /persistent:no | Out-Host
+  & net.exe use R: $env:SCRATCH_UNC_PATH $env:SCRATCH_SMB_CREDENTIAL /user:$env:SCRATCH_SMB_USERNAME /persistent:no | Out-Host
   if ($LASTEXITCODE -ne 0) { throw "Could not map runner scratch share." }
   return [System.IO.Path]::GetFullPath("R:\\")
 }
@@ -204,7 +204,7 @@ function Resolve-ScratchReport {
               'SCENE_SUITE=' + suite,
               'SCRATCH_UNC_PATH=' + (scratchInfo?.unc_path ?: ''),
               'SCRATCH_SMB_USERNAME=' + (scratchInfo?.smb_username ?: ''),
-              'SCRATCH_SMB_PASSWORD=' + (scratchInfo?.smb_password ?: ''),
+              'SCRATCH_SMB_CREDENTIAL=' + (scratchInfo?.smb_credential ?: ''),
               'BASELINE_VARIANT=' + baselineVariant,
               'CANDIDATE_VARIANT=' + candidateVariant
             ]) {
