@@ -404,7 +404,7 @@ function Sync-PublishSummaryToWorkspace {
                 'Copy-Item -Path (Join-Path $package.reportTemplate "*") -Destination $publishRoot -Recurse -Force',
                 '$manifestPath = Join-Path $root "manifest.json"',
                 '$manifest = [ordered]@{',
-                '  name = "EX40 release compare smoke"',
+                '  name = "Release compare smoke"',
                 '  baseline = "nvidia"',
                 '  inputs = @(',
                 '    [ordered]@{ id = "nvidia"; name = "NVIDIA"; reportDir = "nvidia" },',
@@ -437,7 +437,7 @@ function Sync-PublishSummaryToWorkspace {
                 '  if (-not (Test-Path -LiteralPath $pairPath)) { throw "Compare smoke pair output is missing: $pairRoot" }',
                 '  Copy-Item -Path (Join-Path $package.reportTemplate "*") -Destination $pairPath -Recurse -Force',
                 '}',
-                'foreach ($relative in @("index.html", "summary.json", "pairs/amd_vs_nvidia/index.html", "pairs/intel_vs_nvidia/index.html")) {',
+                'foreach ($relative in @("index.html", "summary.json", "pairs/amd_vs_nvidia/index.html", "pairs/amd_vs_nvidia/summary.json", "pairs/intel_vs_nvidia/index.html", "pairs/intel_vs_nvidia/summary.json")) {',
                 '  if (-not (Test-Path -LiteralPath (Join-Path $publishRoot $relative))) { throw "Compare smoke output is missing: $relative" }',
                 '}'
               ].join('\n')
