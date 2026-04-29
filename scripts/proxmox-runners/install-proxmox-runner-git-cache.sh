@@ -79,7 +79,7 @@ if [[ "${ENABLE_SCRATCH_SMB}" == "true" ]]; then
   if ! id -u "${SCRATCH_SMB_USER}" >/dev/null 2>&1; then
     useradd --system --no-create-home --shell /usr/sbin/nologin "${SCRATCH_SMB_USER}"
   fi
-  install -d -m 2710 -o root -g "${SCRATCH_SMB_USER}" "${SCRATCH_ROOT}"
+  install -d -m 2750 -o root -g "${SCRATCH_SMB_USER}" "${SCRATCH_ROOT}"
   if ! command -v smbd >/dev/null 2>&1; then
     apt-get update
     DEBIAN_FRONTEND=noninteractive apt-get install -y samba
