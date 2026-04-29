@@ -87,7 +87,7 @@ if [[ "${ENABLE_SCRATCH_SMB}" == "true" ]]; then
   if [[ ! -f "${SCRATCH_SMB_CREDENTIAL_FILE}" ]]; then
     old_umask="$(umask)"
     umask 077
-    openssl rand -base64 48 >"${SCRATCH_SMB_CREDENTIAL_FILE}"
+    openssl rand -hex 32 >"${SCRATCH_SMB_CREDENTIAL_FILE}"
     umask "${old_umask}"
   fi
   chmod 0600 "${SCRATCH_SMB_CREDENTIAL_FILE}"
