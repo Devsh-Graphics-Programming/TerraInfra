@@ -105,7 +105,7 @@ function Initialize-PublishRoot {
   if (-not [string]::IsNullOrWhiteSpace($env:SCRATCH_UNC_PATH)) {
     if ([string]::IsNullOrWhiteSpace($env:SCRATCH_VARIANT)) { throw "SCRATCH_VARIANT is required when SCRATCH_UNC_PATH is set." }
     & cmd.exe /d /c "net use R: /delete /y >nul 2>nul"
-    & net.exe use R: $env:SCRATCH_UNC_PATH /persistent:no | Out-Host
+    & net.exe use R: $env:SCRATCH_UNC_PATH "" /user:guest /persistent:no | Out-Host
     if ($LASTEXITCODE -ne 0) { throw "Could not map runner scratch share." }
     $root = Join-Path "R:\\" $env:SCRATCH_VARIANT
   } else {
