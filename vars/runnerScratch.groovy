@@ -36,6 +36,11 @@ def call(Map args = [:]) {
   if (!result.unc_path) {
     result.unc_path = uncRoot.replaceAll(/[\\\\\\/]+$/, '') + '\\' + id
   }
+  if (result.smb_auth instanceof Map) {
+    result.smb_username = result.smb_auth.username?.toString()
+    result.smb_password = result.smb_auth.password?.toString()
+    result.remove('smb_auth')
+  }
   echo('Runner scratch ' + action + ': id=' + result.id + ', unc_path=' + result.unc_path)
   return result
 }

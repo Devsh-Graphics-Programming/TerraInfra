@@ -192,7 +192,7 @@ class ScratchTests(unittest.TestCase):
     def setUp(self):
         self.module = load_module()
 
-    def make_cache(self, directory):
+    def make_cache(self, directory, **kwargs):
         root = Path(directory) / "git"
         config = self.module.CacheConfig(
             Path(directory) / "repos.json",
@@ -200,6 +200,7 @@ class ScratchTests(unittest.TestCase):
             "git://127.0.0.1:9418",
             scratch_root=Path(directory) / "scratch",
             scratch_unc_root=r"\\10.254.254.254\runner-scratch",
+            **kwargs,
         )
         return self.module.GitObjectCache(config)
 
@@ -224,6 +225,23 @@ class ScratchTests(unittest.TestCase):
                 with self.subTest(scratch_id=scratch_id):
                     with self.assertRaises(self.module.CacheError):
                         cache.create_scratch(scratch_id)
+
+    def test_scratch_returns_smb_auth_when_configured(self):
+        with tempfile.TemporaryDirectory() as directory:
+            password_file = Path(directory) / "scratch-password"
+            password_file.write_text("dummy-scratch-password\n", encoding="utf-8")
+            cache = self.make_cache(
+                directory,
+                scratch_smb_username="scratch-user",
+                scratch_smb_password_file=password_file,
+            )
+
+            created = cache.create_scratch("gh-123-public")
+
+            self.assertEqual(
+                created["smb_auth"],
+                {"username": "scratch-user", "password": "dummy-scratch-password"},
+            )
 
 
 if __name__ == "__main__":
