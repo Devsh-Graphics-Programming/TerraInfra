@@ -91,6 +91,10 @@ data:
                 }
               ]
             },
+            "scratch": {
+              "api_url": "http://10.254.254.254:18082",
+              "unc_root": "\\\\10.254.254.254\\runner-scratch"
+            },
             "vmid_ranges": {
               "runner": {
                 "start": 2000,

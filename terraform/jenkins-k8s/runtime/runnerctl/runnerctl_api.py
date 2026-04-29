@@ -329,6 +329,18 @@ def require_public_url(value, field_name, allowed_schemes):
     return text.rstrip("/")
 
 
+def require_unc_root(value, field_name):
+    text = str(value or "").strip().rstrip("\\/")
+    if not re.fullmatch(r"\\\\[A-Za-z0-9_.-]+\\[A-Za-z0-9_.-]+", text):
+        raise RunnerCtlError(
+            HTTPStatus.INTERNAL_SERVER_ERROR,
+            "invalid-inventory",
+            f"{field_name} must be a simple UNC share root.",
+            {"field": field_name},
+        )
+    return text
+
+
 def normalize_git_cache_repo_path(value, field_name):
     text = str(value or "").strip().replace("\\", "/")
     if text.startswith("/") or text.endswith("/") or "//" in text:
@@ -403,6 +415,15 @@ def host_git_object_cache(host):
     if git_client_sha256:
         result["git_client_sha256"] = git_client_sha256
     return result
+
+
+def host_scratch(host):
+    scratch = host.get("scratch")
+    if not scratch:
+        return None
+    api_url = require_public_url(scratch.get("api_url"), "scratch.api_url", {"http", "https"})
+    unc_root = require_unc_root(scratch.get("unc_root"), "scratch.unc_root")
+    return {"api_url": api_url, "unc_root": unc_root}
 
 
 def normalize_store_prefix(value, field_name="prefix"):
@@ -1466,6 +1487,9 @@ def build_candidate(host, template, runner_class):
     git_cache = host_git_object_cache(host)
     if git_cache:
         candidate["git_object_cache"] = git_cache
+    scratch = host_scratch(host)
+    if scratch:
+        candidate["scratch"] = scratch
     if placement.get("gpu_device"):
         candidate["gpu_device"] = placement["gpu_device"]
     return candidate
@@ -1484,6 +1508,7 @@ def public_candidate(candidate):
         "jenkins_host_alias_ip": candidate.get("jenkins_host_alias_ip"),
         "dns_servers": candidate.get("dns_servers"),
         "git_object_cache": candidate.get("git_object_cache"),
+        "scratch": candidate.get("scratch"),
     }
 
 
@@ -2226,6 +2251,8 @@ def public_lease_result(record, allocation_mode, timings=None):
     }
     if record.get("git_object_cache"):
         result["git_object_cache"] = record["git_object_cache"]
+    if record.get("scratch"):
+        result["scratch"] = record["scratch"]
     timing_data = merge_timings(record.get("timings"), timings)
     if timing_data:
         result["timings"] = timing_data
@@ -2349,6 +2376,7 @@ def acquire_ready_pool_member(client_registry, lease_store, inventory, resolved,
                     "jenkins_host_alias_ip": candidate.get("jenkins_host_alias_ip"),
                     "dns_servers": candidate.get("dns_servers"),
                     "git_object_cache": candidate.get("git_object_cache"),
+                    "scratch": candidate.get("scratch"),
                 },
             )
             timings = merge_timings(
@@ -2464,6 +2492,7 @@ def create_lease(client_registry, lease_store, inventory, request_data):
                     "jenkins_host_alias_ip": candidate.get("jenkins_host_alias_ip"),
                     "dns_servers": candidate.get("dns_servers"),
                     "git_object_cache": candidate.get("git_object_cache"),
+                    "scratch": candidate.get("scratch"),
                     "timings": {
                         "clone_ms": clone_ms,
                         "configure_ms": configure_ms,
@@ -3129,6 +3158,8 @@ def public_agent_lease_result(record, prepare_result):
     }
     if record.get("git_object_cache"):
         result["git_object_cache"] = record["git_object_cache"]
+    if record.get("scratch"):
+        result["scratch"] = record["scratch"]
     timings = merge_timings(prepare_result.get("timings"), record.get("timings"))
     if timings:
         result["timings"] = timings
@@ -3582,6 +3613,7 @@ def build_ready_pool_member(client_registry, lease_store, inventory, resolved, c
         "jenkins_host_alias_ip": candidate.get("jenkins_host_alias_ip"),
         "dns_servers": candidate.get("dns_servers"),
         "git_object_cache": candidate.get("git_object_cache"),
+        "scratch": candidate.get("scratch"),
     }
     lease_store.put(pool_id, record)
 

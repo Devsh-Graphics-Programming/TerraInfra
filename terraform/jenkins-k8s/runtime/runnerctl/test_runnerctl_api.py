@@ -73,6 +73,10 @@ SAMPLE_INVENTORY = {
                         },
                     ],
                 },
+                "scratch": {
+                    "api_url": "http://10.254.254.254:18082",
+                    "unc_root": r"\\10.254.254.254\runner-scratch",
+                },
                 "vmid_ranges": {
                     "runner": {
                         "start": 2000,
@@ -953,6 +957,8 @@ class CreateLeaseTests(unittest.TestCase):
             self.assertEqual(record["git_object_cache"]["stores"][0]["git_url"], "git://10.254.254.254:9418/nabla-media-public.git")
             self.assertEqual(record["git_object_cache"]["git_client_sha256"], "04f937e1f0918b17b9be6f2294cb2bb66e96e1d9832d1c298e2de088a1d0e668")
             self.assertEqual(result["git_object_cache"]["stores"][1]["id"], "ditt-reference-scenes")
+            self.assertEqual(record["scratch"]["unc_root"], r"\\10.254.254.254\runner-scratch")
+            self.assertEqual(result["scratch"]["api_url"], "http://10.254.254.254:18082")
             self.assertIn("git-client", record["health_checks"])
             self.assertIn("lease_total_ms", record["timings"])
 
@@ -1013,6 +1019,7 @@ class CreateLeaseTests(unittest.TestCase):
             self.assertEqual(record["dns_servers"], ["1.1.1.1", "8.8.8.8"])
             self.assertEqual(record["git_object_cache"]["api_url"], "http://10.254.254.254:18082")
             self.assertEqual(record["git_object_cache"]["git_client_url"], "http://10.254.254.254:18081/MinGit.zip")
+            self.assertEqual(record["scratch"]["unc_root"], r"\\10.254.254.254\runner-scratch")
 
     def test_create_lease_rejects_second_exclusive_gpu_runner(self):
         with tempfile.TemporaryDirectory() as directory:

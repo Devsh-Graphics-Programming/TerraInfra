@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -22,6 +23,7 @@ ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{7,40}$")
 REPO_PATH_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*\.git$")
 BLOB_KEY_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/+-]*$")
+SCRATCH_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")
 
 
 class CacheError(Exception):
@@ -137,6 +139,8 @@ class CacheConfig:
         blob_fetch_allowed_url_prefixes=None,
         blob_fetch_basic_auth_file=None,
         blob_fetch_timeout_seconds=300,
+        scratch_root=None,
+        scratch_unc_root="",
         url_opener=None,
     ):
         self.path = Path(path)
@@ -152,6 +156,8 @@ class CacheConfig:
         ]
         self.blob_fetch_basic_auth = load_blob_fetch_basic_auth(blob_fetch_basic_auth_file, self.blob_fetch_allowed_url_prefixes)
         self.blob_fetch_timeout_seconds = int(blob_fetch_timeout_seconds)
+        self.scratch_root = Path(scratch_root) if scratch_root else self.root / "scratch"
+        self.scratch_unc_root = str(scratch_unc_root or "").rstrip("\\/")
         self.url_opener = url_opener or urllib.request.build_opener(NoRedirectHandler)
         self._lock = threading.Lock()
         self._mtime = None
@@ -248,6 +254,19 @@ class CacheConfig:
                 headers["Authorization"] = entry["authorization"]
                 break
         return headers
+
+    def scratch_path(self, scratch_id):
+        normalized = require_pattern(scratch_id, SCRATCH_ID_PATTERN, "scratch.id")
+        path = (self.scratch_root / normalized).resolve()
+        root = self.scratch_root.resolve()
+        try:
+            path.relative_to(root)
+        except ValueError as exc:
+            raise CacheError(HTTPStatus.BAD_REQUEST, "invalid-scratch-id", "Scratch id escapes scratch root.") from exc
+        unc_path = None
+        if self.scratch_unc_root:
+            unc_path = self.scratch_unc_root + "\\" + normalized
+        return normalized, path, unc_path
 
 
 class GitObjectCache:
@@ -432,6 +451,24 @@ class GitObjectCache:
                 pass
         return {"cached": False, "key": normalized, "size": written, "sha256": digest.hexdigest(), "fetch_ms": elapsed_ms(started_ms)}
 
+    def create_scratch(self, scratch_id):
+        normalized, path, unc_path = self.config.scratch_path(scratch_id)
+        existed = path.exists()
+        path.mkdir(parents=True, exist_ok=True, mode=0o770)
+        path.chmod(0o770)
+        return {"id": normalized, "created": not existed, "exists": True, "unc_path": unc_path}
+
+    def delete_scratch(self, scratch_id):
+        normalized, path, unc_path = self.config.scratch_path(scratch_id)
+        existed = path.exists()
+        if existed:
+            shutil.rmtree(path)
+        return {"id": normalized, "deleted": existed, "exists": False, "unc_path": unc_path}
+
+    def scratch_metadata(self, scratch_id):
+        normalized, path, unc_path = self.config.scratch_path(scratch_id)
+        return {"id": normalized, "exists": path.exists(), "unc_path": unc_path}
+
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "proxmox-runner-git-cache/0.1"
@@ -508,6 +545,11 @@ class Handler(BaseHTTPRequestHandler):
                             break
                         self.wfile.write(chunk)
                 return
+            if parsed_path.startswith("/api/v1/scratch/"):
+                scratch_id = urllib.parse.unquote(parsed_path[len("/api/v1/scratch/") :])
+                metadata = self.server.cache.scratch_metadata(scratch_id)
+                self._write_json(HTTPStatus.OK, {"status": "ok", **metadata})
+                return
             self._write_json(HTTPStatus.NOT_FOUND, {"status": "error", "code": "not-found", "message": "Unknown endpoint."})
         except Exception as exc:
             self._handle_exception(exc)
@@ -535,6 +577,16 @@ class Handler(BaseHTTPRequestHandler):
             if parsed_path == "/api/v1/blob/fetch":
                 body = self._read_json()
                 result = self.server.cache.fetch_blob(body.get("key"), body.get("url"), bool(body.get("refresh", False)))
+                self._write_json(HTTPStatus.OK, {"status": "ok", **result})
+                return
+            if parsed_path == "/api/v1/scratch/create":
+                body = self._read_json()
+                result = self.server.cache.create_scratch(body.get("id"))
+                self._write_json(HTTPStatus.OK, {"status": "ok", **result})
+                return
+            if parsed_path == "/api/v1/scratch/delete":
+                body = self._read_json()
+                result = self.server.cache.delete_scratch(body.get("id"))
                 self._write_json(HTTPStatus.OK, {"status": "ok", **result})
                 return
             if parsed_path != "/api/v1/fetch":
@@ -586,6 +638,8 @@ def main():
     blob_fetch_allowed_url_prefixes = [item for item in os.getenv("BLOB_FETCH_ALLOWED_URL_PREFIXES", "").split(",") if item.strip()]
     blob_fetch_basic_auth_file = os.getenv("BLOB_FETCH_BASIC_AUTH_FILE", "")
     blob_fetch_timeout_seconds = int(os.getenv("BLOB_FETCH_TIMEOUT_SECONDS", "300"))
+    scratch_root = os.getenv("SCRATCH_ROOT", str(Path(cache_root) / "scratch"))
+    scratch_unc_root = os.getenv("SCRATCH_UNC_ROOT", "")
     listen_host = os.getenv("GIT_CACHE_API_LISTEN_HOST", "127.0.0.1")
     listen_port = int(os.getenv("GIT_CACHE_API_PORT", "18082"))
     public_git_base_url = os.getenv("GIT_CACHE_PUBLIC_GIT_BASE_URL", "git://127.0.0.1")
@@ -600,6 +654,8 @@ def main():
         blob_fetch_allowed_url_prefixes,
         blob_fetch_basic_auth_file,
         blob_fetch_timeout_seconds,
+        scratch_root,
+        scratch_unc_root,
     )
     cache = GitObjectCache(config)
     server = Server((listen_host, listen_port), cache)

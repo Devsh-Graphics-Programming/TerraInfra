@@ -51,6 +51,9 @@ def call(Map args = [:]) {
   def runnerTimeoutMinutes = null
   def runnerSummary = [:]
   def packageSummary = [:]
+  def scratchId = null
+  def scratchVariant = null
+  def scratchInfo = null
   def selectedSceneCount = null
   def totalSceneCount = null
   def reportFailureCount = null
@@ -88,8 +91,46 @@ def call(Map args = [:]) {
     if (packageSummary.manifestUsed != null) {
       lines << ('package_manifest=' + packageSummary.manifestUsed)
     }
+    if (scratchId) {
+      lines << ('scratch=' + scratchId + '/' + scratchVariant)
+    }
     lines << ('elapsed=' + runnerFormatDuration(System.currentTimeMillis() - buildStartedAt))
     currentBuild.description = lines.findAll { it != null && it.toString().trim() }.join('<br/>')
+  }
+
+  def writePublishRootHelper = {
+    writeFile file: 'publish-root.ps1', text: '''
+function Initialize-PublishRoot {
+  param([switch] $Clean)
+  if (-not [string]::IsNullOrWhiteSpace($env:SCRATCH_UNC_PATH)) {
+    if ([string]::IsNullOrWhiteSpace($env:SCRATCH_VARIANT)) { throw "SCRATCH_VARIANT is required when SCRATCH_UNC_PATH is set." }
+    & net.exe use R: /delete /y 2>$null | Out-Null
+    & net.exe use R: $env:SCRATCH_UNC_PATH /persistent:no | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw "Could not map runner scratch share." }
+    $root = Join-Path "R:\\" $env:SCRATCH_VARIANT
+  } else {
+    $root = Join-Path $env:WORKSPACE "publish"
+  }
+  if ($Clean -and (Test-Path -LiteralPath $root)) { Remove-Item -LiteralPath $root -Recurse -Force }
+  New-Item -ItemType Directory -Path $root -Force | Out-Null
+  return [System.IO.Path]::GetFullPath($root)
+}
+
+function Sync-PublishSummaryToWorkspace {
+  param([Parameter(Mandatory = $true)][string] $PublishRoot)
+  $workspacePublish = [System.IO.Path]::GetFullPath((Join-Path $env:WORKSPACE "publish"))
+  $publishFull = [System.IO.Path]::GetFullPath($PublishRoot)
+  if ($publishFull.Equals($workspacePublish, [System.StringComparison]::OrdinalIgnoreCase)) { return }
+  if (Test-Path -LiteralPath $workspacePublish) { Remove-Item -LiteralPath $workspacePublish -Recurse -Force }
+  New-Item -ItemType Directory -Path $workspacePublish -Force | Out-Null
+  foreach ($relative in @("index.html", "summary.json")) {
+    $source = Join-Path $publishFull $relative
+    if (Test-Path -LiteralPath $source) {
+      Copy-Item -LiteralPath $source -Destination (Join-Path $workspacePublish $relative) -Force
+    }
+  }
+}
+'''
   }
 
   timestamps {
@@ -116,6 +157,17 @@ def call(Map args = [:]) {
       failOnRenderFailure = params.FAIL_ON_RENDER_FAILURE == null ? (args.get('failOnRenderFailureDefault', false) as boolean) : (params.FAIL_ON_RENDER_FAILURE as boolean)
       isolateScenes = params.ISOLATE_SCENES == null ? (args.get('isolateScenesDefault', false) as boolean) : (params.ISOLATE_SCENES as boolean)
       publish = params.PUBLISH == null ? (args.get('publishDefault', true) as boolean) : (params.PUBLISH as boolean)
+      scratchId = params.SCRATCH_ID?.trim()
+      scratchVariant = params.SCRATCH_VARIANT?.trim()
+      if ((scratchId && !scratchVariant) || (!scratchId && scratchVariant)) {
+        error('SCRATCH_ID and SCRATCH_VARIANT must be provided together.')
+      }
+      if (scratchId && !(scratchId ==~ /[A-Za-z0-9][A-Za-z0-9._-]{0,95}/)) {
+        error('SCRATCH_ID contains unsupported characters.')
+      }
+      if (scratchVariant && !(scratchVariant ==~ /[A-Za-z0-9][A-Za-z0-9._-]{0,63}/)) {
+        error('SCRATCH_VARIANT contains unsupported characters.')
+      }
       sourceRepository = params.SOURCE_REPOSITORY?.trim()
       sourceBranch = params.SOURCE_BRANCH?.trim()
       sourceSha = params.SOURCE_SHA?.trim()
@@ -169,6 +221,12 @@ def call(Map args = [:]) {
           nodeEnterMs: runner.node_enter_ms
         ]
         updateBuildDescription()
+        if (scratchId) {
+          stage('Prepare scratch') {
+            scratchInfo = runnerScratch(runner: runner, id: scratchId, action: 'create')
+            updateBuildDescription()
+          }
+        }
         withFileParameter(name: args.get('packageFileParameter', 'EX40_PACKAGE_FILE'), allowNoFile: true) {
           withEnv([
             'EX40_PACKAGE_URL=' + (packageUrl ?: ''),
@@ -176,8 +234,11 @@ def call(Map args = [:]) {
             'SHARD_COUNT=' + shardCount.toString(),
             'SHARD_INDEX=' + shardIndex.toString(),
             'FAIL_ON_RENDER_FAILURE=' + failOnRenderFailure.toString(),
-            'ISOLATE_SCENES=' + isolateScenes.toString()
+            'ISOLATE_SCENES=' + isolateScenes.toString(),
+            'SCRATCH_UNC_PATH=' + (scratchInfo?.unc_path ?: ''),
+            'SCRATCH_VARIANT=' + (scratchVariant ?: '')
           ]) {
+            writePublishRootHelper()
             stage('Acquire package') {
               writeFile file: 'acquire-package.ps1', text: [
               '$ErrorActionPreference = "Stop"',
@@ -312,9 +373,10 @@ def call(Map args = [:]) {
             stage('Prepare isolated render') {
               writeFile file: 'prepare-isolated-render.ps1', text: [
                 '$ErrorActionPreference = "Stop"',
+                '. (Join-Path $env:WORKSPACE "publish-root.ps1")',
                 '$package = Get-Content -LiteralPath (Join-Path $env:WORKSPACE "package-info.json") | ConvertFrom-Json',
                 '$scenes = Get-Content -LiteralPath (Join-Path $env:WORKSPACE "resolved-scenes.json") | ConvertFrom-Json',
-                '$publishRoot = Join-Path $env:WORKSPACE "publish"',
+                '$publishRoot = Initialize-PublishRoot -Clean',
                 '$renders = Join-Path $publishRoot "renders"',
                 '$summaryDir = Join-Path $env:WORKSPACE "isolated-summaries"',
                 '$sharedTmp = Join-Path $package.bin "../../tmp"',
@@ -349,9 +411,10 @@ def call(Map args = [:]) {
               writeFile file: 'run-isolated-scene.ps1', text: [
                 'param([Parameter(Mandatory = $true)][int] $SceneNumber)',
                 '$ErrorActionPreference = "Stop"',
+                '. (Join-Path $env:WORKSPACE "publish-root.ps1")',
                 '$package = Get-Content -LiteralPath (Join-Path $env:WORKSPACE "package-info.json") | ConvertFrom-Json',
                 '$scenes = Get-Content -LiteralPath (Join-Path $env:WORKSPACE "resolved-scenes.json") | ConvertFrom-Json',
-                '$publishRoot = Join-Path $env:WORKSPACE "publish"',
+                '$publishRoot = Initialize-PublishRoot',
                 '$renders = Join-Path $publishRoot "renders"',
                 '$summaryDir = Join-Path $env:WORKSPACE "isolated-summaries"',
                 '$summaryPath = Join-Path $publishRoot "summary.json"',
@@ -387,7 +450,8 @@ def call(Map args = [:]) {
 
               writeFile file: 'merge-isolated-report.ps1', text: [
                 '$ErrorActionPreference = "Stop"',
-                '$publishRoot = Join-Path $env:WORKSPACE "publish"',
+                '. (Join-Path $env:WORKSPACE "publish-root.ps1")',
+                '$publishRoot = Initialize-PublishRoot',
                 '$summaryDir = Join-Path $env:WORKSPACE "isolated-summaries"',
                 '$summaryPath = Join-Path $publishRoot "summary.json"',
                 'Write-Host "Starting isolated report merge."',
@@ -429,6 +493,7 @@ def call(Map args = [:]) {
                 'Write-Host ("Writing merged isolated summary.json. tests={0}, failures={1}." -f $mergedTestCount, $mergedFailureCount)',
                 '$finalJson = $summary | ConvertTo-Json -Depth 16',
                 '[System.IO.File]::WriteAllText($summaryPath, $finalJson, $utf8NoBom)',
+                'Sync-PublishSummaryToWorkspace -PublishRoot $publishRoot',
                 'Write-Host "Merged isolated summary.json is ready."'
               ].join('\n')
             }
@@ -463,9 +528,10 @@ def call(Map args = [:]) {
             stage('Render scenes') {
               writeFile file: 'run-scenes.ps1', text: [
                 '$ErrorActionPreference = "Stop"',
+                '. (Join-Path $env:WORKSPACE "publish-root.ps1")',
                 '$package = Get-Content -LiteralPath (Join-Path $env:WORKSPACE "package-info.json") | ConvertFrom-Json',
                 '$scenes = Get-Content -LiteralPath (Join-Path $env:WORKSPACE "resolved-scenes.json") | ConvertFrom-Json',
-                '$publishRoot = Join-Path $env:WORKSPACE "publish"',
+                '$publishRoot = Initialize-PublishRoot -Clean',
                 '$renders = Join-Path $publishRoot "renders"',
                 '$sharedTmp = Join-Path $package.bin "../../tmp"',
                 'if (Test-Path -LiteralPath $publishRoot) { Remove-Item -LiteralPath $publishRoot -Recurse -Force }',
@@ -503,7 +569,8 @@ def call(Map args = [:]) {
           stage('Validate report') {
             writeFile file: 'validate-report.ps1', text: [
               '$ErrorActionPreference = "Stop"',
-              '$publishRoot = Join-Path $env:WORKSPACE "publish"',
+              '. (Join-Path $env:WORKSPACE "publish-root.ps1")',
+              '$publishRoot = Initialize-PublishRoot',
               '$required = @("index.html", "summary.json", "css/report.css", "js/report.js")',
               'foreach ($relative in $required) {',
               '  $path = Join-Path $publishRoot $relative',
@@ -517,6 +584,7 @@ def call(Map args = [:]) {
               '  $lds = $summary.lowDiscrepancySequenceCache',
               '  Write-Host ("LDS cache report status={0}, size={1}, hash={2}" -f $lds.status, $lds.sizeBytes, $lds.hash)',
               '}',
+              'Sync-PublishSummaryToWorkspace -PublishRoot $publishRoot',
               'if ($env:FAIL_ON_RENDER_FAILURE -eq "true" -and $failureCount -gt 0) { throw "EX40 report contains failed scenes." }'
             ].join('\n')
             powershell './validate-report.ps1'
@@ -534,7 +602,8 @@ def call(Map args = [:]) {
             if (publish) {
               writeFile file: 'prepare-publish-zip.ps1', text: [
                 '$ErrorActionPreference = "Stop"',
-                '$publishRoot = Join-Path $env:WORKSPACE "publish"',
+                '. (Join-Path $env:WORKSPACE "publish-root.ps1")',
+                '$publishRoot = Initialize-PublishRoot',
                 '$zipPath = Join-Path $env:WORKSPACE "publish.zip"',
                 'if (-not (Test-Path -LiteralPath $publishRoot)) { throw "Publish directory does not exist." }',
                 'if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }',
@@ -577,5 +646,4 @@ def call(Map args = [:]) {
       }
     }
   }
-}
 }

@@ -16,6 +16,18 @@ def call(Map args = [:]) {
     return parsed
   }
 
+  def requireScratchName = { Object value, String name, int maxTailLength ->
+    def text = value?.toString()?.trim()
+    if (!text) {
+      error(name + ' is required.')
+    }
+    def pattern = "^[A-Za-z0-9][A-Za-z0-9._-]{0,${maxTailLength}}\$"
+    if (!(text ==~ pattern)) {
+      error(name + ' contains unsupported characters.')
+    }
+    return text
+  }
+
   def defaultPrefixForSuite = { String suite ->
     'ditt/compare/o1experimental-vs-o3/' + suite + '/latest/'
   }
@@ -23,6 +35,7 @@ def call(Map args = [:]) {
   def suite = fixedSuite
   def storePrefix = null
   def publish = true
+  def deleteScratch = true
   def sourceRepository = null
   def sourceBranch = null
   def sourceSha = null
@@ -30,11 +43,14 @@ def call(Map args = [:]) {
   def sourceRunAttempt = null
   def sourceWorkflow = null
   def sourceUrl = null
-  def baselineReportUrl = null
-  def candidateReportUrl = null
-  def storeHostAliases = []
+  def scratchId = null
+  def baselineVariant = null
+  def candidateVariant = null
   def runnerTimeoutMinutes = null
   def runnerSummary = [:]
+  def scratchInfo = null
+  def scratchRunner = null
+  def scratchCreated = false
   def compareFailureCount = null
   def compareTestCount = null
   def compareWarningCount = null
@@ -54,6 +70,12 @@ def call(Map args = [:]) {
       lines << ('sha=' + sourceSha.take(12))
     }
     lines << ('suite=' + suite)
+    if (scratchId) {
+      lines << ('scratch=' + scratchId)
+    }
+    if (baselineVariant && candidateVariant) {
+      lines << ('variants=' + baselineVariant + ' vs ' + candidateVariant)
+    }
     if (compareFailureCount != null && compareTestCount != null) {
       lines << ('o1_vs_o3_failures=' + compareFailureCount + '/' + compareTestCount)
     }
@@ -73,109 +95,118 @@ def call(Map args = [:]) {
     currentBuild.description = lines.findAll { it != null && it.toString().trim() }.join('<br/>')
   }
 
-  timestamps {
-    stage('Validate request') {
-      runnerTimeoutMinutes = requireNumber(args.get('runnerTimeoutMinutes', '180'), 'runnerTimeoutMinutes', 10, 720)
-      def rawPrefix = params.STORE_PREFIX?.trim() ?: args.defaultStorePrefix ?: defaultPrefixForSuite(suite)
-      storePrefix = storeNormalizePrefix(rawPrefix, ['ditt/compare/o1experimental-vs-o3/' + suite + '/'])
-      def normalizeReportUrl = { Object value, String name ->
-        def text = value?.toString()?.trim()
-        if (!text) {
-          return null
-        }
-        if (!text.endsWith('/')) {
-          text += '/'
-        }
-        def expectedPrefix = 'https://store.devsh.eu/ditt/' + suite + '/'
-        if (!text.startsWith(expectedPrefix)) {
-          error(name + ' must stay under ' + expectedPrefix)
-        }
-        if (!(text ==~ /https:\/\/store\.devsh\.eu\/ditt\/[a-z]+\/[A-Za-z0-9._\/-]*\//)) {
-          error(name + ' contains unsupported characters.')
-        }
-        return text
-      }
-      baselineReportUrl = normalizeReportUrl(params.BASELINE_REPORT_URL, 'BASELINE_REPORT_URL')
-      candidateReportUrl = normalizeReportUrl(params.CANDIDATE_REPORT_URL, 'CANDIDATE_REPORT_URL')
-      if ((baselineReportUrl && !candidateReportUrl) || (!baselineReportUrl && candidateReportUrl)) {
-        error('BASELINE_REPORT_URL and CANDIDATE_REPORT_URL must be provided together.')
-      }
-      storeHostAliases = []
-      [baselineReportUrl, candidateReportUrl].findAll { it }.collect { new URI(it).host }.unique().each { host ->
-        def addresses = java.net.InetAddress.getAllByName(host).findAll { it instanceof java.net.Inet4Address }.collect { it.getHostAddress().toString() }
-        if (!addresses) {
-          error('Could not resolve an IPv4 address for ' + host + '.')
-        }
-        storeHostAliases << [host: host.toString(), ip: addresses[0].toString()]
-      }
-      if (storeHostAliases) {
-        echo('Store host aliases: ' + storeHostAliases.collect { it.host + '=' + it.ip }.join(', '))
-      }
-      publish = params.PUBLISH == null ? (args.get('publishDefault', true) as boolean) : (params.PUBLISH as boolean)
-      sourceRepository = params.SOURCE_REPOSITORY?.trim()
-      sourceBranch = params.SOURCE_BRANCH?.trim()
-      sourceSha = params.SOURCE_SHA?.trim()
-      sourceRunId = params.SOURCE_RUN_ID?.trim()
-      sourceRunAttempt = params.SOURCE_RUN_ATTEMPT?.trim()
-      sourceWorkflow = params.SOURCE_WORKFLOW?.trim()
-      if (sourceRepository && !(sourceRepository ==~ /[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+/)) {
-        error('SOURCE_REPOSITORY must be owner/repository.')
-      }
-      if (sourceBranch && !(sourceBranch ==~ /[A-Za-z0-9_.\/-]+/)) {
-        error('SOURCE_BRANCH contains unsupported characters.')
-      }
-      if (sourceSha && !(sourceSha ==~ /[0-9a-fA-F]{7,40}/)) {
-        error('SOURCE_SHA must be a 7 to 40 character hexadecimal commit SHA.')
-      }
-      if (sourceRunId && !(sourceRunId ==~ /[0-9]+/)) {
-        error('SOURCE_RUN_ID must be numeric.')
-      }
-      if (sourceRunAttempt && !(sourceRunAttempt ==~ /[0-9]+/)) {
-        error('SOURCE_RUN_ATTEMPT must be numeric.')
-      }
-      if (sourceWorkflow && !(sourceWorkflow ==~ /[A-Za-z0-9_.\/ -]+/)) {
-        error('SOURCE_WORKFLOW contains unsupported characters.')
-      }
-      if (sourceRepository && sourceRunId) {
-        sourceUrl = 'https://github.com/' + sourceRepository + '/actions/runs/' + sourceRunId
-        if (sourceRunAttempt) {
-          sourceUrl += '/attempts/' + sourceRunAttempt
-        }
-        currentBuild.displayName = '#' + env.BUILD_NUMBER + ' ' + suite + ' report compare ' + (sourceSha ?: sourceRunId).take(12)
-        currentBuild.description = sourceUrl
-        echo('Source Actions run: ' + sourceUrl)
-      }
-      echo('Report-bundle compare suite: ' + suite + ', store_prefix=' + storePrefix + ', publish=' + publish)
-      updateBuildDescription()
-    }
+  def writeScratchReportHelper = {
+    writeFile file: 'scratch-reports.ps1', text: '''
+function Mount-RunnerScratch {
+  if ([string]::IsNullOrWhiteSpace($env:SCRATCH_UNC_PATH)) { throw "SCRATCH_UNC_PATH is required." }
+  & net.exe use R: /delete /y 2>$null | Out-Null
+  & net.exe use R: $env:SCRATCH_UNC_PATH /persistent:no | Out-Host
+  if ($LASTEXITCODE -ne 0) { throw "Could not map runner scratch share." }
+  return [System.IO.Path]::GetFullPath("R:\\")
+}
 
-    timeout(time: runnerTimeoutMinutes, unit: 'MINUTES') {
-      withRunner(
-        labels: args.get('labels', ['windows', 'gpu', 'nvidia', 'vulkan', 'runtime-only']),
-        leaseTtlMinutes: args.get('leaseTtlMinutes', 240),
-        maxReadySeconds: args.get('maxReadySeconds', 180)
-      ) { runner ->
-        runnerSummary = [
-          label: runner.label,
-          allocationMode: runner.allocation_mode,
-          hostId: runner.host_id,
-          node: runner.node,
-          vmid: runner.vmid,
-          readyWallMs: runner.ready_wall_ms,
-          nodeEnterMs: runner.node_enter_ms
-        ]
+function Resolve-ScratchReport {
+  param(
+    [Parameter(Mandatory = $true)][string] $Root,
+    [Parameter(Mandatory = $true)][string] $Variant
+  )
+  if (-not ($Variant -match "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")) { throw "Scratch report variant is invalid: $Variant" }
+  $rootFull = [System.IO.Path]::GetFullPath($Root)
+  $path = [System.IO.Path]::GetFullPath((Join-Path $rootFull $Variant))
+  $prefix = $rootFull.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
+  if ($path -ne $rootFull -and -not $path.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) { throw "Scratch report path escapes scratch root." }
+  foreach ($relative in @("summary.json", "index.html")) {
+    if (-not (Test-Path -LiteralPath (Join-Path $path $relative))) { throw "Scratch report $Variant is missing $relative." }
+  }
+  return $path
+}
+'''
+  }
+
+  try {
+    timestamps {
+      stage('Validate request') {
+        runnerTimeoutMinutes = requireNumber(args.get('runnerTimeoutMinutes', '180'), 'runnerTimeoutMinutes', 10, 720)
+        def rawPrefix = params.STORE_PREFIX?.trim() ?: args.defaultStorePrefix ?: defaultPrefixForSuite(suite)
+        storePrefix = storeNormalizePrefix(rawPrefix, ['ditt/compare/o1experimental-vs-o3/' + suite + '/'])
+        scratchId = requireScratchName(params.SCRATCH_ID, 'SCRATCH_ID', 95)
+        baselineVariant = requireScratchName(params.BASELINE_VARIANT ?: 'release-o3', 'BASELINE_VARIANT', 63)
+        candidateVariant = requireScratchName(params.CANDIDATE_VARIANT ?: 'o1experimental', 'CANDIDATE_VARIANT', 63)
+        if (baselineVariant == candidateVariant) {
+          error('BASELINE_VARIANT and CANDIDATE_VARIANT must be different.')
+        }
+        publish = params.PUBLISH == null ? (args.get('publishDefault', true) as boolean) : (params.PUBLISH as boolean)
+        deleteScratch = params.DELETE_SCRATCH == null ? (args.get('deleteScratchDefault', true) as boolean) : (params.DELETE_SCRATCH as boolean)
+        sourceRepository = params.SOURCE_REPOSITORY?.trim()
+        sourceBranch = params.SOURCE_BRANCH?.trim()
+        sourceSha = params.SOURCE_SHA?.trim()
+        sourceRunId = params.SOURCE_RUN_ID?.trim()
+        sourceRunAttempt = params.SOURCE_RUN_ATTEMPT?.trim()
+        sourceWorkflow = params.SOURCE_WORKFLOW?.trim()
+        if (sourceRepository && !(sourceRepository ==~ /[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+/)) {
+          error('SOURCE_REPOSITORY must be owner/repository.')
+        }
+        if (sourceBranch && !(sourceBranch ==~ /[A-Za-z0-9_.\/-]+/)) {
+          error('SOURCE_BRANCH contains unsupported characters.')
+        }
+        if (sourceSha && !(sourceSha ==~ /[0-9a-fA-F]{7,40}/)) {
+          error('SOURCE_SHA must be a 7 to 40 character hexadecimal commit SHA.')
+        }
+        if (sourceRunId && !(sourceRunId ==~ /[0-9]+/)) {
+          error('SOURCE_RUN_ID must be numeric.')
+        }
+        if (sourceRunAttempt && !(sourceRunAttempt ==~ /[0-9]+/)) {
+          error('SOURCE_RUN_ATTEMPT must be numeric.')
+        }
+        if (sourceWorkflow && !(sourceWorkflow ==~ /[A-Za-z0-9_.\/ -]+/)) {
+          error('SOURCE_WORKFLOW contains unsupported characters.')
+        }
+        if (sourceRepository && sourceRunId) {
+          sourceUrl = 'https://github.com/' + sourceRepository + '/actions/runs/' + sourceRunId
+          if (sourceRunAttempt) {
+            sourceUrl += '/attempts/' + sourceRunAttempt
+          }
+          currentBuild.displayName = '#' + env.BUILD_NUMBER + ' ' + suite + ' scratch compare ' + (sourceSha ?: sourceRunId).take(12)
+          currentBuild.description = sourceUrl
+          echo('Source Actions run: ' + sourceUrl)
+        }
+        echo('Report compare suite=' + suite + ', scratch=' + scratchId + ', baseline=' + baselineVariant + ', candidate=' + candidateVariant + ', store_prefix=' + storePrefix + ', publish=' + publish + ', delete_scratch=' + deleteScratch)
         updateBuildDescription()
-        withFileParameter(name: 'EX40_COMPARE_PACKAGE_FILE', allowNoFile: false) {
-          withFileParameter(name: 'BASELINE_REPORT_FILE', allowNoFile: true) {
-            withFileParameter(name: 'CANDIDATE_REPORT_FILE', allowNoFile: true) {
-              withEnv([
-                'SCENE_SUITE=' + suite,
-                'BASELINE_REPORT_URL=' + (baselineReportUrl ?: ''),
-                'CANDIDATE_REPORT_URL=' + (candidateReportUrl ?: ''),
-                'STORE_BLOB_CACHE_API_URL=' + (runner.git_object_cache?.api_url ?: ''),
-                'STORE_BLOB_CACHE_SCOPE=' + (sourceSha ?: env.BUILD_TAG ?: env.BUILD_NUMBER ?: ''),
-                'STORE_HOST_ALIASES_JSON=' + (storeHostAliases ? groovy.json.JsonOutput.toJson(storeHostAliases) : '[]')
-              ]) {
+      }
+
+      timeout(time: runnerTimeoutMinutes, unit: 'MINUTES') {
+        withRunner(
+          labels: args.get('labels', ['windows', 'gpu', 'nvidia', 'vulkan', 'runtime-only']),
+          leaseTtlMinutes: args.get('leaseTtlMinutes', 240),
+          maxReadySeconds: args.get('maxReadySeconds', 180)
+        ) { runner ->
+          runnerSummary = [
+            label: runner.label,
+            allocationMode: runner.allocation_mode,
+            hostId: runner.host_id,
+            node: runner.node,
+            vmid: runner.vmid,
+            readyWallMs: runner.ready_wall_ms,
+            nodeEnterMs: runner.node_enter_ms
+          ]
+          scratchRunner = [scratch: runner.scratch]
+          updateBuildDescription()
+
+          stage('Prepare scratch') {
+            scratchInfo = runnerScratch(runner: runner, id: scratchId, action: 'create')
+            scratchCreated = true
+            updateBuildDescription()
+          }
+
+          withFileParameter(name: 'EX40_COMPARE_PACKAGE_FILE', allowNoFile: false) {
+            withEnv([
+              'SCENE_SUITE=' + suite,
+              'SCRATCH_UNC_PATH=' + (scratchInfo?.unc_path ?: ''),
+              'BASELINE_VARIANT=' + baselineVariant,
+              'CANDIDATE_VARIANT=' + candidateVariant
+            ]) {
+              writeScratchReportHelper()
+
               stage('Acquire compare package') {
                 writeFile file: 'acquire-compare-package.ps1', text: '''
 $ErrorActionPreference = "Stop"
@@ -219,190 +250,42 @@ Write-Host ("Compare executable: {0}" -f $exe.FullName)
                 powershell './acquire-compare-package.ps1'
               }
 
-              stage('Extract report bundles') {
-                writeFile file: 'extract-report-bundles.ps1', text: '''
+              stage('Locate scratch reports') {
+                writeFile file: 'locate-scratch-reports.ps1', text: '''
 $ErrorActionPreference = "Stop"
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-function Expand-SafeZip {
-  param([Parameter(Mandatory = $true)][string] $Source, [Parameter(Mandatory = $true)][string] $Destination)
-  if (Test-Path -LiteralPath $Destination) { Remove-Item -LiteralPath $Destination -Recurse -Force }
-  New-Item -ItemType Directory -Path $Destination -Force | Out-Null
-  $destFull = [System.IO.Path]::GetFullPath($Destination)
-  $prefix = $destFull.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
-  $zip = [System.IO.Compression.ZipFile]::OpenRead($Source)
-  try {
-    foreach ($entry in $zip.Entries) {
-      if (-not $entry.Name) { continue }
-      $target = [System.IO.Path]::GetFullPath((Join-Path $destFull $entry.FullName))
-      if (-not $target.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) { throw "Zip entry escapes destination: $($entry.FullName)" }
-      New-Item -ItemType Directory -Path ([System.IO.Path]::GetDirectoryName($target)) -Force | Out-Null
-      [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $target, $true)
-    }
-  } finally {
-    $zip.Dispose()
-  }
+. (Join-Path $env:WORKSPACE "scratch-reports.ps1")
+$scratchRoot = Mount-RunnerScratch
+$baselineReport = Resolve-ScratchReport -Root $scratchRoot -Variant $env:BASELINE_VARIANT
+$candidateReport = Resolve-ScratchReport -Root $scratchRoot -Variant $env:CANDIDATE_VARIANT
+$baseline = Get-Content -LiteralPath (Join-Path $baselineReport "summary.json") | ConvertFrom-Json
+$candidate = Get-Content -LiteralPath (Join-Path $candidateReport "summary.json") | ConvertFrom-Json
+if ([int]$baseline.num_of_tests -lt 1) { throw "Baseline report contains no tests." }
+if ([int]$candidate.num_of_tests -lt 1) { throw "Candidate report contains no tests." }
+$paths = [pscustomobject]@{
+  scratchRoot = $scratchRoot
+  baselineVariant = $env:BASELINE_VARIANT
+  candidateVariant = $env:CANDIDATE_VARIANT
+  baselineReport = $baselineReport
+  candidateReport = $candidateReport
+  baselineStatus = $baseline.pass_status
+  candidateStatus = $candidate.pass_status
+  baselineTests = [int]$baseline.num_of_tests
+  candidateTests = [int]$candidate.num_of_tests
 }
-function Find-ReportRoot {
-  param([Parameter(Mandatory = $true)][string] $Root, [Parameter(Mandatory = $true)][string] $Name)
-  if ((Test-Path -LiteralPath (Join-Path $Root "summary.json")) -and (Test-Path -LiteralPath (Join-Path $Root "index.html"))) {
-    return $Root
-  }
-  $candidates = @(Get-ChildItem -LiteralPath $Root -Recurse -File -Filter "summary.json" | Where-Object { Test-Path -LiteralPath (Join-Path $_.DirectoryName "index.html") })
-  if ($candidates.Count -ne 1) { throw "$Name report bundle must contain exactly one report root with summary.json and index.html." }
-  return $candidates[0].DirectoryName
-}
-function Install-ReportBundle {
-  param([Parameter(Mandatory = $true)][string] $Source, [Parameter(Mandatory = $true)][string] $Name, [Parameter(Mandatory = $true)][string] $DestinationRelative)
-  $tmp = Join-Path $env:WORKSPACE ("extract-" + $Name)
-  $destination = Join-Path $env:WORKSPACE $DestinationRelative
-  Expand-SafeZip -Source $Source -Destination $tmp
-  $reportRoot = Find-ReportRoot -Root $tmp -Name $Name
-  if (Test-Path -LiteralPath $destination) { Remove-Item -LiteralPath $destination -Recurse -Force }
-  New-Item -ItemType Directory -Path $destination -Force | Out-Null
-  Copy-Item -Path (Join-Path $reportRoot "*") -Destination $destination -Recurse -Force
-  $summary = Get-Content -LiteralPath (Join-Path $destination "summary.json") | ConvertFrom-Json
-  if ([int]$summary.num_of_tests -lt 1) { throw "$Name report contains no tests." }
-  Write-Host ("Installed {0} report: status={1}, tests={2}, failures={3}" -f $Name, $summary.pass_status, $summary.num_of_tests, $summary.failure_count)
-}
-function Test-SafeRelativePath {
-  param([Parameter(Mandatory = $true)][string] $Relative)
-  $path = $Relative.Replace([char]92, [char]47)
-  if ($path.StartsWith("/") -or $path.Contains("//")) { return $false }
-  $segments = $path.Split([char]47)
-  if ($segments -contains ".." -or $segments -contains "") { return $false }
-  return $true
-}
-function Get-StoreHostAliases {
-  if (-not $env:STORE_HOST_ALIASES_JSON) { return @() }
-  $rawAliases = @($env:STORE_HOST_ALIASES_JSON | ConvertFrom-Json)
-  $aliases = @()
-  foreach ($alias in $rawAliases) {
-    $hostName = [string]$alias.host
-    $address = [string]$alias.ip
-    if (-not ($hostName -match "^[A-Za-z0-9.-]+$")) { throw "Unsafe store host alias name: $hostName" }
-    if (-not ($address -match "^[0-9]{1,3}([.][0-9]{1,3}){3}$")) { throw "Unsafe store host alias address: $address" }
-    $aliases += [pscustomobject]@{ HostName = $hostName; Address = $address }
-  }
-  return $aliases
-}
-function Get-CurlResolveArgs {
-  param([Parameter(Mandatory = $true)][string] $HostName)
-  $resolveArgs = @()
-  foreach ($alias in (Get-StoreHostAliases)) {
-    if ($alias.HostName -ieq $HostName) {
-      $resolveArgs += @("--resolve", ("{0}:443:{1}" -f $alias.HostName, $alias.Address))
-    }
-  }
-  return $resolveArgs
-}
-function ConvertTo-SafeCacheSegment {
-  param([Parameter(Mandatory = $true)][string] $Text)
-  $safe = $Text.Trim() -replace "[^A-Za-z0-9._-]", "-"
-  if (-not $safe) { throw "Store blob cache scope is empty." }
-  return $safe
-}
-function New-StoreCacheKey {
-  param([Parameter(Mandatory = $true)][string] $Name, [Parameter(Mandatory = $true)][string] $Relative)
-  $nameSegment = ConvertTo-SafeCacheSegment -Text $Name
-  $scope = if ($env:STORE_BLOB_CACHE_SCOPE) { $env:STORE_BLOB_CACHE_SCOPE } else { $env:BUILD_TAG }
-  $scopeSegment = ConvertTo-SafeCacheSegment -Text $scope
-  $relativeText = $Relative.Replace([char]92, [char]47)
-  if (-not (Test-SafeRelativePath -Relative $relativeText)) { throw "Store blob cache relative path is unsafe: $relativeText" }
-  return "store-cache/ditt/$env:SCENE_SUITE/$nameSegment/$scopeSegment/$relativeText"
-}
-function Invoke-StoreDownload {
-  param([Parameter(Mandatory = $true)][System.Uri] $Uri, [Parameter(Mandatory = $true)][string] $OutFile, [Parameter(Mandatory = $true)][string] $Name, [Parameter(Mandatory = $true)][string] $CacheKey)
-  if ($Uri.Scheme -ne "https" -or $Uri.Host -ne "store.devsh.eu") { throw "$Name must use https://store.devsh.eu." }
-  if ($env:STORE_BLOB_CACHE_API_URL) {
-    if (($CacheKey -notmatch "^[A-Za-z0-9][A-Za-z0-9._/+-]*$") -or $CacheKey.Contains("..") -or $CacheKey.StartsWith("/") -or $CacheKey.EndsWith("/")) {
-      throw "Store blob cache key is invalid: $CacheKey"
-    }
-    $apiUrl = ([string]$env:STORE_BLOB_CACHE_API_URL).TrimEnd("/")
-    $fetchBody = @{ key = $CacheKey; url = $Uri.AbsoluteUri; refresh = $false } | ConvertTo-Json -Depth 4
-    $fetch = Invoke-RestMethod -Uri ($apiUrl + "/api/v1/blob/fetch") -Method Post -Body $fetchBody -ContentType "application/json"
-    if ($fetch.status -ne "ok") { throw "Store blob cache fetch failed for $Name." }
-    Invoke-WebRequest -Uri ($apiUrl + "/api/v1/blob/" + $CacheKey) -OutFile $OutFile -UseBasicParsing
-    Write-Host ("Store blob cache {0}: cached={1}, size={2}, key={3}" -f $Name, $fetch.cached, $fetch.size, $CacheKey)
-    return
-  }
-  $resolveArgs = @(Get-CurlResolveArgs -HostName $Uri.Host)
-  if ($resolveArgs.Count -gt 0) {
-    $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
-    if (-not $curl) { throw "curl.exe is required for DNS-pinned store downloads." }
-    $curlArgs = @("--fail", "--silent", "--show-error", "--location") + $resolveArgs + @("--output", $OutFile, $Uri.AbsoluteUri)
-    & $curl.Source @curlArgs
-    if ($LASTEXITCODE -ne 0) { throw "curl.exe failed while downloading $Name with exit code $LASTEXITCODE." }
-  } else {
-    Invoke-WebRequest -Uri $Uri.AbsoluteUri -OutFile $OutFile -UseBasicParsing
-  }
-}
-function Install-ReportBundleFromStore {
-  param([Parameter(Mandatory = $true)][string] $SourceUrl, [Parameter(Mandatory = $true)][string] $Name, [Parameter(Mandatory = $true)][string] $DestinationRelative)
-  $uri = [System.Uri]$SourceUrl
-  if ($uri.Scheme -ne "https" -or $uri.Host -ne "store.devsh.eu") { throw "$Name report URL must use https://store.devsh.eu." }
-  if (-not $uri.AbsolutePath.StartsWith("/ditt/$env:SCENE_SUITE/")) { throw "$Name report URL does not match suite $env:SCENE_SUITE." }
-  if (-not $SourceUrl.EndsWith("/")) { $SourceUrl += "/" }
-  foreach ($alias in (Get-StoreHostAliases | Where-Object { $_.HostName -ieq $uri.Host })) {
-    Write-Host ("Store download resolver: {0} -> {1}" -f $alias.HostName, $alias.Address)
-  }
-  $destination = Join-Path $env:WORKSPACE $DestinationRelative
-  if (Test-Path -LiteralPath $destination) { Remove-Item -LiteralPath $destination -Recurse -Force }
-  New-Item -ItemType Directory -Path $destination -Force | Out-Null
-  $manifestPath = Join-Path $env:WORKSPACE ("store-manifest-" + $Name + ".json")
-  Invoke-StoreDownload -Uri ([System.Uri]($SourceUrl + "publish-manifest.json")) -OutFile $manifestPath -Name "$Name store manifest" -CacheKey (New-StoreCacheKey -Name $Name -Relative "publish-manifest.json")
-  $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-  if ([int]$manifest.schema -ne 1 -or -not $manifest.files) { throw "$Name store manifest is unsupported." }
-  $files = @($manifest.files)
-  if ($files.Count -lt 1) { throw "$Name store manifest contains no files." }
-  $started = Get-Date
-  foreach ($relative in $files) {
-    $relativeText = [string]$relative
-    if (-not (Test-SafeRelativePath -Relative $relativeText)) { throw "$Name store manifest contains an unsafe path: $relativeText" }
-    $target = [System.IO.Path]::GetFullPath((Join-Path $destination $relativeText))
-    $destinationFull = [System.IO.Path]::GetFullPath($destination)
-    $prefix = $destinationFull.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
-    if ($target -ne $destinationFull -and -not $target.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) { throw "$Name report path escapes destination: $relativeText" }
-    New-Item -ItemType Directory -Path ([System.IO.Path]::GetDirectoryName($target)) -Force | Out-Null
-    $relativeUrl = $relativeText.Replace([char]92, [char]47)
-    Invoke-StoreDownload -Uri ([System.Uri]($SourceUrl + $relativeUrl)) -OutFile $target -Name ("$Name report file " + $relativeUrl) -CacheKey (New-StoreCacheKey -Name $Name -Relative $relativeUrl)
-  }
-  $elapsedMs = [int]((Get-Date) - $started).TotalMilliseconds
-  $summary = Get-Content -LiteralPath (Join-Path $destination "summary.json") | ConvertFrom-Json
-  if ([int]$summary.num_of_tests -lt 1) { throw "$Name report contains no tests." }
-  if (-not (Test-Path -LiteralPath (Join-Path $destination "index.html"))) { throw "$Name report is missing index.html." }
-  Write-Host ("Installed {0} report from store: status={1}, tests={2}, failures={3}, files={4}, elapsed_ms={5}" -f $Name, $summary.pass_status, $summary.num_of_tests, $summary.failure_count, $files.Count, $elapsedMs)
-}
-$publishRoot = Join-Path $env:WORKSPACE "publish"
-if (Test-Path -LiteralPath $publishRoot) { Remove-Item -LiteralPath $publishRoot -Recurse -Force }
-New-Item -ItemType Directory -Path $publishRoot -Force | Out-Null
-if ($env:BASELINE_REPORT_FILE -and (Test-Path -LiteralPath $env:BASELINE_REPORT_FILE)) {
-  Install-ReportBundle -Source $env:BASELINE_REPORT_FILE -Name "baseline" -DestinationRelative "publish/release-o3"
-} elseif ($env:BASELINE_REPORT_URL) {
-  Install-ReportBundleFromStore -SourceUrl $env:BASELINE_REPORT_URL -Name "baseline" -DestinationRelative "publish/release-o3"
-} else {
-  throw "Provide BASELINE_REPORT_FILE or BASELINE_REPORT_URL."
-}
-if ($env:CANDIDATE_REPORT_FILE -and (Test-Path -LiteralPath $env:CANDIDATE_REPORT_FILE)) {
-  Install-ReportBundle -Source $env:CANDIDATE_REPORT_FILE -Name "candidate" -DestinationRelative "publish/o1experimental"
-} elseif ($env:CANDIDATE_REPORT_URL) {
-  Install-ReportBundleFromStore -SourceUrl $env:CANDIDATE_REPORT_URL -Name "candidate" -DestinationRelative "publish/o1experimental"
-} else {
-  throw "Provide CANDIDATE_REPORT_FILE or CANDIDATE_REPORT_URL."
-}
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText((Join-Path $env:WORKSPACE "report-paths.json"), ($paths | ConvertTo-Json -Depth 6), $utf8NoBom)
+Write-Host ("Scratch reports ready: {0} ({1} tests) and {2} ({3} tests)." -f $baselineReport, $paths.baselineTests, $candidateReport, $paths.candidateTests)
 '''
-                powershell './extract-report-bundles.ps1'
+                powershell './locate-scratch-reports.ps1'
               }
 
               stage('Compare reports') {
                 writeFile file: 'run-report-comparison.ps1', text: '''
 $ErrorActionPreference = "Stop"
 $package = Get-Content -LiteralPath (Join-Path $env:WORKSPACE "package-compare.json") | ConvertFrom-Json
-$baselineReport = [System.IO.Path]::GetFullPath((Join-Path $env:WORKSPACE "publish/release-o3"))
-$candidateReport = [System.IO.Path]::GetFullPath((Join-Path $env:WORKSPACE "publish/o1experimental"))
-$outputRoot = [System.IO.Path]::GetFullPath((Join-Path $env:WORKSPACE "publish/o1experimental-vs-o3"))
-foreach ($path in @($baselineReport, $candidateReport)) {
-  if (-not (Test-Path -LiteralPath (Join-Path $path "summary.json"))) { throw "Report summary is missing: $path" }
-}
+$paths = Get-Content -LiteralPath (Join-Path $env:WORKSPACE "report-paths.json") | ConvertFrom-Json
+$publishRoot = [System.IO.Path]::GetFullPath((Join-Path $env:WORKSPACE "publish"))
+$outputRoot = [System.IO.Path]::GetFullPath((Join-Path $publishRoot "o1experimental-vs-o3"))
 if (Test-Path -LiteralPath $outputRoot) { Remove-Item -LiteralPath $outputRoot -Recurse -Force }
 New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null
 Copy-Item -Path (Join-Path $package.reportTemplate "*") -Destination $outputRoot -Recurse -Force
@@ -410,8 +293,8 @@ $log = Join-Path $env:WORKSPACE "ex40-o1experimental-vs-o3.log"
 Remove-Item -LiteralPath $log -Force -ErrorAction SilentlyContinue
 $runArgs = @(
   "--compare-reports",
-  "--baseline-report", $baselineReport,
-  "--candidate-report", $candidateReport,
+  "--baseline-report", $paths.baselineReport,
+  "--candidate-report", $paths.candidateReport,
   "--report-dir", $outputRoot,
   "--baseline-name", "Release O3",
   "--candidate-name", "O1experimental"
@@ -442,23 +325,26 @@ exit 0
               stage('Build comparison index') {
                 writeFile file: 'build-compare-index.ps1', text: '''
 $ErrorActionPreference = "Stop"
+$paths = Get-Content -LiteralPath (Join-Path $env:WORKSPACE "report-paths.json") | ConvertFrom-Json
 $publishRoot = Join-Path $env:WORKSPACE "publish"
-$release = Get-Content -LiteralPath (Join-Path $publishRoot "release-o3/summary.json") | ConvertFrom-Json
-$o1 = Get-Content -LiteralPath (Join-Path $publishRoot "o1experimental/summary.json") | ConvertFrom-Json
+$release = Get-Content -LiteralPath (Join-Path $paths.baselineReport "summary.json") | ConvertFrom-Json
+$o1 = Get-Content -LiteralPath (Join-Path $paths.candidateReport "summary.json") | ConvertFrom-Json
 $compare = Get-Content -LiteralPath (Join-Path $publishRoot "o1experimental-vs-o3/summary.json") | ConvertFrom-Json
 function Entry($Name, $Path, $Summary) {
   $warnings = if ($Summary.PSObject.Properties.Name -contains "warning_count") { [int]$Summary.warning_count } else { 0 }
   $referenceMismatches = if ($Summary.PSObject.Properties.Name -contains "reference_mismatch_count") { [int]$Summary.reference_mismatch_count } else { 0 }
   [pscustomobject]@{ name = $Name; path = $Path; status = $Summary.pass_status; tests = [int]$Summary.num_of_tests; failures = [int]$Summary.failure_count; warnings = $warnings; referenceMismatches = $referenceMismatches; buildConfig = $Summary.buildConfig }
 }
+$baselineUrl = "https://store.devsh.eu/ditt/$env:SCENE_SUITE/latest/"
+$candidateUrl = "https://store.devsh.eu/ditt/$env:SCENE_SUITE/o1experimental/latest/"
 $entries = @(
-  (Entry "Release O3 vs reference" "release-o3/" $release),
-  (Entry "O1experimental vs reference" "o1experimental/" $o1),
+  (Entry "Release O3 vs reference" $baselineUrl $release),
+  (Entry "O1experimental vs reference" $candidateUrl $o1),
   (Entry "O1experimental vs O3" "o1experimental-vs-o3/" $compare)
 )
 $compareWarnings = if ($compare.PSObject.Properties.Name -contains "warning_count") { [int]$compare.warning_count } else { 0 }
 $verdict = if ([int]$compare.failure_count -gt 0) { "different" } elseif ($compareWarnings -gt 0) { "same-with-warnings" } else { "same-within-threshold" }
-$summary = [pscustomobject]@{ schema = "devsh.ditt.pathtracer-compare-index.v1"; title = "O1experimental vs O3"; suite = $env:SCENE_SUITE; verdict = $verdict; entries = $entries }
+$summary = [pscustomobject]@{ schema = "devsh.ditt.pathtracer-compare-index.v1"; title = "O1experimental vs O3"; suite = $env:SCENE_SUITE; verdict = $verdict; scratch = @{ baseline = $paths.baselineVariant; candidate = $paths.candidateVariant }; entries = $entries }
 $rows = ($entries | ForEach-Object {
   "<tr><td><a href=""$($_.path)"">$($_.name)</a></td><td>$($_.status)</td><td>$($_.tests)</td><td>$($_.failures)</td><td>$($_.warnings)</td><td>$($_.referenceMismatches)</td><td>$($_.buildConfig)</td></tr>"
 }) -join "`n"
@@ -499,9 +385,9 @@ $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText((Join-Path $publishRoot "release-o3-summary.json"), ($release | ConvertTo-Json -Depth 100), $utf8NoBom)
 [System.IO.File]::WriteAllText((Join-Path $publishRoot "o1experimental-summary.json"), ($o1 | ConvertTo-Json -Depth 100), $utf8NoBom)
 $publisher = Join-Path $publishRoot "o1experimental-vs-o3/publishS3.py"
-if (-not (Test-Path -LiteralPath $publisher)) { $publisher = Join-Path $publishRoot "o1experimental/publishS3.py" }
-if (-not (Test-Path -LiteralPath $publisher)) { $publisher = Join-Path $publishRoot "release-o3/publishS3.py" }
-if (-not (Test-Path -LiteralPath $publisher)) { throw "publishS3.py was not found in any report bundle." }
+if (-not (Test-Path -LiteralPath $publisher)) { $publisher = Join-Path $paths.candidateReport "publishS3.py" }
+if (-not (Test-Path -LiteralPath $publisher)) { $publisher = Join-Path $paths.baselineReport "publishS3.py" }
+if (-not (Test-Path -LiteralPath $publisher)) { throw "publishS3.py was not found." }
 Copy-Item -LiteralPath $publisher -Destination (Join-Path $publishRoot "publishS3.py") -Force
 Write-Host ("Comparison verdict: {0}; O1experimental vs O3 failures={1}/{2}; warnings={3}." -f $verdict, $compare.failure_count, $compare.num_of_tests, $compareWarnings)
 '''
@@ -546,20 +432,12 @@ New-Item -ItemType Directory -Force -Path $rootStage | Out-Null
 foreach ($name in @("index.html", "summary.json", "release-o3-summary.json", "o1experimental-summary.json", "publishS3.py")) {
   Copy-Item -LiteralPath (Join-Path $publishRoot $name) -Destination (Join-Path $rootStage $name) -Force
 }
-$publisher = Join-Path $publishRoot "publishS3.py"
-foreach ($subdir in @("release-o3", "o1experimental", "o1experimental-vs-o3")) {
-  Copy-Item -LiteralPath $publisher -Destination (Join-Path $publishRoot "$subdir/publishS3.py") -Force
-}
 New-ZipFromDirectory -Source $rootStage -Zip (Join-Path $env:WORKSPACE "publish-root.zip")
-New-ZipFromDirectory -Source (Join-Path $publishRoot "release-o3") -Zip (Join-Path $env:WORKSPACE "publish-release-o3.zip")
-New-ZipFromDirectory -Source (Join-Path $publishRoot "o1experimental") -Zip (Join-Path $env:WORKSPACE "publish-o1experimental.zip")
 New-ZipFromDirectory -Source (Join-Path $publishRoot "o1experimental-vs-o3") -Zip (Join-Path $env:WORKSPACE "publish-o1experimental-vs-o3.zip")
 '''
                   powershell './prepare-publish-zip.ps1'
                   storePublishArtifacts = [
                     [artifact: 'publish-root.zip', prefix: storePrefix, prune: false],
-                    [artifact: 'publish-release-o3.zip', prefix: storePrefix + 'release-o3/', prune: args.get('pruneAfterPublish', true)],
-                    [artifact: 'publish-o1experimental.zip', prefix: storePrefix + 'o1experimental/', prune: args.get('pruneAfterPublish', true)],
                     [artifact: 'publish-o1experimental-vs-o3.zip', prefix: storePrefix + 'o1experimental-vs-o3/', prune: args.get('pruneAfterPublish', true)]
                   ]
                 } else {
@@ -568,7 +446,7 @@ New-ZipFromDirectory -Source (Join-Path $publishRoot "o1experimental-vs-o3") -Zi
               }
 
               stage('Artifacts') {
-                archiveArtifacts artifacts: 'package-compare.json,ex40-o1experimental-vs-o3.log,publish/index.html,publish/summary.json,publish/publishS3.py,publish/release-o3-summary.json,publish/o1experimental-summary.json,publish/release-o3/summary.json,publish/o1experimental/summary.json,publish/o1experimental-vs-o3/summary.json', allowEmptyArchive: true, fingerprint: false
+                archiveArtifacts artifacts: 'package-compare.json,report-paths.json,ex40-o1experimental-vs-o3.log,publish/index.html,publish/summary.json,publish/publishS3.py,publish/release-o3-summary.json,publish/o1experimental-summary.json,publish/o1experimental-vs-o3/index.html,publish/o1experimental-vs-o3/summary.json', allowEmptyArchive: true, fingerprint: false
               }
 
               stage('Publish comparison') {
@@ -592,9 +470,16 @@ New-ZipFromDirectory -Source (Join-Path $publishRoot "o1experimental-vs-o3") -Zi
                   updateBuildDescription()
                 }
               }
-              }
             }
           }
+        }
+      }
+    }
+  } finally {
+    if (deleteScratch && scratchId && scratchCreated && scratchRunner != null) {
+      timestamps {
+        stage('Delete scratch') {
+          runnerScratch(runner: scratchRunner, id: scratchId, action: 'delete')
         }
       }
     }

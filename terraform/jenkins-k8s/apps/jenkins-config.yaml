@@ -1824,6 +1824,8 @@ data:
               stringParam('PUBLIC_REFERENCES_COMMIT', '043f8a0aa074f134b3230d56f27ed7d0c645f6b3', 'Nabla CI commit containing public reference renders.')
               stringParam('EX40_PACKAGE_URL', '', 'Optional HTTPS URL of an EX40 runtime package zip. Leave empty when uploading EX40_PACKAGE_FILE.')
               stringParam('STORE_PREFIX', 'ditt/public/latest/', 'Destination prefix under store.devsh.eu. Must stay under ditt/public/.')
+              stringParam('SCRATCH_ID', '', 'Optional runner-local scratch id used by compare orchestration.')
+              stringParam('SCRATCH_VARIANT', '', 'Optional report variant directory under SCRATCH_ID.')
               stringParam('SHARD_COUNT', '1', 'Number of scene shards. Use 1 for a full single-run validation.')
               stringParam('SHARD_INDEX', '0', 'Zero-based shard index for this run.')
               stringParam('SOURCE_REPOSITORY', '', 'Optional GitHub repository owner/name that requested this run.')
@@ -1874,6 +1876,8 @@ data:
               stringParam('PRIVATE_REFERENCES_COMMIT', '201d9726ce69c6807fc5c326b3388315ecb2797b', 'DITT reference renders commit for the private full suite.')
               stringParam('EX40_PACKAGE_URL', '', 'Optional HTTPS URL of an EX40 runtime package zip. Leave empty when uploading EX40_PACKAGE_FILE.')
               stringParam('STORE_PREFIX', 'ditt/private/latest/', 'Destination prefix under store.devsh.eu. Must stay under ditt/private/.')
+              stringParam('SCRATCH_ID', '', 'Optional runner-local scratch id used by compare orchestration.')
+              stringParam('SCRATCH_VARIANT', '', 'Optional report variant directory under SCRATCH_ID.')
               stringParam('SHARD_COUNT', '1', 'Number of scene shards. Use 1 for a full single-run validation.')
               stringParam('SHARD_INDEX', '0', 'Zero-based shard index for this run.')
               stringParam('SOURCE_REPOSITORY', '', 'Optional GitHub repository owner/name that requested this run.')
@@ -2021,7 +2025,7 @@ data:
           }
 
           pipelineJob('ci/ditt/compare/report-bundle-o1experimental-vs-o3-public') {
-            description('Compares already generated public EX40 report bundles without rendering scenes, then publishes the latest comparison report to store.devsh.eu/ditt/compare/o1experimental-vs-o3/public/latest/.')
+            description('Compares already generated public EX40 reports from runner-local scratch without rendering scenes, then publishes the latest comparison report to store.devsh.eu/ditt/compare/o1experimental-vs-o3/public/latest/.')
             logRotator {
               daysToKeep(31)
               numToKeep(100)
@@ -2030,8 +2034,9 @@ data:
             }
             parameters {
               stringParam('STORE_PREFIX', 'ditt/compare/o1experimental-vs-o3/public/latest/', 'Destination prefix under store.devsh.eu. Must stay under ditt/compare/o1experimental-vs-o3/public/.')
-              stringParam('BASELINE_REPORT_URL', 'https://store.devsh.eu/ditt/public/latest/', 'Optional Release/O3 report URL. When set, Jenkins downloads the report from store.devsh.eu instead of requiring BASELINE_REPORT_FILE.')
-              stringParam('CANDIDATE_REPORT_URL', 'https://store.devsh.eu/ditt/public/o1experimental/latest/', 'Optional O1experimental report URL. When set, Jenkins downloads the report from store.devsh.eu instead of requiring CANDIDATE_REPORT_FILE.')
+              stringParam('SCRATCH_ID', '', 'Runner-local scratch id containing release-o3 and o1experimental report directories.')
+              stringParam('BASELINE_VARIANT', 'release-o3', 'Scratch report directory for the Release/O3 report.')
+              stringParam('CANDIDATE_VARIANT', 'o1experimental', 'Scratch report directory for the O1experimental report.')
               stringParam('SOURCE_REPOSITORY', '', 'Optional GitHub repository owner/name that requested this run.')
               stringParam('SOURCE_BRANCH', '', 'Optional GitHub branch that requested this run.')
               stringParam('SOURCE_SHA', '', 'Optional GitHub commit SHA that requested this run.')
@@ -2039,6 +2044,7 @@ data:
               stringParam('SOURCE_RUN_ATTEMPT', '', 'Optional GitHub Actions run attempt that requested this run.')
               stringParam('SOURCE_WORKFLOW', '', 'Optional GitHub Actions workflow name that requested this run.')
               booleanParam('PUBLISH', true, 'Publish the generated comparison report to store.devsh.eu.')
+              booleanParam('DELETE_SCRATCH', true, 'Delete the runner-local scratch directory after comparison.')
             }
             configure { project ->
               abortPreviousBuilds(project)
@@ -2046,14 +2052,6 @@ data:
               parameterDefinitions << 'io.jenkins.plugins.file_parameters.StashedFileParameterDefinition' {
                 name('EX40_COMPARE_PACKAGE_FILE')
                 description('EX40 runtime package zip containing the report comparison executable.')
-              }
-              parameterDefinitions << 'io.jenkins.plugins.file_parameters.StashedFileParameterDefinition' {
-                name('BASELINE_REPORT_FILE')
-                description('Release/O3 report bundle zip.')
-              }
-              parameterDefinitions << 'io.jenkins.plugins.file_parameters.StashedFileParameterDefinition' {
-                name('CANDIDATE_REPORT_FILE')
-                description('O1experimental report bundle zip.')
               }
             }
             definition {
@@ -2072,7 +2070,7 @@ data:
           }
 
           pipelineJob('ci/ditt/compare/report-bundle-o1experimental-vs-o3-private') {
-            description('Compares already generated private EX40 report bundles without rendering scenes, then publishes the latest comparison report to store.devsh.eu/ditt/compare/o1experimental-vs-o3/private/latest/.')
+            description('Compares already generated private EX40 reports from runner-local scratch without rendering scenes, then publishes the latest comparison report to store.devsh.eu/ditt/compare/o1experimental-vs-o3/private/latest/.')
             logRotator {
               daysToKeep(31)
               numToKeep(100)
@@ -2081,8 +2079,9 @@ data:
             }
             parameters {
               stringParam('STORE_PREFIX', 'ditt/compare/o1experimental-vs-o3/private/latest/', 'Destination prefix under store.devsh.eu. Must stay under ditt/compare/o1experimental-vs-o3/private/.')
-              stringParam('BASELINE_REPORT_URL', 'https://store.devsh.eu/ditt/private/latest/', 'Optional Release/O3 report URL. When set, Jenkins downloads the report from store.devsh.eu instead of requiring BASELINE_REPORT_FILE.')
-              stringParam('CANDIDATE_REPORT_URL', 'https://store.devsh.eu/ditt/private/o1experimental/latest/', 'Optional O1experimental report URL. When set, Jenkins downloads the report from store.devsh.eu instead of requiring CANDIDATE_REPORT_FILE.')
+              stringParam('SCRATCH_ID', '', 'Runner-local scratch id containing release-o3 and o1experimental report directories.')
+              stringParam('BASELINE_VARIANT', 'release-o3', 'Scratch report directory for the Release/O3 report.')
+              stringParam('CANDIDATE_VARIANT', 'o1experimental', 'Scratch report directory for the O1experimental report.')
               stringParam('SOURCE_REPOSITORY', '', 'Optional GitHub repository owner/name that requested this run.')
               stringParam('SOURCE_BRANCH', '', 'Optional GitHub branch that requested this run.')
               stringParam('SOURCE_SHA', '', 'Optional GitHub commit SHA that requested this run.')
@@ -2090,6 +2089,7 @@ data:
               stringParam('SOURCE_RUN_ATTEMPT', '', 'Optional GitHub Actions run attempt that requested this run.')
               stringParam('SOURCE_WORKFLOW', '', 'Optional GitHub Actions workflow name that requested this run.')
               booleanParam('PUBLISH', true, 'Publish the generated comparison report to store.devsh.eu.')
+              booleanParam('DELETE_SCRATCH', true, 'Delete the runner-local scratch directory after comparison.')
             }
             configure { project ->
               abortPreviousBuilds(project)
@@ -2097,14 +2097,6 @@ data:
               parameterDefinitions << 'io.jenkins.plugins.file_parameters.StashedFileParameterDefinition' {
                 name('EX40_COMPARE_PACKAGE_FILE')
                 description('EX40 runtime package zip containing the report comparison executable.')
-              }
-              parameterDefinitions << 'io.jenkins.plugins.file_parameters.StashedFileParameterDefinition' {
-                name('BASELINE_REPORT_FILE')
-                description('Release/O3 report bundle zip.')
-              }
-              parameterDefinitions << 'io.jenkins.plugins.file_parameters.StashedFileParameterDefinition' {
-                name('CANDIDATE_REPORT_FILE')
-                description('O1experimental report bundle zip.')
               }
             }
             definition {

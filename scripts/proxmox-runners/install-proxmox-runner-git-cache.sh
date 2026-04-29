@@ -24,6 +24,12 @@ LISTEN_HOST="${LISTEN_HOST:-127.0.0.1}"
 API_PORT="${API_PORT:-18082}"
 GIT_PORT="${GIT_PORT:-9418}"
 PUBLIC_GIT_BASE_URL="${PUBLIC_GIT_BASE_URL:-git://${LISTEN_HOST}:${GIT_PORT}}"
+SCRATCH_ROOT="${SCRATCH_ROOT:-/var/lib/proxmox-runner-scratch}"
+SCRATCH_SMB_SHARE="${SCRATCH_SMB_SHARE:-runner-scratch}"
+SCRATCH_SMB_USER="${SCRATCH_SMB_USER:-proxmox-runner-scratch}"
+SCRATCH_SMB_HOSTS_ALLOW="${SCRATCH_SMB_HOSTS_ALLOW:-10.254.254.0/24 127.}"
+SCRATCH_UNC_ROOT="${SCRATCH_UNC_ROOT:-\\\\${LISTEN_HOST}\\${SCRATCH_SMB_SHARE}}"
+ENABLE_SCRATCH_SMB="${ENABLE_SCRATCH_SMB:-true}"
 PYTHON_BIN="${PYTHON_BIN:-/usr/bin/python3}"
 GIT_BIN="${GIT_BIN:-/usr/bin/git}"
 GIT_SSH_COMMAND_VALUE="${GIT_SSH_COMMAND_VALUE:-}"
@@ -68,6 +74,42 @@ install -d -m 0755 "${CACHE_ROOT}"
 install -d -m 0755 "${BLOB_CACHE_ROOT}"
 install -m 0755 "${SCRIPT_SOURCE}" "${INSTALL_DIR}/proxmox-runner-git-cache.py"
 
+if [[ "${ENABLE_SCRATCH_SMB}" == "true" ]]; then
+  if ! id -u "${SCRATCH_SMB_USER}" >/dev/null 2>&1; then
+    useradd --system --no-create-home --shell /usr/sbin/nologin "${SCRATCH_SMB_USER}"
+  fi
+  install -d -m 2710 -o root -g "${SCRATCH_SMB_USER}" "${SCRATCH_ROOT}"
+  if ! command -v smbd >/dev/null 2>&1; then
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y samba
+  fi
+  smb_tmp="$(mktemp)"
+  awk '
+    /^# BEGIN proxmox-runner-scratch$/ { skip = 1; next }
+    /^# END proxmox-runner-scratch$/ { skip = 0; next }
+    skip != 1 { print }
+  ' /etc/samba/smb.conf >"${smb_tmp}"
+  cat >>"${smb_tmp}" <<EOF
+# BEGIN proxmox-runner-scratch
+[${SCRATCH_SMB_SHARE}]
+  path = ${SCRATCH_ROOT}
+  browseable = no
+  read only = no
+  guest ok = yes
+  guest only = yes
+  force user = ${SCRATCH_SMB_USER}
+  create mask = 0660
+  directory mask = 0770
+  hosts allow = ${SCRATCH_SMB_HOSTS_ALLOW}
+  hosts deny = 0.0.0.0/0 ::/0
+# END proxmox-runner-scratch
+EOF
+  install -m 0644 "${smb_tmp}" /etc/samba/smb.conf
+  rm -f "${smb_tmp}"
+else
+  install -d -m 0700 "${SCRATCH_ROOT}"
+fi
+
 if [[ -n "${CONFIG_SOURCE}" ]]; then
   install -m 0644 "${CONFIG_SOURCE}" "${CONFIG_FILE}"
 elif [[ ! -f "${CONFIG_FILE}" ]]; then
@@ -87,6 +129,8 @@ BLOB_CACHE_ALLOWED_PREFIXES=${BLOB_CACHE_ALLOWED_PREFIXES}
 BLOB_CACHE_MAX_BYTES=${BLOB_CACHE_MAX_BYTES}
 BLOB_FETCH_ALLOWED_URL_PREFIXES=${BLOB_FETCH_ALLOWED_URL_PREFIXES}
 BLOB_FETCH_TIMEOUT_SECONDS=${BLOB_FETCH_TIMEOUT_SECONDS}
+SCRATCH_ROOT=${SCRATCH_ROOT}
+SCRATCH_UNC_ROOT='${SCRATCH_UNC_ROOT}'
 GIT_CACHE_API_LISTEN_HOST=${LISTEN_HOST}
 GIT_CACHE_API_PORT=${API_PORT}
 GIT_CACHE_PUBLIC_GIT_BASE_URL=${PUBLIC_GIT_BASE_URL}
@@ -115,7 +159,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
-ReadWritePaths=${CACHE_ROOT} ${BLOB_CACHE_ROOT}
+ReadWritePaths=${CACHE_ROOT} ${BLOB_CACHE_ROOT} ${SCRATCH_ROOT}
 
 [Install]
 WantedBy=multi-user.target
@@ -149,3 +193,8 @@ systemctl enable "${API_SERVICE_NAME}" "${GIT_SERVICE_NAME}"
 systemctl restart "${API_SERVICE_NAME}" "${GIT_SERVICE_NAME}"
 systemctl is-active --quiet "${API_SERVICE_NAME}"
 systemctl is-active --quiet "${GIT_SERVICE_NAME}"
+if [[ "${ENABLE_SCRATCH_SMB}" == "true" ]]; then
+  systemctl enable smbd
+  systemctl restart smbd
+  systemctl is-active --quiet smbd
+fi

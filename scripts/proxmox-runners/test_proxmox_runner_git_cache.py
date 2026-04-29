@@ -188,5 +188,43 @@ class BlobCacheTests(unittest.TestCase):
             self.assertEqual(raised.exception.code, "fetch-url-not-allowed")
 
 
+class ScratchTests(unittest.TestCase):
+    def setUp(self):
+        self.module = load_module()
+
+    def make_cache(self, directory):
+        root = Path(directory) / "git"
+        config = self.module.CacheConfig(
+            Path(directory) / "repos.json",
+            root,
+            "git://127.0.0.1:9418",
+            scratch_root=Path(directory) / "scratch",
+            scratch_unc_root=r"\\10.254.254.254\runner-scratch",
+        )
+        return self.module.GitObjectCache(config)
+
+    def test_scratch_create_metadata_and_delete_cycle(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache = self.make_cache(directory)
+
+            created = cache.create_scratch("gh-123-public")
+            metadata = cache.scratch_metadata("gh-123-public")
+            deleted = cache.delete_scratch("gh-123-public")
+
+            self.assertTrue(created["created"])
+            self.assertTrue(metadata["exists"])
+            self.assertEqual(created["unc_path"], r"\\10.254.254.254\runner-scratch\gh-123-public")
+            self.assertTrue(deleted["deleted"])
+            self.assertFalse(cache.scratch_metadata("gh-123-public")["exists"])
+
+    def test_scratch_rejects_traversal_and_unsupported_characters(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache = self.make_cache(directory)
+            for scratch_id in ["../x", "x/y", "x y", ""]:
+                with self.subTest(scratch_id=scratch_id):
+                    with self.assertRaises(self.module.CacheError):
+                        cache.create_scratch(scratch_id)
+
+
 if __name__ == "__main__":
     unittest.main()
