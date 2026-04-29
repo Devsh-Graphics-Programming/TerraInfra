@@ -99,7 +99,7 @@ def call(Map args = [:]) {
     writeFile file: 'scratch-reports.ps1', text: '''
 function Mount-RunnerScratch {
   if ([string]::IsNullOrWhiteSpace($env:SCRATCH_UNC_PATH)) { throw "SCRATCH_UNC_PATH is required." }
-  & net.exe use R: /delete /y 2>$null | Out-Null
+  & cmd.exe /d /c "net use R: /delete /y >nul 2>nul"
   & net.exe use R: $env:SCRATCH_UNC_PATH /persistent:no | Out-Host
   if ($LASTEXITCODE -ne 0) { throw "Could not map runner scratch share." }
   return [System.IO.Path]::GetFullPath("R:\\")
