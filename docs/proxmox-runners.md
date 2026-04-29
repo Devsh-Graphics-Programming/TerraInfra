@@ -463,6 +463,9 @@ stay limited to explicit prefixes configured on the host.
 Hosts may additionally allow fetching specific HTTPS URL prefixes into those
 blob caches. Keep this allowlist narrow, for example a report store prefix, so
 the cache cannot become a general-purpose network proxy.
+If an allowed HTTPS prefix requires Basic auth, configure credentials in a
+root-only `BLOB_FETCH_BASIC_AUTH_FILE` on the Proxmox host. The file must stay
+outside Git and should contain only URL-prefix-scoped read credentials.
 
 Windows runtime templates should include Git when jobs need Git cache
 materialization. A host can also expose a `git_client_url` plus

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import base64
 import hashlib
 import json
 import os
@@ -9,6 +10,7 @@ import sys
 import threading
 import time
 import traceback
+import urllib.error
 import urllib.parse
 import urllib.request
 from http import HTTPStatus
@@ -50,6 +52,41 @@ def normalize_repo_path(value):
     if not REPO_PATH_PATTERN.fullmatch(text):
         raise CacheError(HTTPStatus.INTERNAL_SERVER_ERROR, "invalid-config", "Repository path is invalid.")
     return text
+
+
+def normalize_https_prefix(value, field_name):
+    text = str(value or "").strip()
+    parsed = urllib.parse.urlsplit(text)
+    if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password or parsed.fragment:
+        raise CacheError(HTTPStatus.INTERNAL_SERVER_ERROR, "invalid-config", f"{field_name} must be a plain HTTPS URL prefix.")
+    return text
+
+
+def load_blob_fetch_basic_auth(path, allowed_url_prefixes):
+    if not path:
+        return []
+    auth_path = Path(path)
+    if not auth_path.is_file():
+        raise CacheError(HTTPStatus.INTERNAL_SERVER_ERROR, "invalid-config", "Blob fetch auth file does not exist.")
+    with auth_path.open("r", encoding="utf-8") as handle:
+        loaded = json.load(handle)
+    entries = loaded.get("entries") if isinstance(loaded, dict) else loaded
+    if not isinstance(entries, list):
+        raise CacheError(HTTPStatus.INTERNAL_SERVER_ERROR, "invalid-config", "Blob fetch auth file must contain an entries list.")
+    normalized_entries = []
+    for item in entries:
+        if not isinstance(item, dict):
+            raise CacheError(HTTPStatus.INTERNAL_SERVER_ERROR, "invalid-config", "Blob fetch auth entry must be an object.")
+        prefix = normalize_https_prefix(item.get("url_prefix"), "blob fetch auth url_prefix")
+        if not any(prefix.startswith(allowed) for allowed in allowed_url_prefixes):
+            raise CacheError(HTTPStatus.INTERNAL_SERVER_ERROR, "invalid-config", "Blob fetch auth prefix is outside the fetch allowlist.")
+        username = str(item.get("username") or "")
+        password = str(item.get("password") or "")
+        if not username or not password:
+            raise CacheError(HTTPStatus.INTERNAL_SERVER_ERROR, "invalid-config", "Blob fetch auth entry is missing credentials.")
+        token = base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
+        normalized_entries.append({"url_prefix": prefix, "authorization": f"Basic {token}"})
+    return sorted(normalized_entries, key=lambda entry: len(entry["url_prefix"]), reverse=True)
 
 
 def run_git(args, cwd=None, timeout=900):
@@ -98,6 +135,7 @@ class CacheConfig:
         blob_allowed_prefixes=None,
         blob_max_bytes=536870912,
         blob_fetch_allowed_url_prefixes=None,
+        blob_fetch_basic_auth_file=None,
         blob_fetch_timeout_seconds=300,
         url_opener=None,
     ):
@@ -107,7 +145,12 @@ class CacheConfig:
         self.blob_root = Path(blob_root) if blob_root else self.root / "blobs"
         self.blob_allowed_prefixes = [prefix.strip().replace("\\", "/").strip("/") + "/" for prefix in (blob_allowed_prefixes or ["runner-cache/"])]
         self.blob_max_bytes = int(blob_max_bytes)
-        self.blob_fetch_allowed_url_prefixes = [prefix.strip() for prefix in (blob_fetch_allowed_url_prefixes or []) if prefix.strip()]
+        self.blob_fetch_allowed_url_prefixes = [
+            normalize_https_prefix(prefix, "BLOB_FETCH_ALLOWED_URL_PREFIXES")
+            for prefix in (blob_fetch_allowed_url_prefixes or [])
+            if prefix.strip()
+        ]
+        self.blob_fetch_basic_auth = load_blob_fetch_basic_auth(blob_fetch_basic_auth_file, self.blob_fetch_allowed_url_prefixes)
         self.blob_fetch_timeout_seconds = int(blob_fetch_timeout_seconds)
         self.url_opener = url_opener or urllib.request.build_opener(NoRedirectHandler)
         self._lock = threading.Lock()
@@ -197,6 +240,14 @@ class CacheConfig:
         if not any(text.startswith(prefix) for prefix in self.blob_fetch_allowed_url_prefixes):
             raise CacheError(HTTPStatus.FORBIDDEN, "fetch-url-not-allowed", "Blob fetch URL is outside the allowed prefixes.")
         return text
+
+    def fetch_headers(self, url):
+        headers = {"User-Agent": "proxmox-runner-git-cache/0.1"}
+        for entry in self.blob_fetch_basic_auth:
+            if url.startswith(entry["url_prefix"]):
+                headers["Authorization"] = entry["authorization"]
+                break
+        return headers
 
 
 class GitObjectCache:
@@ -336,8 +387,17 @@ class GitObjectCache:
         written = 0
         started_ms = monotonic_ms()
         try:
-            request = urllib.request.Request(fetch_url, headers={"User-Agent": "proxmox-runner-git-cache/0.1"})
-            with self.config.url_opener.open(request, timeout=self.config.blob_fetch_timeout_seconds) as response:
+            request = urllib.request.Request(fetch_url, headers=self.config.fetch_headers(fetch_url))
+            try:
+                response_context = self.config.url_opener.open(request, timeout=self.config.blob_fetch_timeout_seconds)
+            except urllib.error.HTTPError as exc:
+                raise CacheError(
+                    HTTPStatus.BAD_GATEWAY,
+                    "blob-fetch-failed",
+                    "Blob fetch returned an HTTP error.",
+                    {"status": exc.code},
+                ) from exc
+            with response_context as response:
                 status = getattr(response, "status", response.getcode())
                 if status != 200:
                     raise CacheError(HTTPStatus.BAD_GATEWAY, "blob-fetch-failed", "Blob fetch returned a non-200 response.", {"status": status})
@@ -524,6 +584,7 @@ def main():
     blob_allowed_prefixes = [item for item in os.getenv("BLOB_CACHE_ALLOWED_PREFIXES", "runner-cache/").split(",") if item.strip()]
     blob_max_bytes = int(os.getenv("BLOB_CACHE_MAX_BYTES", "536870912"))
     blob_fetch_allowed_url_prefixes = [item for item in os.getenv("BLOB_FETCH_ALLOWED_URL_PREFIXES", "").split(",") if item.strip()]
+    blob_fetch_basic_auth_file = os.getenv("BLOB_FETCH_BASIC_AUTH_FILE", "")
     blob_fetch_timeout_seconds = int(os.getenv("BLOB_FETCH_TIMEOUT_SECONDS", "300"))
     listen_host = os.getenv("GIT_CACHE_API_LISTEN_HOST", "127.0.0.1")
     listen_port = int(os.getenv("GIT_CACHE_API_PORT", "18082"))
@@ -537,6 +598,7 @@ def main():
         blob_allowed_prefixes,
         blob_max_bytes,
         blob_fetch_allowed_url_prefixes,
+        blob_fetch_basic_auth_file,
         blob_fetch_timeout_seconds,
     )
     cache = GitObjectCache(config)

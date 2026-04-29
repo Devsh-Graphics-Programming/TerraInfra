@@ -4,6 +4,7 @@ import importlib.util
 import io
 import tempfile
 import unittest
+import urllib.error
 from email.message import Message
 from pathlib import Path
 
@@ -35,7 +36,7 @@ class BlobCacheTests(unittest.TestCase):
         )
         return self.module.GitObjectCache(config)
 
-    def make_fetch_cache(self, directory, opener):
+    def make_fetch_cache(self, directory, opener, auth_file=None):
         root = Path(directory) / "git"
         blob_root = root / "blobs"
         config = self.module.CacheConfig(
@@ -46,6 +47,7 @@ class BlobCacheTests(unittest.TestCase):
             blob_allowed_prefixes=["store-cache/"],
             blob_max_bytes=1024,
             blob_fetch_allowed_url_prefixes=["https://store.devsh.eu/ditt/"],
+            blob_fetch_basic_auth_file=auth_file,
             url_opener=opener,
         )
         return self.module.GitObjectCache(config)
@@ -123,6 +125,60 @@ class BlobCacheTests(unittest.TestCase):
             self.assertFalse(result["cached"])
             self.assertEqual(opener.urls, ["https://store.devsh.eu/ditt/public/latest/index.html"])
             self.assertEqual(metadata["path"].read_bytes(), b"report-bytes")
+
+    def test_fetch_blob_adds_basic_auth_for_matching_prefix(self):
+        class FakeResponse:
+            status = 200
+
+            def __init__(self):
+                self.payload = io.BytesIO(b"private-report")
+                self.headers = Message()
+                self.headers["Content-Length"] = str(len(b"private-report"))
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def getcode(self):
+                return self.status
+
+            def read(self, size=-1):
+                return self.payload.read(size)
+
+        class FakeOpener:
+            def __init__(self):
+                self.headers = []
+
+            def open(self, request, timeout):
+                self.headers.append(dict(request.header_items()))
+                return FakeResponse()
+
+        with tempfile.TemporaryDirectory() as directory:
+            auth_file = Path(directory) / "auth.json"
+            auth_file.write_text(
+                '{"entries":[{"url_prefix":"https://store.devsh.eu/ditt/private/","username":"store-user","password":"store-pass"}]}',
+                encoding="utf-8",
+            )
+            opener = FakeOpener()
+            cache = self.make_fetch_cache(directory, opener, auth_file)
+
+            cache.fetch_blob("store-cache/ditt/private/baseline/abc/index.html", "https://store.devsh.eu/ditt/private/latest/index.html")
+
+            self.assertEqual(opener.headers[0]["Authorization"], "Basic c3RvcmUtdXNlcjpzdG9yZS1wYXNz")
+
+    def test_fetch_blob_maps_http_errors(self):
+        class FailingOpener:
+            def open(self, request, timeout):
+                raise urllib.error.HTTPError(request.full_url, 401, "Unauthorized", {}, None)
+
+        with tempfile.TemporaryDirectory() as directory:
+            cache = self.make_fetch_cache(directory, FailingOpener())
+            with self.assertRaises(self.module.CacheError) as raised:
+                cache.fetch_blob("store-cache/ditt/private/baseline/abc/index.html", "https://store.devsh.eu/ditt/private/latest/index.html")
+            self.assertEqual(raised.exception.code, "blob-fetch-failed")
+            self.assertEqual(raised.exception.details["status"], 401)
 
     def test_fetch_blob_rejects_disallowed_url(self):
         with tempfile.TemporaryDirectory() as directory:
