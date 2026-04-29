@@ -184,37 +184,36 @@ function Resolve-ScratchReport {
           leaseTtlMinutes: args.get('leaseTtlMinutes', 240),
           maxReadySeconds: args.get('maxReadySeconds', 180)
         ) { runner ->
-          try {
-            runnerSummary = [
-              label: runner.label,
-              allocationMode: runner.allocation_mode,
-              hostId: runner.host_id,
-              node: runner.node,
-              vmid: runner.vmid,
-              readyWallMs: runner.ready_wall_ms,
-              nodeEnterMs: runner.node_enter_ms
-            ]
-            scratchRunner = [scratch: runner.scratch]
+          runnerSummary = [
+            label: runner.label,
+            allocationMode: runner.allocation_mode,
+            hostId: runner.host_id,
+            node: runner.node,
+            vmid: runner.vmid,
+            readyWallMs: runner.ready_wall_ms,
+            nodeEnterMs: runner.node_enter_ms
+          ]
+          scratchRunner = [scratch: runner.scratch]
+          updateBuildDescription()
+
+          stage('Prepare scratch') {
+            scratchInfo = runnerScratch(runner: runner, id: scratchId, action: 'create')
+            scratchCreated = true
             updateBuildDescription()
+          }
 
-            stage('Prepare scratch') {
-              scratchInfo = runnerScratch(runner: runner, id: scratchId, action: 'create')
-              scratchCreated = true
-              updateBuildDescription()
-            }
-
-            withFileParameter(name: 'EX40_COMPARE_PACKAGE_FILE', allowNoFile: false) {
-              withEnv([
-                'SCENE_SUITE=' + suite,
-                'SCRATCH_ID=' + scratchId,
-                'SCRATCH_UNC_ROOT=' + (scratchInfo?.unc_root ?: ''),
-                'SCRATCH_UNC_PATH=' + (scratchInfo?.unc_path ?: ''),
-                'SCRATCH_SMB_USERNAME=' + (scratchInfo?.smb_username ?: ''),
-                'SCRATCH_SMB_CREDENTIAL=' + (scratchInfo?.smb_credential ?: ''),
-                'BASELINE_VARIANT=' + baselineVariant,
-                'CANDIDATE_VARIANT=' + candidateVariant
-              ]) {
-                writeScratchReportHelper()
+          withFileParameter(name: 'EX40_COMPARE_PACKAGE_FILE', allowNoFile: false) {
+            withEnv([
+              'SCENE_SUITE=' + suite,
+              'SCRATCH_ID=' + scratchId,
+              'SCRATCH_UNC_ROOT=' + (scratchInfo?.unc_root ?: ''),
+              'SCRATCH_UNC_PATH=' + (scratchInfo?.unc_path ?: ''),
+              'SCRATCH_SMB_USERNAME=' + (scratchInfo?.smb_username ?: ''),
+              'SCRATCH_SMB_CREDENTIAL=' + (scratchInfo?.smb_credential ?: ''),
+              'BASELINE_VARIANT=' + baselineVariant,
+              'CANDIDATE_VARIANT=' + candidateVariant
+            ]) {
+              writeScratchReportHelper()
 
               stage('Acquire compare package') {
                 writeFile file: 'acquire-compare-package.ps1', text: '''
@@ -479,12 +478,14 @@ New-ZipFromDirectory -Source (Join-Path $publishRoot "o1experimental-vs-o3") -Zi
                   updateBuildDescription()
                 }
               }
-            }
-          } finally {
-            if (deleteScratch && scratchId && scratchCreated && scratchRunner != null) {
+
               stage('Delete scratch') {
-                runnerScratch(runner: scratchRunner, id: scratchId, action: 'delete')
-                scratchCreated = false
+                if (deleteScratch && scratchId && scratchCreated && scratchRunner != null) {
+                  runnerScratch(runner: scratchRunner, id: scratchId, action: 'delete')
+                  scratchCreated = false
+                } else {
+                  echo 'Scratch delete skipped.'
+                }
               }
             }
           }
