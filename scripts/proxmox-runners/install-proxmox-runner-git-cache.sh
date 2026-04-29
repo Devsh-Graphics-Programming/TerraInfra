@@ -83,12 +83,42 @@ if [[ "${ENABLE_SCRATCH_SMB}" == "true" ]]; then
     apt-get update
     DEBIAN_FRONTEND=noninteractive apt-get install -y samba
   fi
+  smb_filtered="$(mktemp)"
+  smb_global_block="$(mktemp)"
   smb_tmp="$(mktemp)"
   awk '
+    /^# BEGIN proxmox-runner-scratch-global$/ { skip = 1; next }
+    /^# END proxmox-runner-scratch-global$/ { skip = 0; next }
     /^# BEGIN proxmox-runner-scratch$/ { skip = 1; next }
     /^# END proxmox-runner-scratch$/ { skip = 0; next }
     skip != 1 { print }
-  ' /etc/samba/smb.conf >"${smb_tmp}"
+  ' /etc/samba/smb.conf >"${smb_filtered}"
+  cat >"${smb_global_block}" <<EOF
+# BEGIN proxmox-runner-scratch-global
+  map to guest = Bad User
+  guest account = ${SCRATCH_SMB_USER}
+# END proxmox-runner-scratch-global
+EOF
+  awk -v block_path="${smb_global_block}" '
+    BEGIN {
+      while ((getline line < block_path) > 0) {
+        block = block line "\n"
+      }
+    }
+    /^\[global\][[:space:]]*$/ && inserted != 1 {
+      print
+      printf "%s", block
+      inserted = 1
+      next
+    }
+    { print }
+    END {
+      if (inserted != 1) {
+        print "[global]"
+        printf "%s", block
+      }
+    }
+  ' "${smb_filtered}" >"${smb_tmp}"
   cat >>"${smb_tmp}" <<EOF
 # BEGIN proxmox-runner-scratch
 [${SCRATCH_SMB_SHARE}]
@@ -105,7 +135,7 @@ if [[ "${ENABLE_SCRATCH_SMB}" == "true" ]]; then
 # END proxmox-runner-scratch
 EOF
   install -m 0644 "${smb_tmp}" /etc/samba/smb.conf
-  rm -f "${smb_tmp}"
+  rm -f "${smb_filtered}" "${smb_global_block}" "${smb_tmp}"
 else
   install -d -m 0700 "${SCRATCH_ROOT}"
 fi
