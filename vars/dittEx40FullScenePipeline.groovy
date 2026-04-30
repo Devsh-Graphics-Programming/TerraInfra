@@ -945,3 +945,4 @@ function Sync-PublishSummaryToWorkspace {
     }
   }
 }
+}
