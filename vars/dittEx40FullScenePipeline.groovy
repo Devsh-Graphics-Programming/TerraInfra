@@ -216,7 +216,6 @@ function Sync-PublishSummaryToWorkspace {
     }
   }
 }
-}
 '''
   }
 
