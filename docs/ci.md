@@ -64,10 +64,11 @@ Current jobs:
 - `ci/ditt/real/ex40-private`: runs the full private EX40 DITT scene suite from Git object cache commits and publishes the real report to `https://store.devsh.eu/ditt/private/latest/`. Private full-scene jobs run isolated scenes with a 15 minute per-scene timeout and a larger runner lease budget so slow scenes fail as report data rather than aborting the infrastructure job.
 - `ci/ditt/ex40-report-plan`: validates EX40 report publish parameters and stays in dry-run mode until the runtime backend is connected.
 
-DITT GPU jobs that lease Windows runners use Jenkins `disableConcurrentBuilds`
-with `abortPrevious=true`. A newer build of the same Jenkins job aborts the older
-one, which prevents superseded GitHub pushes from keeping the single GPU runner
-busy after Actions concurrency has moved on.
+DITT real GPU jobs queue concurrent builds of the same Jenkins job and also use
+a shared `ditt-windows-gpu-runner` lock around runner allocation. Default GitHub
+push CI is latest-commit-wins and asks Jenkins to stop older matching branch
+runs explicitly. When a commit uses `/ci keep`, older Jenkins builds are not
+preempted, but the GPU lock still keeps Windows GPU execution serial.
 
 Proxmox API credentials stay in the `proxmox-runner-api` Kubernetes Secret and Jenkins API credentials stay in the `jenkins-admin` Kubernetes Secret. Both are consumed by the `runnerctl` sidecar, not by JCasC job definitions. Store publish credentials stay in the optional `jenkins-store-publisher` Kubernetes Secret and are consumed only by `runnerctl`, so Windows runners receive no Object Storage keys. Do not add plaintext credentials to job definitions or workflow inputs.
 

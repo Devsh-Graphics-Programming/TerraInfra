@@ -68,6 +68,11 @@ data:
         theme: "dark"
 
     unclassified:
+      lockableResourcesManager:
+        declaredResources:
+          - name: "ditt-windows-gpu-runner"
+            description: "Serializes DITT Windows GPU runner jobs."
+            labels: "windows-gpu nvidia-gpu ditt-gpu"
       globalLibraries:
         libraries:
           - name: "devsh-ci"
@@ -142,14 +147,16 @@ data:
             description('Read-only runner platform status and diagnostics.')
           }
 
-          def abortPreviousBuilds = { project ->
+          def disableConcurrentBuilds = { project, abortPrevious ->
             def properties = project / 'properties'
             properties.children().removeAll {
               it.name().toString() == 'org.jenkinsci.plugins.workflow.job.properties.DisableConcurrentBuildsJobProperty'
             }
             def property = new Node(properties, 'org.jenkinsci.plugins.workflow.job.properties.DisableConcurrentBuildsJobProperty')
-            new Node(property, 'abortPrevious', 'true')
+            new Node(property, 'abortPrevious', abortPrevious ? 'true' : 'false')
           }
+          def abortPreviousBuilds = { project -> disableConcurrentBuilds(project, true) }
+          def queueConcurrentBuilds = { project -> disableConcurrentBuilds(project, false) }
 
           pipelineJob('system/smoke') {
             description('Verifies the controller can load configuration and run a lightweight pipeline.')
@@ -1834,7 +1841,7 @@ data:
               booleanParam('PUBLISH', true, 'Publish the generated report to store.devsh.eu.')
             }
             configure { project ->
-              abortPreviousBuilds(project)
+              queueConcurrentBuilds(project)
               def parameterDefinitions = project / 'properties' / 'hudson.model.ParametersDefinitionProperty' / 'parameterDefinitions'
               parameterDefinitions << 'io.jenkins.plugins.file_parameters.StashedFileParameterDefinition' {
                 name('EX40_PACKAGE_FILE')
@@ -1887,7 +1894,7 @@ data:
               booleanParam('PUBLISH', true, 'Publish the generated report to store.devsh.eu.')
             }
             configure { project ->
-              abortPreviousBuilds(project)
+              queueConcurrentBuilds(project)
               def parameterDefinitions = project / 'properties' / 'hudson.model.ParametersDefinitionProperty' / 'parameterDefinitions'
               parameterDefinitions << 'io.jenkins.plugins.file_parameters.StashedFileParameterDefinition' {
                 name('EX40_PACKAGE_FILE')

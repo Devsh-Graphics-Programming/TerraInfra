@@ -49,6 +49,7 @@ def call(Map args = [:]) {
   def sourceWorkflow = null
   def sourceUrl = null
   def runnerTimeoutMinutes = null
+  def gpuLockResource = null
   def packageMaxBytes = null
   def packageMaxExpandedBytes = null
   def runnerSummary = [:]
@@ -99,6 +100,9 @@ def call(Map args = [:]) {
     }
     if (runnerSummary.label) {
       lines << ('runner=' + runnerSummary.label)
+    }
+    if (gpuLockResource) {
+      lines << ('gpu_lock=' + gpuLockResource)
     }
     if (runnerSummary.readyWallMs != null) {
       lines << ('runner_ready=' + runnerFormatDuration(runnerSummary.readyWallMs as long))
@@ -212,12 +216,17 @@ function Sync-PublishSummaryToWorkspace {
     }
   }
 }
+}
 '''
   }
 
   timestamps {
     stage('Validate request') {
       runnerTimeoutMinutes = requireNumber(args.get('runnerTimeoutMinutes', '330'), 'runnerTimeoutMinutes', 10, 720)
+      gpuLockResource = args.get('gpuLockResource', 'ditt-windows-gpu-runner')?.toString()?.trim()
+      if (!(gpuLockResource ==~ /[A-Za-z0-9][A-Za-z0-9_.-]{0,127}/)) {
+        error('gpuLockResource contains unsupported characters.')
+      }
       packageMaxBytes = requireNumber(args.get('packageMaxBytes', '209715200'), 'packageMaxBytes', 1, 2147483647)
       packageMaxExpandedBytes = requireNumber(args.get('packageMaxExpandedBytes', '1073741824'), 'packageMaxExpandedBytes', 1, 2147483647)
       shardCount = requireNumber(params.SHARD_COUNT ?: args.get('shardCountDefault', '1'), 'SHARD_COUNT', 1, 64)
@@ -295,11 +304,14 @@ function Sync-PublishSummaryToWorkspace {
     }
 
     timeout(time: runnerTimeoutMinutes, unit: 'MINUTES') {
-      withRunner(
-        labels: args.get('labels', ['windows', 'gpu', 'nvidia', 'vulkan', 'runtime-only']),
-        leaseTtlMinutes: args.get('leaseTtlMinutes', 360),
-        maxReadySeconds: args.get('maxReadySeconds', 180)
-      ) { runner ->
+      echo('Waiting for GPU lock: ' + gpuLockResource)
+      lock(resource: gpuLockResource) {
+        echo('Acquired GPU lock: ' + gpuLockResource)
+        withRunner(
+          labels: args.get('labels', ['windows', 'gpu', 'nvidia', 'vulkan', 'runtime-only']),
+          leaseTtlMinutes: args.get('leaseTtlMinutes', 360),
+          maxReadySeconds: args.get('maxReadySeconds', 180)
+        ) { runner ->
         runnerSummary = [
           label: runner.label,
           allocationMode: runner.allocation_mode,

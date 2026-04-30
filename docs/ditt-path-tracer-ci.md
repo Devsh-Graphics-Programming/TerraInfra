@@ -89,5 +89,10 @@ Before changing report UI files, validate at least:
 - Keep full-scene timeouts generous. Private jobs intentionally use per-scene
   isolation so slow scenes become report data instead of aborting the whole
   infrastructure job.
-- If a newer GitHub run supersedes an older one, Actions cancels the old run and
-  Jenkins jobs use `abortPrevious=true` for the matching job.
+- Default push CI is latest-commit-wins. Actions cancels older branch runs and
+  the trigger asks Jenkins to stop older matching branch jobs before starting the
+  new ones.
+- `/ci keep` lets older branch runs finish instead of preempting them. Jenkins
+  still serializes the Windows GPU slot, so the next job waits instead of
+  running a second GPU VM.
+- `/ci skip` skips push CI for that commit.
