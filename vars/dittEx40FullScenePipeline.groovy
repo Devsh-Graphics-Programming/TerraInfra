@@ -49,6 +49,8 @@ def call(Map args = [:]) {
   def sourceWorkflow = null
   def sourceUrl = null
   def runnerTimeoutMinutes = null
+  def packageMaxBytes = null
+  def packageMaxExpandedBytes = null
   def runnerSummary = [:]
   def packageSummary = [:]
   def scratchId = null
@@ -64,6 +66,8 @@ def call(Map args = [:]) {
   def compareSmokeUrl = null
   def compareSmokeFailureCount = null
   def compareSmokeTestCount = null
+  def publishSummary = [:]
+  def compareSmokePublishSummary = [:]
   def buildStartedAt = System.currentTimeMillis()
 
   def updateBuildDescription = {
@@ -102,11 +106,75 @@ def call(Map args = [:]) {
     if (packageSummary.manifestUsed != null) {
       lines << ('package_manifest=' + packageSummary.manifestUsed)
     }
+    if (packageSummary.packageSize != null) {
+      lines << ('package_bytes=' + packageSummary.packageSize)
+    }
+    if (publishSummary.url) {
+      lines << ('published_files=' + (publishSummary.published_file_count ?: publishSummary.file_count ?: 'n/a'))
+    }
+    if (compareSmokePublishSummary.url) {
+      lines << ('smoke_published_files=' + (compareSmokePublishSummary.published_file_count ?: compareSmokePublishSummary.file_count ?: 'n/a'))
+    }
     if (scratchId) {
       lines << ('scratch=' + scratchId + '/' + scratchVariant)
     }
     lines << ('elapsed=' + runnerFormatDuration(System.currentTimeMillis() - buildStartedAt))
     currentBuild.description = lines.findAll { it != null && it.toString().trim() }.join('<br/>')
+  }
+
+  def writeRunSummary = { String status ->
+    def summary = [
+      status: status,
+      suite: suite,
+      store_prefix: storePrefix,
+      report_url: reportUrl,
+      compare_smoke_url: compareSmokeUrl,
+      source: [
+        repository: sourceRepository,
+        branch: sourceBranch,
+        sha: sourceSha,
+        workflow: sourceWorkflow,
+        run_id: sourceRunId,
+        run_attempt: sourceRunAttempt,
+        url: sourceUrl
+      ].findAll { it.value != null && it.value.toString().trim() },
+      runner: runnerSummary,
+      package: packageSummary,
+      scenes: [
+        selected: selectedSceneCount,
+        total: totalSceneCount,
+        shard_index: shardIndex,
+        shard_count: shardCount
+      ].findAll { it.value != null },
+      report: [
+        failures: reportFailureCount,
+        tests: reportTestCount
+      ].findAll { it.value != null },
+      compare_smoke: [
+        enabled: runCompareSmoke,
+        failures: compareSmokeFailureCount,
+        tests: compareSmokeTestCount,
+        store_prefix: compareSmokeStorePrefix
+      ].findAll { it.value != null },
+      publish: publishSummary,
+      compare_smoke_publish: compareSmokePublishSummary,
+      scratch: [
+        id: scratchId,
+        variant: scratchVariant,
+        enabled: scratchId != null
+      ].findAll { it.value != null },
+      elapsed_ms: System.currentTimeMillis() - buildStartedAt
+    ]
+    writeJSON file: 'run-summary.json', json: summary, pretty: 2
+    echo(
+      'DITT run summary: status=' + status +
+      ', suite=' + suite +
+      ', report_url=' + (reportUrl ?: 'n/a') +
+      ', compare_smoke_url=' + (compareSmokeUrl ?: 'n/a') +
+      ', report_failures=' + (reportFailureCount == null ? 'n/a' : (reportFailureCount + '/' + reportTestCount)) +
+      ', elapsed=' + runnerFormatDuration(summary.elapsed_ms as long)
+    )
+    return summary
   }
 
   def writePublishRootHelper = {
@@ -150,6 +218,8 @@ function Sync-PublishSummaryToWorkspace {
   timestamps {
     stage('Validate request') {
       runnerTimeoutMinutes = requireNumber(args.get('runnerTimeoutMinutes', '330'), 'runnerTimeoutMinutes', 10, 720)
+      packageMaxBytes = requireNumber(args.get('packageMaxBytes', '209715200'), 'packageMaxBytes', 1, 2147483647)
+      packageMaxExpandedBytes = requireNumber(args.get('packageMaxExpandedBytes', '1073741824'), 'packageMaxExpandedBytes', 1, 2147483647)
       shardCount = requireNumber(params.SHARD_COUNT ?: args.get('shardCountDefault', '1'), 'SHARD_COUNT', 1, 64)
       shardIndex = requireNumber(params.SHARD_INDEX ?: args.get('shardIndexDefault', '0'), 'SHARD_INDEX', 0, 63)
       if (shardIndex >= shardCount) {
@@ -246,22 +316,25 @@ function Sync-PublishSummaryToWorkspace {
             updateBuildDescription()
           }
         }
-        withFileParameter(name: args.get('packageFileParameter', 'EX40_PACKAGE_FILE'), allowNoFile: true) {
-          withEnv([
-            'EX40_PACKAGE_URL=' + (packageUrl ?: ''),
-            'SCENE_SUITE=' + suite,
-            'SHARD_COUNT=' + shardCount.toString(),
-            'SHARD_INDEX=' + shardIndex.toString(),
-            'FAIL_ON_RENDER_FAILURE=' + failOnRenderFailure.toString(),
-            'ISOLATE_SCENES=' + isolateScenes.toString(),
-            'SCRATCH_ID=' + (scratchId ?: ''),
-            'SCRATCH_UNC_ROOT=' + (scratchInfo?.unc_root ?: ''),
-            'SCRATCH_UNC_PATH=' + (scratchInfo?.unc_path ?: ''),
-            'SCRATCH_VARIANT=' + (scratchVariant ?: ''),
-            'SCRATCH_SMB_USERNAME=' + (scratchInfo?.smb_username ?: ''),
-            'SCRATCH_SMB_CREDENTIAL=' + (scratchInfo?.smb_credential ?: '')
-          ]) {
-            writePublishRootHelper()
+        try {
+          withFileParameter(name: args.get('packageFileParameter', 'EX40_PACKAGE_FILE'), allowNoFile: true) {
+            withEnv([
+              'EX40_PACKAGE_URL=' + (packageUrl ?: ''),
+              'SCENE_SUITE=' + suite,
+              'SHARD_COUNT=' + shardCount.toString(),
+              'SHARD_INDEX=' + shardIndex.toString(),
+              'FAIL_ON_RENDER_FAILURE=' + failOnRenderFailure.toString(),
+              'ISOLATE_SCENES=' + isolateScenes.toString(),
+              'MAX_PACKAGE_BYTES=' + packageMaxBytes.toString(),
+              'MAX_PACKAGE_EXPANDED_BYTES=' + packageMaxExpandedBytes.toString(),
+              'SCRATCH_ID=' + (scratchId ?: ''),
+              'SCRATCH_UNC_ROOT=' + (scratchInfo?.unc_root ?: ''),
+              'SCRATCH_UNC_PATH=' + (scratchInfo?.unc_path ?: ''),
+              'SCRATCH_VARIANT=' + (scratchVariant ?: ''),
+              'SCRATCH_SMB_USERNAME=' + (scratchInfo?.smb_username ?: ''),
+              'SCRATCH_SMB_CREDENTIAL=' + (scratchInfo?.smb_credential ?: '')
+            ]) {
+              writePublishRootHelper()
             stage('Acquire package') {
               writeFile file: 'acquire-package.ps1', text: [
               '$ErrorActionPreference = "Stop"',
@@ -282,6 +355,25 @@ function Sync-PublishSummaryToWorkspace {
               '}',
               '$packageSize = (Get-Item -LiteralPath $packagePath).Length',
               'Write-Host ("EX40 package size: {0} bytes" -f $packageSize)',
+              '$maxPackageBytes = [int64]$env:MAX_PACKAGE_BYTES',
+              'if ($maxPackageBytes -lt 1) { throw "MAX_PACKAGE_BYTES is invalid." }',
+              'if ($packageSize -gt $maxPackageBytes) { throw ("EX40 package is too large: {0} bytes exceeds {1} bytes." -f $packageSize, $maxPackageBytes) }',
+              '$maxExpandedBytes = [int64]$env:MAX_PACKAGE_EXPANDED_BYTES',
+              'if ($maxExpandedBytes -lt 1) { throw "MAX_PACKAGE_EXPANDED_BYTES is invalid." }',
+              'Add-Type -AssemblyName System.IO.Compression.FileSystem',
+              '$archive = [System.IO.Compression.ZipFile]::OpenRead($packagePath)',
+              'try {',
+              '  $expandedBytes = [int64]0',
+              '  foreach ($entry in $archive.Entries) {',
+              '    $entryName = $entry.FullName.Replace([char]92, [char]47)',
+              '    if ([System.IO.Path]::IsPathRooted($entryName) -or $entryName.Split([char]47) -contains "..") { throw "Unsafe package zip entry: $entryName" }',
+              '    $expandedBytes += [int64]$entry.Length',
+              '    if ($expandedBytes -gt $maxExpandedBytes) { throw ("EX40 package expands to more than {0} bytes." -f $maxExpandedBytes) }',
+              '  }',
+              '  Write-Host ("EX40 package expanded size: {0} bytes" -f $expandedBytes)',
+              '} finally {',
+              '  $archive.Dispose()',
+              '}',
               'Expand-Archive -LiteralPath $packagePath -DestinationPath $extractRoot -Force',
               'function Resolve-PackagePath {',
               '  param([Parameter(Mandatory = $true)][string] $Base, [Parameter(Mandatory = $true)][string] $Relative, [Parameter(Mandatory = $true)][string] $Name)',
@@ -488,6 +580,7 @@ function Sync-PublishSummaryToWorkspace {
                   pruneAfterPublish: args.get('compareSmokePruneAfterPublish', true),
                   artifactName: 'publish-compare-smoke.zip'
                 ])
+                compareSmokePublishSummary = result
                 compareSmokeUrl = result.url
                 updateBuildDescription()
               } else {
@@ -804,6 +897,7 @@ function Sync-PublishSummaryToWorkspace {
                 jobs: args.get('publishJobs', 8),
                 pruneAfterPublish: args.get('pruneAfterPublish', true)
               ])
+              publishSummary = result
               reportUrl = result.url
               updateBuildDescription()
             } else {
@@ -811,9 +905,31 @@ function Sync-PublishSummaryToWorkspace {
               updateBuildDescription()
             }
           }
+
+          stage('Run summary') {
+            writeRunSummary(currentBuild.currentResult ?: 'SUCCESS')
+            archiveArtifacts artifacts: 'run-summary.json', allowEmptyArchive: false, fingerprint: false
+          }
+            }
+          }
+        } catch (err) {
+          try {
+            stage('Run summary after failure') {
+              writeRunSummary('FAILURE')
+              archiveArtifacts artifacts: 'run-summary.json', allowEmptyArchive: true, fingerprint: false
+            }
+          } catch (summaryErr) {
+            echo('Could not write failure run summary: ' + summaryErr.getMessage())
+          }
+          throw err
+        } finally {
+          if (scratchId && scratchInfo) {
+            stage('Cleanup scratch') {
+              runnerScratch(runner: runner, id: scratchId, action: 'delete')
+            }
+          }
         }
       }
     }
   }
-}
 }

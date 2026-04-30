@@ -35,6 +35,10 @@ terraform/terra.agekey
 terraform/manual-snapshots.auto.tfvars.json
 kimai-plugin/
 .tmp/
+tmp/
+.devserver.out.log
+__pycache__/
+*.pyc
 oncall-src/
 tmp_oncall_pkg/
 terraform/k8s/tmp-*.yaml

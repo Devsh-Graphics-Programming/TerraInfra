@@ -77,6 +77,9 @@ Runner platform design is documented in `docs/proxmox-runners.md`. DITT and EX40
 
 The EX40 scene job keeps the runtime package separate from scenes and media. `EX40_PACKAGE_FILE` or `EX40_PACKAGE_URL` supplies only the executable package. Scene and reference data are materialized on the Windows runner from a cache near the Proxmox runner farm.
 
+The operational runbook for the full DITT path tracer flow lives in
+`docs/ditt-path-tracer-ci.md`.
+
 Smoke suites use the small host-side zip cache:
 
 ```text
