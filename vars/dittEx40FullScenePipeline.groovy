@@ -71,6 +71,42 @@ def call(Map args = [:]) {
   def compareSmokePublishSummary = [:]
   def buildStartedAt = System.currentTimeMillis()
 
+  def isTimeoutInterruption = { Throwable err ->
+    if (err == null || err.getClass().getName() != 'org.jenkinsci.plugins.workflow.steps.FlowInterruptedException') {
+      return false
+    }
+    try {
+      return err.getCauses().any { cause ->
+        def name = cause.getClass().getName()
+        name.contains('TimeoutStepExecution') || cause.toString().contains('Timeout')
+      }
+    } catch (ignored) {
+      return false
+    }
+  }
+
+  def isAbortInterruption = { Throwable err ->
+    def result = currentBuild.currentResult ?: currentBuild.result
+    if (result == 'ABORTED') {
+      return true
+    }
+    if (err == null) {
+      return false
+    }
+    def className = err.getClass().getName()
+    if (className == 'org.jenkinsci.plugins.workflow.steps.FlowInterruptedException') {
+      return !isTimeoutInterruption(err)
+    }
+    err.toString().contains('script returned exit code -1')
+  }
+
+  def abortIfRequested = {
+    def result = currentBuild.currentResult ?: currentBuild.result
+    if (result == 'ABORTED') {
+      error('Build abort was requested.')
+    }
+  }
+
   def updateBuildDescription = {
     def lines = []
     if (reportUrl) {
@@ -779,9 +815,14 @@ function Sync-PublishSummaryToWorkspace {
                   timeout(time: sceneTimeoutSeconds, unit: 'SECONDS') {
                     powershell script: './run-isolated-scene.ps1 -SceneNumber ' + sceneNumber
                   }
+                  abortIfRequested()
                 } catch (err) {
+                  def abortRequested = isAbortInterruption(err)
                   timeout(time: 1, unit: 'MINUTES') {
                     powershell script: './kill-pathtracer.ps1'
+                  }
+                  if (abortRequested) {
+                    throw err
                   }
                   writeFile file: String.format('isolated-summaries/timeout-%04d.txt', sceneNumber), text: 'timeout'
                   if (failOnRenderFailure) {

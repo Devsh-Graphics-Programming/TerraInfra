@@ -1841,7 +1841,7 @@ data:
               booleanParam('PUBLISH', true, 'Publish the generated report to store.devsh.eu.')
             }
             configure { project ->
-              queueConcurrentBuilds(project)
+              abortPreviousBuilds(project)
               def parameterDefinitions = project / 'properties' / 'hudson.model.ParametersDefinitionProperty' / 'parameterDefinitions'
               parameterDefinitions << 'io.jenkins.plugins.file_parameters.StashedFileParameterDefinition' {
                 name('EX40_PACKAGE_FILE')
@@ -1894,7 +1894,7 @@ data:
               booleanParam('PUBLISH', true, 'Publish the generated report to store.devsh.eu.')
             }
             configure { project ->
-              queueConcurrentBuilds(project)
+              abortPreviousBuilds(project)
               def parameterDefinitions = project / 'properties' / 'hudson.model.ParametersDefinitionProperty' / 'parameterDefinitions'
               parameterDefinitions << 'io.jenkins.plugins.file_parameters.StashedFileParameterDefinition' {
                 name('EX40_PACKAGE_FILE')
