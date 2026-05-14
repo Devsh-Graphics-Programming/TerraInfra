@@ -12,6 +12,8 @@ data:
     Create your account:
     {{invite_url}}
 
+    If StoatChat is only reachable from the DevSH private network, connect to the DevSH VPN before opening the link.
+
     Invite code:
     {{invite_code}}
 
@@ -25,28 +27,65 @@ data:
     <!doctype html>
     <html lang="en">
       <body style="margin:0;padding:0;background:#f6f7fb;color:#1f2430;font-family:Arial,sans-serif;">
+        <div style="display:none;max-height:0;overflow:hidden;color:#f6f7fb;">DevSH StoatChat invite. Connect to the DevSH VPN first if StoatChat is private.</div>
         <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f6f7fb;padding:32px 12px;">
           <tr>
             <td align="center">
-              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:#ffffff;border:1px solid #e5e7ef;border-radius:8px;overflow:hidden;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;background:#ffffff;border:1px solid #e5e7ef;border-radius:8px;overflow:hidden;">
                 <tr>
-                  <td style="padding:28px 28px 20px 28px;">
-                    <h1 style="margin:0 0 12px 0;font-size:24px;line-height:1.25;color:#111827;">StoatChat invite</h1>
-                    <p style="margin:0 0 18px 0;font-size:15px;line-height:1.6;color:#3f4656;">Hello,</p>
-                    <p style="margin:0 0 22px 0;font-size:15px;line-height:1.6;color:#3f4656;">You have been invited to StoatChat. Use the button below to create your account.</p>
-                    <p style="margin:0 0 24px 0;">
-                      <a href="{{invite_url}}" style="display:inline-block;background:#5865f2;color:#ffffff;text-decoration:none;border-radius:6px;padding:12px 18px;font-size:15px;font-weight:700;">Create account</a>
-                    </p>
+                  <td bgcolor="#0f172a" style="padding:24px 28px;background:#0f172a;">
+                    <p style="margin:0 0 8px 0;font-size:13px;line-height:1.5;color:#bfdbfe;">DevSH chat</p>
+                    <h1 style="margin:0;font-size:25px;line-height:1.25;color:#ffffff;">StoatChat invite</h1>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:26px 28px 22px 28px;">
+                    <p style="margin:0 0 20px 0;font-size:15px;line-height:1.6;color:#3f4656;">Use the button below to create your StoatChat account. If StoatChat is only reachable from the DevSH private network, connect to the DevSH VPN before opening the link.</p>
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f8fafc;border:1px solid #dbe3ef;border-radius:8px;margin:0 0 22px 0;">
+                      <tr>
+                        <td style="padding:16px 18px;">
+                          <p style="margin:0 0 12px 0;font-size:15px;line-height:1.35;color:#111827;font-weight:700;">Invite details</p>
+                          <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                            <tr>
+                              <td width="130" style="padding:5px 0;font-size:13px;line-height:1.5;color:#64748b;">Email</td>
+                              <td style="padding:5px 0;font-size:14px;line-height:1.5;color:#111827;font-weight:700;word-break:break-all;">{{email}}</td>
+                            </tr>
+                            <tr>
+                              <td width="130" style="padding:5px 0;font-size:13px;line-height:1.5;color:#64748b;">Service URL</td>
+                              <td style="padding:5px 0;font-size:14px;line-height:1.5;color:#111827;font-weight:700;word-break:break-all;">https://stoatchat.devsh.eu</td>
+                            </tr>
+                            <tr>
+                              <td width="130" style="padding:5px 0;font-size:13px;line-height:1.5;color:#64748b;">Invite code</td>
+                              <td style="padding:5px 0;font-size:14px;line-height:1.5;color:#111827;font-weight:700;word-break:break-all;">{{invite_code}}</td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </table>
+                    <table role="presentation" border="0" cellspacing="0" cellpadding="0" style="margin:0 0 24px 0;">
+                      <tr>
+                        <td align="center" bgcolor="#2563eb" style="background:#2563eb;border:1px solid #1d4ed8;border-radius:7px;mso-padding-alt:13px 20px;">
+                          <a href="{{invite_url}}" style="display:block;background:#2563eb;border-radius:7px;color:#ffffff;text-decoration:none;font-size:15px;line-height:18px;font-weight:700;padding:13px 20px;">Create StoatChat account</a>
+                        </td>
+                      </tr>
+                    </table>
                     <p style="margin:0 0 8px 0;font-size:13px;line-height:1.5;color:#6b7280;">If the button does not work, open this link:</p>
-                    <p style="margin:0 0 18px 0;font-size:13px;line-height:1.5;word-break:break-all;">
-                      <a href="{{invite_url}}" style="color:#5865f2;">{{invite_url}}</a>
+                    <p style="margin:0 0 22px 0;font-size:13px;line-height:1.5;word-break:break-all;">
+                      <a href="{{invite_url}}" style="color:#2563eb;">{{invite_url}}</a>
                     </p>
-                    <p style="margin:0 0 6px 0;font-size:13px;line-height:1.5;color:#6b7280;">Invite code</p>
-                    <p style="margin:0 0 18px 0;font-size:15px;line-height:1.5;">
-                      <code style="background:#f3f4f6;border:1px solid #e5e7eb;border-radius:6px;padding:6px 8px;color:#111827;">{{invite_code}}</code>
-                    </p>
-                    <p style="margin:0 0 6px 0;font-size:13px;line-height:1.5;color:#6b7280;">Requested for</p>
-                    <p style="margin:0 0 18px 0;font-size:15px;line-height:1.5;color:#111827;">{{email}}</p>
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;margin:0 0 22px 0;">
+                      <tr>
+                        <td style="padding:18px 18px 12px 18px;">
+                          <h2 style="margin:0 0 12px 0;font-size:16px;line-height:1.35;color:#111827;">Next steps</h2>
+                          <ol style="margin:0;padding-left:20px;color:#3f4656;font-size:14px;line-height:1.7;">
+                            <li>Connect to the DevSH VPN if StoatChat is not reachable from your current network.</li>
+                            <li>Click <strong>Create StoatChat account</strong> above, or open the setup link shown under the button.</li>
+                            <li>Use the invite code shown above if StoatChat asks for it during registration.</li>
+                            <li>Finish account creation and complete the separate email verification message from StoatChat.</li>
+                          </ol>
+                        </td>
+                      </tr>
+                    </table>
                     <p style="margin:0 0 10px 0;font-size:13px;line-height:1.6;color:#6b7280;">This invite is single-use. After registration, StoatChat will send a separate email verification message.</p>
                     <p style="margin:0;font-size:13px;line-height:1.6;color:#6b7280;">If you did not expect this invite, you can ignore this email.</p>
                   </td>
