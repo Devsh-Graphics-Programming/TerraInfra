@@ -8,6 +8,7 @@ resources:
   - authentik-certificate.yaml
   - authentik-headscale-blueprint.yaml
   - authentik-helmrelease.yaml
+  - authentik-ops-scripts.yaml
+  - authentik-ops.yaml
   - headscale-config.yaml
   - headscale.yaml
-

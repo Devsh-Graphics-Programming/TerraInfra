@@ -1,0 +1,289 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: authentik-ops-scripts
+  namespace: authentik
+data:
+  invite-email.txt: |
+    Hello,
+
+    You have been invited to DevSH access.
+
+    Create your account:
+    {{invite_url}}
+
+    After your account is created:
+
+    1. Install the official Tailscale client:
+    https://tailscale.com/download
+
+    2. In Tailscale, sign in using this custom login server:
+    https://headscale.devsh.eu
+
+    3. Once connected, you can access internal DevSH services using their normal URLs.
+
+    This invite is single-use and expires in {{ttl}}.
+    Requested profile: {{profile}}
+
+    If you did not expect this invitation, you can ignore this email.
+  invite-email.html: |
+    <!doctype html>
+    <html lang="en">
+      <body style="margin:0;padding:0;background:#f6f7fb;color:#1f2430;font-family:Arial,sans-serif;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f6f7fb;padding:32px 12px;">
+          <tr>
+            <td align="center">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;background:#ffffff;border:1px solid #e5e7ef;border-radius:8px;overflow:hidden;">
+                <tr>
+                  <td style="padding:28px 28px 20px 28px;">
+                    <p style="margin:0 0 10px 0;font-size:13px;line-height:1.5;color:#6b7280;">DevSH access</p>
+                    <h1 style="margin:0 0 12px 0;font-size:24px;line-height:1.25;color:#111827;">You have been invited</h1>
+                    <p style="margin:0 0 22px 0;font-size:15px;line-height:1.6;color:#3f4656;">Use the button below to create your DevSH account. After that, connect with the official Tailscale client to access internal DevSH services through their normal URLs.</p>
+                    <p style="margin:0 0 24px 0;">
+                      <a href="{{invite_url}}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:6px;padding:12px 18px;font-size:15px;font-weight:700;">Create DevSH account</a>
+                    </p>
+                    <p style="margin:0 0 8px 0;font-size:13px;line-height:1.5;color:#6b7280;">If the button does not work, open this link:</p>
+                    <p style="margin:0 0 22px 0;font-size:13px;line-height:1.5;word-break:break-all;">
+                      <a href="{{invite_url}}" style="color:#2563eb;">{{invite_url}}</a>
+                    </p>
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;margin:0 0 22px 0;">
+                      <tr>
+                        <td style="padding:18px 18px 12px 18px;">
+                          <h2 style="margin:0 0 12px 0;font-size:16px;line-height:1.35;color:#111827;">Next steps</h2>
+                          <ol style="margin:0;padding-left:20px;color:#3f4656;font-size:14px;line-height:1.7;">
+                            <li>Install the official Tailscale client from <a href="https://tailscale.com/download" style="color:#2563eb;">tailscale.com/download</a>.</li>
+                            <li>Sign in using the custom login server below.</li>
+                            <li>After connecting, use normal DevSH service URLs.</li>
+                          </ol>
+                          <p style="margin:14px 0 6px 0;font-size:13px;line-height:1.5;color:#6b7280;">Custom login server</p>
+                          <p style="margin:0 0 4px 0;font-size:14px;line-height:1.5;word-break:break-all;">
+                            <code style="background:#ffffff;border:1px solid #d1d5db;border-radius:6px;padding:6px 8px;color:#111827;">https://headscale.devsh.eu</code>
+                          </p>
+                        </td>
+                      </tr>
+                    </table>
+                    <p style="margin:0 0 8px 0;font-size:13px;line-height:1.6;color:#6b7280;">This invite is single-use and expires in {{ttl}}.</p>
+                    <p style="margin:0 0 8px 0;font-size:13px;line-height:1.6;color:#6b7280;">Requested profile: {{profile}}</p>
+                    <p style="margin:0;font-size:13px;line-height:1.6;color:#6b7280;">If you did not expect this invitation, you can ignore this email.</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </body>
+    </html>
+  vpn-invite: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    usage() {
+      cat >&2 <<'EOF'
+    Usage: vpn-invite <email> [--profile member|admin] [--ttl 24h] [--dry-run]
+    EOF
+      exit 64
+    }
+
+    email=""
+    profile="member"
+    ttl="24h"
+    dry_run="false"
+
+    while [[ "$#" -gt 0 ]]; do
+      case "$1" in
+        --profile)
+          [[ "$#" -ge 2 ]] || usage
+          profile="$2"
+          shift 2
+          ;;
+        --ttl)
+          [[ "$#" -ge 2 ]] || usage
+          ttl="$2"
+          shift 2
+          ;;
+        --dry-run)
+          dry_run="true"
+          shift
+          ;;
+        -*)
+          usage
+          ;;
+        *)
+          [[ -z "$email" ]] || usage
+          email="$1"
+          shift
+          ;;
+      esac
+    done
+
+    [[ -n "$email" ]] || usage
+    [[ "$email" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]] || {
+      echo "error: invalid email address" >&2
+      exit 1
+    }
+
+    export VPN_INVITE_EMAIL="$email"
+    export VPN_INVITE_PROFILE="$profile"
+    export VPN_INVITE_TTL="$ttl"
+    export VPN_INVITE_DRY_RUN="$dry_run"
+
+    ak shell --no-imports -c "exec(open('/opt/authentik-ops/vpn_invite.py', encoding='utf-8').read())"
+  vpn_invite.py: |
+    import json
+    import os
+    import re
+    import sys
+    from datetime import timedelta
+    from pathlib import Path
+
+    from django.conf import settings
+    from django.core.mail import EmailMultiAlternatives
+    from django.db import transaction
+    from django.utils.timezone import now
+
+    from authentik.core.models import Group, User
+    from authentik.recovery.lib import create_recovery_token
+
+
+    EMAIL = os.environ.get("VPN_INVITE_EMAIL", "").strip().lower()
+    PROFILE = os.environ.get("VPN_INVITE_PROFILE", "member").strip()
+    TTL_RAW = os.environ.get("VPN_INVITE_TTL", "24h").strip()
+    DRY_RUN = os.environ.get("VPN_INVITE_DRY_RUN", "false").strip().lower() in {"1", "true", "yes"}
+    PUBLIC_URL = os.environ.get("AUTHENTIK_PUBLIC_URL", "https://auth.devsh.eu").rstrip("/")
+    SUBJECT = os.environ.get("VPN_INVITE_SUBJECT", "DevSH access invite")
+    TEXT_TEMPLATE = Path(os.environ.get("VPN_INVITE_TEXT_TEMPLATE", "/opt/authentik-ops/invite-email.txt"))
+    HTML_TEMPLATE = Path(os.environ.get("VPN_INVITE_HTML_TEMPLATE", "/opt/authentik-ops/invite-email.html"))
+    GENERATED_FROM = "vpn-invite"
+
+    DEFAULT_PROFILES = {
+        "member": ["vpn-users"],
+        "admin": ["vpn-users", "authentik Admins"],
+    }
+    PROFILES = json.loads(os.environ.get("VPN_INVITE_PROFILES", json.dumps(DEFAULT_PROFILES)))
+
+
+    def die(message: str, code: int = 1) -> None:
+        print(f"error: {message}", file=sys.stderr)
+        raise SystemExit(code)
+
+
+    def parse_ttl(value: str) -> tuple[timedelta, str]:
+        match = re.fullmatch(r"([1-9][0-9]*)([mhd])", value)
+        if not match:
+            die("ttl must use m, h, or d suffix, for example 30m, 24h, or 7d")
+        amount = int(match.group(1))
+        unit = match.group(2)
+        if unit == "m":
+            delta = timedelta(minutes=amount)
+            label = f"{amount} minute{'s' if amount != 1 else ''}"
+        elif unit == "h":
+            delta = timedelta(hours=amount)
+            label = f"{amount} hour{'s' if amount != 1 else ''}"
+        else:
+            delta = timedelta(days=amount)
+            label = f"{amount} day{'s' if amount != 1 else ''}"
+        if delta < timedelta(minutes=5) or delta > timedelta(days=14):
+            die("ttl must be between 5 minutes and 14 days")
+        return delta, label
+
+
+    def render_template(path: Path, values: dict[str, str]) -> str:
+        text = path.read_text(encoding="utf-8")
+        for key, value in values.items():
+            text = text.replace("{{" + key + "}}", value)
+        return text
+
+
+    def username_from_email(email: str) -> str:
+        local, domain = email.split("@", 1)
+        candidate = re.sub(r"[^a-z0-9._-]+", "-", local.lower()).strip(".-_")
+        if candidate:
+            return candidate[:150]
+        fallback = re.sub(r"[^a-z0-9._-]+", "-", f"{local}-{domain}".lower()).strip(".-_")
+        return (fallback or "user")[:150]
+
+
+    def ensure_group(name: str) -> Group:
+        defaults = {}
+        if name == "authentik Admins":
+            defaults["is_superuser"] = True
+        group, _ = Group.objects.update_or_create(name=name, defaults=defaults)
+        return group
+
+
+    if not re.fullmatch(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", EMAIL):
+        die("invalid email address")
+
+    if PROFILE not in PROFILES:
+        die(f"unknown profile '{PROFILE}', allowed profiles: {', '.join(sorted(PROFILES))}")
+
+    groups = PROFILES[PROFILE]
+    if not isinstance(groups, list) or not all(isinstance(group, str) and group for group in groups):
+        die(f"profile '{PROFILE}' has invalid group mapping")
+
+    ttl_delta, ttl_label = parse_ttl(TTL_RAW)
+    expiry = now() + ttl_delta
+    username = username_from_email(EMAIL)
+    display_name = EMAIL.split("@", 1)[0].replace(".", " ").replace("_", " ").title()
+    if DRY_RUN:
+        print(f"Dry run OK for {EMAIL} with profile {PROFILE}; no user, token, or email was created.")
+        raise SystemExit(0)
+
+    with transaction.atomic():
+        user = User.objects.filter(email__iexact=EMAIL).first()
+        if user is None:
+            base_username = username
+            suffix = 2
+            while User.objects.filter(username=username).exists():
+                username = f"{base_username}-{suffix}"[:150]
+                suffix += 1
+            user = User(username=username, email=EMAIL, name=display_name, is_active=True)
+            user.set_unusable_password()
+            user.save()
+        else:
+            changed = False
+            if not user.is_active:
+                user.is_active = True
+                changed = True
+            if user.email != EMAIL:
+                user.email = EMAIL
+                changed = True
+            if not user.name:
+                user.name = display_name
+                changed = True
+            if changed:
+                user.save()
+
+        for group_name in groups:
+            group = ensure_group(group_name)
+            group.users.add(user)
+
+        token, recovery_path = create_recovery_token(user, expiry, GENERATED_FROM)
+        invite_url = f"{PUBLIC_URL}{recovery_path}"
+        values = {
+            "email": EMAIL,
+            "invite_url": invite_url,
+            "ttl": ttl_label,
+            "profile": PROFILE,
+        }
+        text_body = render_template(TEXT_TEMPLATE, values)
+        html_body = render_template(HTML_TEMPLATE, values) if HTML_TEMPLATE.exists() else None
+
+        from_email = getattr(settings, "DEFAULT_FROM_EMAIL", None) or os.environ.get("AUTHENTIK_EMAIL__FROM")
+        if not from_email:
+            die("mail sender is not configured")
+
+        message = EmailMultiAlternatives(
+            subject=SUBJECT,
+            body=text_body,
+            from_email=from_email,
+            to=[EMAIL],
+        )
+        if html_body:
+            message.attach_alternative(html_body, "text/html")
+
+        sent = message.send(fail_silently=False)
+        if sent != 1:
+            die("email backend did not accept the invite message")
+
+    print(f"Invite email sent to {EMAIL} with profile {PROFILE}; expires in {ttl_label}.")

@@ -27,6 +27,19 @@ Human users are managed in Authentik, not in Git.
 
 Headscale accepts OIDC logins only for members of the Authentik `vpn-users` group. User accounts and group membership are operational state in Authentik. The repository contains the OIDC application wiring and Headscale policy, not the user list.
 
+Operators can send a one-time DevSH access invite from the Flux-managed `authentik-ops` pod:
+
+```
+k3s kubectl -n authentik exec deploy/authentik-ops -- vpn-invite user@example.com --profile member --ttl 24h
+```
+
+Supported profiles:
+
+- `member`: adds the user to `vpn-users`.
+- `admin`: adds the user to `vpn-users` and `authentik Admins`.
+
+The invite email contains a single-use account setup link, Tailscale download link, and the Headscale login server URL. Invite links and user email addresses are runtime state and must not be committed to Git.
+
 ## Service access model
 
 Private service URLs keep normal HTTPS names. `https://stoatchat.devsh.eu` is served over the tailnet at `100.64.0.1` for VPN clients.

@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: authentik-ops
+  namespace: authentik
+  labels:
+    app.kubernetes.io/name: authentik-ops
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: authentik-ops
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: authentik-ops
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      containers:
+        - name: ops
+          image: ghcr.io/goauthentik/server:2026.2.3
+          command:
+            - /bin/bash
+            - -lc
+            - sleep infinity
+          envFrom:
+            - secretRef:
+                name: authentik
+            - secretRef:
+                name: notification-smtp
+          env:
+            - name: PATH
+              value: /opt/authentik-ops:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+            - name: AUTHENTIK_PUBLIC_URL
+              value: https://auth.devsh.eu
+            - name: AUTHENTIK_EMAIL__HOST
+              value: mail.devsh.eu
+            - name: AUTHENTIK_EMAIL__PORT
+              value: "587"
+            - name: AUTHENTIK_EMAIL__USE_TLS
+              value: "true"
+            - name: AUTHENTIK_EMAIL__USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: notification-smtp
+                  key: GF_SMTP_USER
+            - name: AUTHENTIK_EMAIL__PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: notification-smtp
+                  key: GF_SMTP_PASSWORD
+            - name: AUTHENTIK_EMAIL__FROM
+              valueFrom:
+                secretKeyRef:
+                  name: notification-smtp
+                  key: GF_SMTP_FROM_ADDRESS
+            - name: VPN_INVITE_SUBJECT
+              value: DevSH access invite
+            - name: VPN_INVITE_TEXT_TEMPLATE
+              value: /opt/authentik-ops/invite-email.txt
+            - name: VPN_INVITE_HTML_TEMPLATE
+              value: /opt/authentik-ops/invite-email.html
+          volumeMounts:
+            - name: authentik-ops-scripts
+              mountPath: /opt/authentik-ops
+              readOnly: true
+          resources:
+            requests:
+              cpu: 25m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: authentik-ops-scripts
+          configMap:
+            name: authentik-ops-scripts
+            defaultMode: 0555
