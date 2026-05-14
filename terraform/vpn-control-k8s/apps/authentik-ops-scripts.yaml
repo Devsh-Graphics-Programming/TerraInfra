@@ -128,7 +128,18 @@ data:
     export VPN_INVITE_DRY_RUN="$dry_run"
 
     . /ak-root/.venv/bin/activate
-    /lifecycle/ak shell --no-imports -c "exec(open('/opt/authentik-ops/vpn_invite.py', encoding='utf-8').read())"
+    ak_stdout="$(mktemp)"
+    ak_stderr="$(mktemp)"
+    if /lifecycle/ak shell --no-imports -c "exec(open('/opt/authentik-ops/vpn_invite.py', encoding='utf-8').read())" >"$ak_stdout" 2>"$ak_stderr"; then
+      grep -v '^### ' "$ak_stdout" || true
+      rm -f "$ak_stdout" "$ak_stderr"
+    else
+      status="$?"
+      cat "$ak_stdout" >&2
+      cat "$ak_stderr" >&2
+      rm -f "$ak_stdout" "$ak_stderr"
+      exit "$status"
+    fi
   vpn_invite.py: |
     import json
     import os
