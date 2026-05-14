@@ -9,3 +9,4 @@ resources:
   - stoat-media-gateway.yaml
   - stoat-workloads.yaml
   - stoat-ingress.yaml
+  - tailscale.yaml
