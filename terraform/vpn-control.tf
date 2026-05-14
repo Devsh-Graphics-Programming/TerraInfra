@@ -33,9 +33,9 @@ resource "scaleway_instance_security_group" "vpn_control" {
   }
 
   inbound_rule {
-    action     = "accept"
-    protocol   = "UDP"
-    port_range = "3478"
+    action   = "accept"
+    protocol = "UDP"
+    port     = "3478"
   }
 
   inbound_rule {
