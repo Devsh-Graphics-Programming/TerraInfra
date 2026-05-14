@@ -129,6 +129,8 @@ data:
     Email: {{email}}
     Username: {{username}}
 
+    After opening the reset link, confirm the account with the email or username shown above.
+
     After your password is reset, use the official Tailscale client with this login server:
     https://headscale.devsh.eu
 
@@ -191,7 +193,8 @@ data:
                           <h2 style="margin:0 0 12px 0;font-size:16px;line-height:1.35;color:#111827;">Next steps</h2>
                           <ol style="margin:0;padding-left:20px;color:#3f4656;font-size:14px;line-height:1.7;">
                             <li>Click <strong>Reset VPN password</strong> above, or open the reset link shown under the button.</li>
-                            <li>Set a new password for the account shown above.</li>
+                            <li>When prompted, confirm the account with the email or username shown above.</li>
+                            <li>Set a new password for that account.</li>
                             <li>Use the official Tailscale client with the login server below.</li>
                           </ol>
                           <p style="margin:14px 0 6px 0;font-size:13px;line-height:1.5;color:#6b7280;">Custom login server</p>
@@ -530,14 +533,15 @@ data:
     from uuid import uuid4
 
     from django.conf import settings
+    from django.contrib.auth.models import AnonymousUser
     from django.core.mail import EmailMultiAlternatives
+    from django.test import RequestFactory
     from django.utils.text import slugify
     from django.utils.timezone import now
 
     from authentik.core.models import User
-    from authentik.flows.markers import StageMarker
     from authentik.flows.models import Flow, FlowToken
-    from authentik.flows.planner import PLAN_CONTEXT_PENDING_USER, FlowPlan
+    from authentik.flows.planner import PLAN_CONTEXT_PENDING_USER, FlowPlanner
     from authentik.stages.email.flow import pickle_flow_token_for_email
 
 
@@ -549,7 +553,8 @@ data:
     TEXT_TEMPLATE = Path(os.environ.get("VPN_PASSWORD_RESET_TEXT_TEMPLATE", "/opt/authentik-ops/password-reset-email.txt"))
     HTML_TEMPLATE = Path(os.environ.get("VPN_PASSWORD_RESET_HTML_TEMPLATE", "/opt/authentik-ops/password-reset-email.html"))
     FLOW_SLUG = os.environ.get("VPN_PASSWORD_RESET_FLOW", "devsh-vpn-password-reset")
-    RESET_STAGE_NAMES = [
+    REQUIRED_STAGE_NAMES = [
+        "devsh-vpn-password-reset-identification",
         "devsh-vpn-password-reset-email",
         "devsh-vpn-password-reset-prompt",
         "devsh-vpn-password-reset-write",
@@ -600,23 +605,21 @@ data:
     if flow is None:
         die(f"password reset flow '{FLOW_SLUG}' is not installed")
 
-    bindings = list(flow.flowstagebinding_set.select_related("stage").filter(stage__name__in=RESET_STAGE_NAMES).order_by("order"))
-    found_stage_names = {binding.stage.name for binding in bindings}
-    missing_stage_names = [name for name in RESET_STAGE_NAMES if name not in found_stage_names]
+    request = RequestFactory().get("/")
+    request.user = AnonymousUser()
+    planner = FlowPlanner(flow)
+    planner.allow_empty_flows = True
+    plan = planner.plan(request, {PLAN_CONTEXT_PENDING_USER: user})
+
+    planned_stage_names = [str(binding.stage.name) for binding in plan.bindings]
+    missing_stage_names = [name for name in REQUIRED_STAGE_NAMES if name not in planned_stage_names]
     if missing_stage_names:
         die(f"password reset flow is missing stages: {', '.join(missing_stage_names)}")
-    bindings.sort(key=lambda binding: RESET_STAGE_NAMES.index(binding.stage.name))
 
     if DRY_RUN:
         print(f"Dry run OK for {EMAIL}; password reset flow is installed and no email was created.")
         raise SystemExit(0)
 
-    plan = FlowPlan(
-        flow_pk=flow.pk.hex,
-        bindings=bindings,
-        context={PLAN_CONTEXT_PENDING_USER: user},
-        markers=[StageMarker() for _ in bindings],
-    )
     reset_flow_entry = FlowToken.objects.create(
         expires=now() + ttl_delta,
         user=user,
