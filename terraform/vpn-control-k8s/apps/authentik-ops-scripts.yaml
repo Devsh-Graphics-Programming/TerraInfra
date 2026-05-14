@@ -18,15 +18,18 @@ data:
     VPN profile: {{profile}}
     Login server: https://headscale.devsh.eu
 
-    After your account is created, connect to the DevSH VPN:
+    Next steps:
 
-    1. Install the official Tailscale client:
+    1. Click Create VPN account in this email, or open the account setup link above.
+    Use the email and username shown here when the account setup page asks for them.
+
+    2. Install the official Tailscale client:
     https://tailscale.com/download
 
-    2. In Tailscale, sign in using this custom login server:
+    3. In Tailscale, sign in using this custom login server:
     https://headscale.devsh.eu
 
-    3. Once connected to the VPN, you can access internal DevSH services using their normal URLs.
+    4. Once connected to the VPN, you can access internal DevSH services using their normal URLs.
 
     This invite is single-use and expires in {{ttl}}.
     Requested profile: {{profile}}
@@ -91,6 +94,7 @@ data:
                         <td style="padding:18px 18px 12px 18px;">
                           <h2 style="margin:0 0 12px 0;font-size:16px;line-height:1.35;color:#111827;">Next steps</h2>
                           <ol style="margin:0;padding-left:20px;color:#3f4656;font-size:14px;line-height:1.7;">
+                            <li>Click <strong>Create VPN account</strong> above, or open the setup link shown under the button. Use the email and username from Account details if the setup page asks for them.</li>
                             <li>Install the official Tailscale client from <a href="https://tailscale.com/download" style="color:#2563eb;">tailscale.com/download</a>.</li>
                             <li>Sign in using the custom login server below.</li>
                             <li>After connecting to the VPN, use normal DevSH service URLs.</li>
