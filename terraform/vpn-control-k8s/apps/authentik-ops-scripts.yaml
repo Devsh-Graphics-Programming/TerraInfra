@@ -117,6 +117,100 @@ data:
         </table>
       </body>
     </html>
+  password-reset-email.txt: |
+    Hello,
+
+    A DevSH VPN password reset was requested for your account.
+
+    Reset your password:
+    {{reset_url}}
+
+    Account details:
+    Email: {{email}}
+    Username: {{username}}
+
+    After your password is reset, use the official Tailscale client with this login server:
+    https://headscale.devsh.eu
+
+    This reset link is single-use and expires in {{ttl}}.
+
+    If you did not expect this password reset, contact a DevSH operator.
+  password-reset-email.html: |
+    <!doctype html>
+    <html lang="en">
+      <body style="margin:0;padding:0;background:#f6f7fb;color:#1f2430;font-family:Arial,sans-serif;">
+        <div style="display:none;max-height:0;overflow:hidden;color:#f6f7fb;">DevSH VPN password reset. Login server: https://headscale.devsh.eu</div>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f6f7fb;padding:32px 12px;">
+          <tr>
+            <td align="center">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;background:#ffffff;border:1px solid #e5e7ef;border-radius:8px;overflow:hidden;">
+                <tr>
+                  <td bgcolor="#0f172a" style="padding:24px 28px;background:#0f172a;">
+                    <p style="margin:0 0 8px 0;font-size:13px;line-height:1.5;color:#bfdbfe;">DevSH private network</p>
+                    <h1 style="margin:0;font-size:25px;line-height:1.25;color:#ffffff;">VPN password reset</h1>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:26px 28px 22px 28px;">
+                    <p style="margin:0 0 20px 0;font-size:15px;line-height:1.6;color:#3f4656;">Use the button below to set a new password for your DevSH VPN account. After that, sign in again with the official Tailscale client if needed.</p>
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f8fafc;border:1px solid #dbe3ef;border-radius:8px;margin:0 0 22px 0;">
+                      <tr>
+                        <td style="padding:16px 18px;">
+                          <p style="margin:0 0 12px 0;font-size:15px;line-height:1.35;color:#111827;font-weight:700;">Account details</p>
+                          <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                            <tr>
+                              <td width="130" style="padding:5px 0;font-size:13px;line-height:1.5;color:#64748b;">Email</td>
+                              <td style="padding:5px 0;font-size:14px;line-height:1.5;color:#111827;font-weight:700;word-break:break-all;">{{email}}</td>
+                            </tr>
+                            <tr>
+                              <td width="130" style="padding:5px 0;font-size:13px;line-height:1.5;color:#64748b;">Username</td>
+                              <td style="padding:5px 0;font-size:14px;line-height:1.5;color:#111827;font-weight:700;word-break:break-all;">{{username}}</td>
+                            </tr>
+                            <tr>
+                              <td width="130" style="padding:5px 0;font-size:13px;line-height:1.5;color:#64748b;">Login server</td>
+                              <td style="padding:5px 0;font-size:14px;line-height:1.5;color:#111827;font-weight:700;word-break:break-all;">https://headscale.devsh.eu</td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </table>
+                    <table role="presentation" border="0" cellspacing="0" cellpadding="0" style="margin:0 0 24px 0;">
+                      <tr>
+                        <td align="center" bgcolor="#2563eb" style="background:#2563eb;border:1px solid #1d4ed8;border-radius:7px;mso-padding-alt:13px 20px;">
+                          <a href="{{reset_url}}" style="display:block;background:#2563eb;border-radius:7px;color:#ffffff;text-decoration:none;font-size:15px;line-height:18px;font-weight:700;padding:13px 20px;">Reset VPN password</a>
+                        </td>
+                      </tr>
+                    </table>
+                    <p style="margin:0 0 8px 0;font-size:13px;line-height:1.5;color:#6b7280;">If the button does not work, open this link:</p>
+                    <p style="margin:0 0 22px 0;font-size:13px;line-height:1.5;word-break:break-all;">
+                      <a href="{{reset_url}}" style="color:#2563eb;">{{reset_url}}</a>
+                    </p>
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;margin:0 0 22px 0;">
+                      <tr>
+                        <td style="padding:18px 18px 12px 18px;">
+                          <h2 style="margin:0 0 12px 0;font-size:16px;line-height:1.35;color:#111827;">Next steps</h2>
+                          <ol style="margin:0;padding-left:20px;color:#3f4656;font-size:14px;line-height:1.7;">
+                            <li>Click <strong>Reset VPN password</strong> above, or open the reset link shown under the button.</li>
+                            <li>Set a new password for the account shown above.</li>
+                            <li>Use the official Tailscale client with the login server below.</li>
+                          </ol>
+                          <p style="margin:14px 0 6px 0;font-size:13px;line-height:1.5;color:#6b7280;">Custom login server</p>
+                          <p style="margin:0 0 4px 0;font-size:14px;line-height:1.5;word-break:break-all;">
+                            <code style="background:#ffffff;border:1px solid #d1d5db;border-radius:6px;padding:6px 8px;color:#111827;">https://headscale.devsh.eu</code>
+                          </p>
+                        </td>
+                      </tr>
+                    </table>
+                    <p style="margin:0 0 8px 0;font-size:13px;line-height:1.6;color:#6b7280;">This reset link is single-use and expires in {{ttl}}.</p>
+                    <p style="margin:0;font-size:13px;line-height:1.6;color:#6b7280;">If you did not expect this password reset, contact a DevSH operator.</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </body>
+    </html>
   vpn-invite: |
     #!/usr/bin/env bash
     set -euo pipefail
@@ -175,6 +269,66 @@ data:
     ak_stdout="$(mktemp)"
     ak_stderr="$(mktemp)"
     if /lifecycle/ak shell --no-imports -c "exec(open('/opt/authentik-ops/vpn_invite.py', encoding='utf-8').read())" >"$ak_stdout" 2>"$ak_stderr"; then
+      grep -v '^### ' "$ak_stdout" || true
+      rm -f "$ak_stdout" "$ak_stderr"
+    else
+      status="$?"
+      cat "$ak_stdout" >&2
+      cat "$ak_stderr" >&2
+      rm -f "$ak_stdout" "$ak_stderr"
+      exit "$status"
+    fi
+  vpn-password-reset: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    usage() {
+      cat >&2 <<'EOF'
+    Usage: vpn-password-reset <email> [--ttl 1h] [--dry-run]
+    EOF
+      exit 64
+    }
+
+    email=""
+    ttl="1h"
+    dry_run="false"
+
+    while [[ "$#" -gt 0 ]]; do
+      case "$1" in
+        --ttl)
+          [[ "$#" -ge 2 ]] || usage
+          ttl="$2"
+          shift 2
+          ;;
+        --dry-run)
+          dry_run="true"
+          shift
+          ;;
+        -*)
+          usage
+          ;;
+        *)
+          [[ -z "$email" ]] || usage
+          email="$1"
+          shift
+          ;;
+      esac
+    done
+
+    [[ -n "$email" ]] || usage
+    [[ "$email" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]] || {
+      echo "error: invalid email address" >&2
+      exit 1
+    }
+
+    export VPN_PASSWORD_RESET_EMAIL="$email"
+    export VPN_PASSWORD_RESET_TTL="$ttl"
+    export VPN_PASSWORD_RESET_DRY_RUN="$dry_run"
+
+    . /ak-root/.venv/bin/activate
+    ak_stdout="$(mktemp)"
+    ak_stderr="$(mktemp)"
+    if /lifecycle/ak shell --no-imports -c "exec(open('/opt/authentik-ops/vpn_password_reset.py', encoding='utf-8').read())" >"$ak_stdout" 2>"$ak_stderr"; then
       grep -v '^### ' "$ak_stdout" || true
       rm -f "$ak_stdout" "$ak_stderr"
     else
@@ -367,3 +521,142 @@ data:
             die("email backend did not accept the invite message")
 
     print(f"Invite email sent to {EMAIL} with profile {PROFILE}; expires in {ttl_label}.")
+  vpn_password_reset.py: |
+    import os
+    import re
+    import sys
+    from datetime import timedelta
+    from pathlib import Path
+    from uuid import uuid4
+
+    from django.conf import settings
+    from django.core.mail import EmailMultiAlternatives
+    from django.utils.text import slugify
+    from django.utils.timezone import now
+
+    from authentik.core.models import User
+    from authentik.flows.markers import StageMarker
+    from authentik.flows.models import Flow, FlowToken
+    from authentik.flows.planner import PLAN_CONTEXT_PENDING_USER, FlowPlan
+    from authentik.stages.email.flow import pickle_flow_token_for_email
+
+
+    EMAIL = os.environ.get("VPN_PASSWORD_RESET_EMAIL", "").strip().lower()
+    TTL_RAW = os.environ.get("VPN_PASSWORD_RESET_TTL", "1h").strip()
+    DRY_RUN = os.environ.get("VPN_PASSWORD_RESET_DRY_RUN", "false").strip().lower() in {"1", "true", "yes"}
+    PUBLIC_URL = os.environ.get("AUTHENTIK_PUBLIC_URL", "https://auth.devsh.eu").rstrip("/")
+    SUBJECT = os.environ.get("VPN_PASSWORD_RESET_SUBJECT", "DevSH VPN password reset")
+    TEXT_TEMPLATE = Path(os.environ.get("VPN_PASSWORD_RESET_TEXT_TEMPLATE", "/opt/authentik-ops/password-reset-email.txt"))
+    HTML_TEMPLATE = Path(os.environ.get("VPN_PASSWORD_RESET_HTML_TEMPLATE", "/opt/authentik-ops/password-reset-email.html"))
+    FLOW_SLUG = os.environ.get("VPN_PASSWORD_RESET_FLOW", "devsh-vpn-password-reset")
+    RESET_STAGE_NAMES = [
+        "devsh-vpn-password-reset-prompt",
+        "devsh-vpn-password-reset-write",
+        "devsh-vpn-user-login",
+    ]
+
+
+    def die(message: str, code: int = 1) -> None:
+        print(f"error: {message}", file=sys.stderr)
+        raise SystemExit(code)
+
+
+    def parse_ttl(value: str) -> tuple[timedelta, str]:
+        match = re.fullmatch(r"([1-9][0-9]*)([mh])", value)
+        if not match:
+            die("ttl must use m or h suffix, for example 30m or 1h")
+        amount = int(match.group(1))
+        unit = match.group(2)
+        if unit == "m":
+            delta = timedelta(minutes=amount)
+            label = f"{amount} minute{'s' if amount != 1 else ''}"
+        else:
+            delta = timedelta(hours=amount)
+            label = f"{amount} hour{'s' if amount != 1 else ''}"
+        if delta < timedelta(minutes=5) or delta > timedelta(hours=24):
+            die("ttl must be between 5 minutes and 24 hours")
+        return delta, label
+
+
+    def render_template(path: Path, values: dict[str, str]) -> str:
+        text = path.read_text(encoding="utf-8")
+        for key, value in values.items():
+            text = text.replace("{{" + key + "}}", value)
+        return text
+
+
+    if not re.fullmatch(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", EMAIL):
+        die("invalid email address")
+
+    ttl_delta, ttl_label = parse_ttl(TTL_RAW)
+    user = User.objects.filter(email__iexact=EMAIL).first()
+    if user is None:
+        die("no Authentik user exists with this email")
+    if not user.is_active:
+        die("user exists but is inactive")
+
+    flow = Flow.objects.filter(slug=FLOW_SLUG).first()
+    if flow is None:
+        die(f"password reset flow '{FLOW_SLUG}' is not installed")
+
+    bindings = list(flow.flowstagebinding_set.select_related("stage").filter(stage__name__in=RESET_STAGE_NAMES).order_by("order"))
+    found_stage_names = {binding.stage.name for binding in bindings}
+    missing_stage_names = [name for name in RESET_STAGE_NAMES if name not in found_stage_names]
+    if missing_stage_names:
+        die(f"password reset flow is missing stages: {', '.join(missing_stage_names)}")
+    bindings.sort(key=lambda binding: RESET_STAGE_NAMES.index(binding.stage.name))
+
+    if DRY_RUN:
+        print(f"Dry run OK for {EMAIL}; password reset flow is installed and no email was created.")
+        raise SystemExit(0)
+
+    plan = FlowPlan(
+        flow_pk=flow.pk.hex,
+        bindings=bindings,
+        context={PLAN_CONTEXT_PENDING_USER: user},
+        markers=[StageMarker() for _ in bindings],
+    )
+    reset_flow_entry = FlowToken.objects.create(
+        expires=now() + ttl_delta,
+        user=user,
+        identifier=slugify(f"ak-vpn-password-reset-{user.username}-{uuid4()}"),
+        flow=flow,
+        _plan=pickle_flow_token_for_email(plan),
+        revoke_on_execution=False,
+    )
+    query_key = "flow" + "_" + "token"
+    reset_url = f"{PUBLIC_URL}/if/flow/{flow.slug}/?{query_key}={reset_flow_entry.key}"
+    values = {
+        "email": EMAIL,
+        "username": user.username,
+        "reset_url": reset_url,
+        "ttl": ttl_label,
+    }
+    text_body = render_template(TEXT_TEMPLATE, values)
+    html_body = render_template(HTML_TEMPLATE, values) if HTML_TEMPLATE.exists() else None
+
+    from_email = getattr(settings, "DEFAULT_FROM_EMAIL", None) or os.environ.get("AUTHENTIK_EMAIL__FROM")
+    if not from_email:
+        reset_flow_entry.delete()
+        die("mail sender is not configured")
+
+    message = EmailMultiAlternatives(
+        subject=SUBJECT,
+        body=text_body,
+        from_email=from_email,
+        to=[EMAIL],
+    )
+    if html_body:
+        message.attach_alternative(html_body, "text/html")
+
+    try:
+        sent = message.send(fail_silently=False)
+    except Exception:
+        reset_flow_entry.delete()
+        raise
+
+    if sent != 1:
+        reset_flow_entry.delete()
+        die("email backend did not accept the password reset message")
+
+    print(f"Password reset email sent to {EMAIL}; expires in {ttl_label}.")

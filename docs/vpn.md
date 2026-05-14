@@ -40,6 +40,14 @@ Supported profiles:
 
 The invite email contains a single-use account setup link, Tailscale download link, and the Headscale login server URL. Invite links and user email addresses are runtime state and must not be committed to Git.
 
+Operators can send a one-time DevSH VPN password reset email for an existing Authentik user:
+
+```
+k3s kubectl -n authentik exec deploy/authentik-ops -- vpn-password-reset user@example.com --ttl 1h
+```
+
+The reset email contains a single-use password reset link and the Headscale login server URL. Password reset links are runtime state and must not be committed to Git.
+
 ## Service access model
 
 Private service URLs keep normal HTTPS names. `https://stoatchat.devsh.eu` is served over the tailnet at `100.64.0.1` for VPN clients.

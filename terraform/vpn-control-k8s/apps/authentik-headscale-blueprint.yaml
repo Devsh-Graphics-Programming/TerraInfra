@@ -52,6 +52,19 @@ data:
           authentication: none
           layout: stacked
 
+      - model: authentik_flows.flow
+        id: devsh-vpn-password-reset-flow
+        identifiers:
+          slug: devsh-vpn-password-reset
+        state: present
+        attrs:
+          name: DevSH VPN password reset
+          title: DevSH VPN password reset
+          slug: devsh-vpn-password-reset
+          designation: recovery
+          authentication: none
+          layout: stacked
+
       - model: authentik_stages_invitation.invitationstage
         id: devsh-vpn-invitation-stage
         identifiers:
@@ -145,6 +158,17 @@ data:
             - !KeyOf devsh-vpn-password-prompt
             - !KeyOf devsh-vpn-password-repeat-prompt
 
+      - model: authentik_stages_prompt.promptstage
+        id: devsh-vpn-password-reset-prompt-stage
+        identifiers:
+          name: devsh-vpn-password-reset-prompt
+        state: present
+        attrs:
+          name: devsh-vpn-password-reset-prompt
+          fields:
+            - !KeyOf devsh-vpn-password-prompt
+            - !KeyOf devsh-vpn-password-repeat-prompt
+
       - model: authentik_stages_user_write.userwritestage
         id: devsh-vpn-user-write-stage
         identifiers:
@@ -171,6 +195,18 @@ data:
           user_type: internal
           user_path_template: users
 
+      - model: authentik_stages_user_write.userwritestage
+        id: devsh-vpn-password-reset-write-stage
+        identifiers:
+          name: devsh-vpn-password-reset-write
+        state: present
+        attrs:
+          name: devsh-vpn-password-reset-write
+          user_creation_mode: never_create
+          create_users_as_inactive: false
+          user_type: internal
+          user_path_template: users
+
       - model: authentik_stages_user_login.userloginstage
         id: devsh-vpn-user-login-stage
         identifiers:
@@ -184,6 +220,54 @@ data:
           terminate_other_sessions: false
           remember_me_offset: seconds=0
           remember_device: days=30
+
+      - model: authentik_stages_email.emailstage
+        id: devsh-vpn-password-reset-email-stage
+        identifiers:
+          name: devsh-vpn-password-reset-email
+        state: present
+        attrs:
+          name: devsh-vpn-password-reset-email
+          use_global_settings: true
+          recovery_max_attempts: 5
+          recovery_cache_timeout: minutes=5
+          activate_user_on_success: false
+          token_expiry: hours=1
+          subject: DevSH VPN password reset
+          template: email/password_reset.html
+
+      - model: authentik_stages_identification.identificationstage
+        id: devsh-vpn-password-reset-identification-stage
+        identifiers:
+          name: devsh-vpn-password-reset-identification
+        state: present
+        attrs:
+          name: devsh-vpn-password-reset-identification
+          user_fields:
+            - email
+            - username
+          password_stage: null
+          captcha_stage: null
+          webauthn_stage: null
+          case_insensitive_matching: true
+          show_matched_user: false
+          pretend_user_exists: true
+          enable_remember_me: false
+          show_source_labels: false
+
+      - model: authentik_stages_identification.identificationstage
+        identifiers:
+          name: default-authentication-identification
+        state: present
+        attrs:
+          recovery_flow: !KeyOf devsh-vpn-password-reset-flow
+
+      - model: authentik_brands.brand
+        identifiers:
+          domain: authentik-default
+        state: present
+        attrs:
+          flow_recovery: !KeyOf devsh-vpn-password-reset-flow
 
       - model: authentik_flows.flowstagebinding
         identifiers:
@@ -281,6 +365,61 @@ data:
         state: present
         attrs:
           target: !KeyOf devsh-vpn-admin-enrollment-flow
+          stage: !KeyOf devsh-vpn-user-login-stage
+          order: 40
+
+      - model: authentik_flows.flowstagebinding
+        identifiers:
+          target: !KeyOf devsh-vpn-password-reset-flow
+          stage: !KeyOf devsh-vpn-password-reset-identification-stage
+          order: 0
+        state: present
+        attrs:
+          target: !KeyOf devsh-vpn-password-reset-flow
+          stage: !KeyOf devsh-vpn-password-reset-identification-stage
+          order: 0
+
+      - model: authentik_flows.flowstagebinding
+        identifiers:
+          target: !KeyOf devsh-vpn-password-reset-flow
+          stage: !KeyOf devsh-vpn-password-reset-email-stage
+          order: 10
+        state: present
+        attrs:
+          target: !KeyOf devsh-vpn-password-reset-flow
+          stage: !KeyOf devsh-vpn-password-reset-email-stage
+          order: 10
+
+      - model: authentik_flows.flowstagebinding
+        identifiers:
+          target: !KeyOf devsh-vpn-password-reset-flow
+          stage: !KeyOf devsh-vpn-password-reset-prompt-stage
+          order: 20
+        state: present
+        attrs:
+          target: !KeyOf devsh-vpn-password-reset-flow
+          stage: !KeyOf devsh-vpn-password-reset-prompt-stage
+          order: 20
+
+      - model: authentik_flows.flowstagebinding
+        identifiers:
+          target: !KeyOf devsh-vpn-password-reset-flow
+          stage: !KeyOf devsh-vpn-password-reset-write-stage
+          order: 30
+        state: present
+        attrs:
+          target: !KeyOf devsh-vpn-password-reset-flow
+          stage: !KeyOf devsh-vpn-password-reset-write-stage
+          order: 30
+
+      - model: authentik_flows.flowstagebinding
+        identifiers:
+          target: !KeyOf devsh-vpn-password-reset-flow
+          stage: !KeyOf devsh-vpn-user-login-stage
+          order: 40
+        state: present
+        attrs:
+          target: !KeyOf devsh-vpn-password-reset-flow
           stage: !KeyOf devsh-vpn-user-login-stage
           order: 40
 

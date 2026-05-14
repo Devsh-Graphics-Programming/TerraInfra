@@ -61,6 +61,12 @@ spec:
               value: /opt/authentik-ops/invite-email.txt
             - name: VPN_INVITE_HTML_TEMPLATE
               value: /opt/authentik-ops/invite-email.html
+            - name: VPN_PASSWORD_RESET_SUBJECT
+              value: DevSH VPN password reset
+            - name: VPN_PASSWORD_RESET_TEXT_TEMPLATE
+              value: /opt/authentik-ops/password-reset-email.txt
+            - name: VPN_PASSWORD_RESET_HTML_TEMPLATE
+              value: /opt/authentik-ops/password-reset-email.html
           volumeMounts:
             - name: authentik-ops-scripts
               mountPath: /opt/authentik-ops
