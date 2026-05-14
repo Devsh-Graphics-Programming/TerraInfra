@@ -25,18 +25,22 @@
 | [scaleway_block_volume.chat_data](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/block_volume) | resource |
 | [scaleway_block_volume.jenkins_data](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/block_volume) | resource |
 | [scaleway_block_volume.observability_data](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/block_volume) | resource |
+| [scaleway_block_volume.vpn_control_data](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/block_volume) | resource |
 | [scaleway_iam_api_key.store_publisher](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/iam_api_key) | resource |
 | [scaleway_iam_application.store_publisher](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/iam_application) | resource |
 | [scaleway_iam_policy.store_publisher_object_storage](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/iam_policy) | resource |
 | [scaleway_instance_ip.chat](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_ip) | resource |
 | [scaleway_instance_ip.jenkins](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_ip) | resource |
 | [scaleway_instance_ip.observability](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_ip) | resource |
+| [scaleway_instance_ip.vpn_control](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_ip) | resource |
 | [scaleway_instance_security_group.chat](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_security_group) | resource |
 | [scaleway_instance_security_group.jenkins](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_security_group) | resource |
 | [scaleway_instance_security_group.observability](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_security_group) | resource |
+| [scaleway_instance_security_group.vpn_control](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_security_group) | resource |
 | [scaleway_instance_server.chat](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_server) | resource |
 | [scaleway_instance_server.jenkins](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_server) | resource |
 | [scaleway_instance_server.observability](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_server) | resource |
+| [scaleway_instance_server.vpn_control](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_server) | resource |
 | [scaleway_object_bucket.luks_keys](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/object_bucket) | resource |
 | [scaleway_object_bucket.store](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/object_bucket) | resource |
 | [scaleway_object_bucket_acl.luks_keys](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/object_bucket_acl) | resource |
@@ -77,6 +81,8 @@
 | <a name="input_swap_file"></a> [swap\_file](#input\_swap\_file) | Swap file path used during bootstrap. | `string` | `"/swapfile"` | no |
 | <a name="input_swap_size_gb"></a> [swap\_size\_gb](#input\_swap\_size\_gb) | Swap size in GiB for the node bootstrap. | `number` | `4` | no |
 | <a name="input_swap_swappiness"></a> [swap\_swappiness](#input\_swap\_swappiness) | Kernel vm.swappiness value configured during bootstrap. | `number` | `10` | no |
+| <a name="input_vpn_control_data_volume_size_gb"></a> [vpn\_control\_data\_volume\_size\_gb](#input\_vpn\_control\_data\_volume\_size\_gb) | Size of the dedicated VPN control-plane data volume in GiB. | `number` | `20` | no |
+| <a name="input_vpn_control_instance_type"></a> [vpn\_control\_instance\_type](#input\_vpn\_control\_instance\_type) | Scaleway commercial type for the dedicated VPN control-plane node. | `string` | `"DEV1-M"` | no |
 
 ## Outputs
 
@@ -95,4 +101,6 @@
 | <a name="output_observability_node_ip"></a> [observability\_node\_ip](#output\_observability\_node\_ip) | Public IP of the dedicated observability node |
 | <a name="output_store_bucket_host"></a> [store\_bucket\_host](#output\_store\_bucket\_host) | Object Storage host used by the static store proxy |
 | <a name="output_store_bucket_name"></a> [store\_bucket\_name](#output\_store\_bucket\_name) | Object Storage bucket used by the static store proxy |
+| <a name="output_vpn_control_data_volume_id"></a> [vpn\_control\_data\_volume\_id](#output\_vpn\_control\_data\_volume\_id) | ID of the dedicated VPN control-plane data volume |
+| <a name="output_vpn_control_node_ip"></a> [vpn\_control\_node\_ip](#output\_vpn\_control\_node\_ip) | Public IP of the dedicated VPN control-plane node |
 <!-- END_TF_DOCS -->
