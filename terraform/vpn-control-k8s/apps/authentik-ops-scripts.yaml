@@ -7,12 +7,18 @@ data:
   invite-email.txt: |
     Hello,
 
-    You have been invited to DevSH access.
+    You have been invited to DevSH VPN access.
 
     Create your account:
     {{invite_url}}
 
-    After your account is created:
+    Account details:
+    Email: {{email}}
+    Username: {{username}}
+    VPN profile: {{profile}}
+    Login server: https://headscale.devsh.eu
+
+    After your account is created, connect to the DevSH VPN:
 
     1. Install the official Tailscale client:
     https://tailscale.com/download
@@ -20,7 +26,7 @@ data:
     2. In Tailscale, sign in using this custom login server:
     https://headscale.devsh.eu
 
-    3. Once connected, you can access internal DevSH services using their normal URLs.
+    3. Once connected to the VPN, you can access internal DevSH services using their normal URLs.
 
     This invite is single-use and expires in {{ttl}}.
     Requested profile: {{profile}}
@@ -30,18 +36,52 @@ data:
     <!doctype html>
     <html lang="en">
       <body style="margin:0;padding:0;background:#f6f7fb;color:#1f2430;font-family:Arial,sans-serif;">
+        <div style="display:none;max-height:0;overflow:hidden;color:#f6f7fb;">DevSH VPN access invite. Login server: https://headscale.devsh.eu</div>
         <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f6f7fb;padding:32px 12px;">
           <tr>
             <td align="center">
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;background:#ffffff;border:1px solid #e5e7ef;border-radius:8px;overflow:hidden;">
                 <tr>
-                  <td style="padding:28px 28px 20px 28px;">
-                    <p style="margin:0 0 10px 0;font-size:13px;line-height:1.5;color:#6b7280;">DevSH access</p>
-                    <h1 style="margin:0 0 12px 0;font-size:24px;line-height:1.25;color:#111827;">You have been invited</h1>
-                    <p style="margin:0 0 22px 0;font-size:15px;line-height:1.6;color:#3f4656;">Use the button below to create your DevSH account. After that, connect with the official Tailscale client to access internal DevSH services through their normal URLs.</p>
-                    <p style="margin:0 0 24px 0;">
-                      <a href="{{invite_url}}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:6px;padding:12px 18px;font-size:15px;font-weight:700;">Create DevSH account</a>
-                    </p>
+                  <td bgcolor="#0f172a" style="padding:24px 28px;background:#0f172a;">
+                    <p style="margin:0 0 8px 0;font-size:13px;line-height:1.5;color:#bfdbfe;">DevSH private network</p>
+                    <h1 style="margin:0;font-size:25px;line-height:1.25;color:#ffffff;">VPN access invite</h1>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:26px 28px 22px 28px;">
+                    <p style="margin:0 0 20px 0;font-size:15px;line-height:1.6;color:#3f4656;">Use the button below to create your DevSH account for VPN access. After that, connect with the official Tailscale client to reach internal DevSH services through their normal URLs.</p>
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f8fafc;border:1px solid #dbe3ef;border-radius:8px;margin:0 0 22px 0;">
+                      <tr>
+                        <td style="padding:16px 18px;">
+                          <p style="margin:0 0 12px 0;font-size:15px;line-height:1.35;color:#111827;font-weight:700;">Account details</p>
+                          <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                            <tr>
+                              <td width="130" style="padding:5px 0;font-size:13px;line-height:1.5;color:#64748b;">Email</td>
+                              <td style="padding:5px 0;font-size:14px;line-height:1.5;color:#111827;font-weight:700;word-break:break-all;">{{email}}</td>
+                            </tr>
+                            <tr>
+                              <td width="130" style="padding:5px 0;font-size:13px;line-height:1.5;color:#64748b;">Username</td>
+                              <td style="padding:5px 0;font-size:14px;line-height:1.5;color:#111827;font-weight:700;word-break:break-all;">{{username}}</td>
+                            </tr>
+                            <tr>
+                              <td width="130" style="padding:5px 0;font-size:13px;line-height:1.5;color:#64748b;">VPN profile</td>
+                              <td style="padding:5px 0;font-size:14px;line-height:1.5;color:#111827;font-weight:700;">{{profile}}</td>
+                            </tr>
+                            <tr>
+                              <td width="130" style="padding:5px 0;font-size:13px;line-height:1.5;color:#64748b;">Login server</td>
+                              <td style="padding:5px 0;font-size:14px;line-height:1.5;color:#111827;font-weight:700;word-break:break-all;">https://headscale.devsh.eu</td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </table>
+                    <table role="presentation" border="0" cellspacing="0" cellpadding="0" style="margin:0 0 24px 0;">
+                      <tr>
+                        <td align="center" bgcolor="#2563eb" style="background:#2563eb;border:1px solid #1d4ed8;border-radius:7px;mso-padding-alt:13px 20px;">
+                          <a href="{{invite_url}}" style="display:block;background:#2563eb;border-radius:7px;color:#ffffff;text-decoration:none;font-size:15px;line-height:18px;font-weight:700;padding:13px 20px;">Create VPN account</a>
+                        </td>
+                      </tr>
+                    </table>
                     <p style="margin:0 0 8px 0;font-size:13px;line-height:1.5;color:#6b7280;">If the button does not work, open this link:</p>
                     <p style="margin:0 0 22px 0;font-size:13px;line-height:1.5;word-break:break-all;">
                       <a href="{{invite_url}}" style="color:#2563eb;">{{invite_url}}</a>
@@ -53,7 +93,7 @@ data:
                           <ol style="margin:0;padding-left:20px;color:#3f4656;font-size:14px;line-height:1.7;">
                             <li>Install the official Tailscale client from <a href="https://tailscale.com/download" style="color:#2563eb;">tailscale.com/download</a>.</li>
                             <li>Sign in using the custom login server below.</li>
-                            <li>After connecting, use normal DevSH service URLs.</li>
+                            <li>After connecting to the VPN, use normal DevSH service URLs.</li>
                           </ol>
                           <p style="margin:14px 0 6px 0;font-size:13px;line-height:1.5;color:#6b7280;">Custom login server</p>
                           <p style="margin:0 0 4px 0;font-size:14px;line-height:1.5;word-break:break-all;">
@@ -162,7 +202,7 @@ data:
     TTL_RAW = os.environ.get("VPN_INVITE_TTL", "24h").strip()
     DRY_RUN = os.environ.get("VPN_INVITE_DRY_RUN", "false").strip().lower() in {"1", "true", "yes"}
     PUBLIC_URL = os.environ.get("AUTHENTIK_PUBLIC_URL", "https://auth.devsh.eu").rstrip("/")
-    SUBJECT = os.environ.get("VPN_INVITE_SUBJECT", "DevSH access invite")
+    SUBJECT = os.environ.get("VPN_INVITE_SUBJECT", "DevSH VPN access invite")
     TEXT_TEMPLATE = Path(os.environ.get("VPN_INVITE_TEXT_TEMPLATE", "/opt/authentik-ops/invite-email.txt"))
     HTML_TEMPLATE = Path(os.environ.get("VPN_INVITE_HTML_TEMPLATE", "/opt/authentik-ops/invite-email.html"))
     GENERATED_FROM = "vpn-invite"
@@ -277,6 +317,7 @@ data:
             "invite_url": invite_url,
             "ttl": ttl_label,
             "profile": PROFILE,
+            "username": user.username,
         }
         text_body = render_template(TEXT_TEMPLATE, values)
         html_body = render_template(HTML_TEMPLATE, values) if HTML_TEMPLATE.exists() else None
