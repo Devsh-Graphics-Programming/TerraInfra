@@ -330,6 +330,46 @@ data:
         return result
 
 
+    ACTIVE_ATTACHMENT_CONTENT_TYPES = {
+        "application/ecmascript",
+        "application/javascript",
+        "application/xhtml+xml",
+        "application/xml",
+        "image/svg+xml",
+        "text/ecmascript",
+        "text/html",
+        "text/javascript",
+        "text/xml",
+    }
+    INLINE_ATTACHMENT_CONTENT_TYPES = {"application/pdf"}
+    INLINE_ATTACHMENT_PREFIXES = ("audio/", "image/", "text/", "video/")
+
+
+    def base_content_type(value: str | None) -> str:
+        if not value:
+            return ""
+        return value.split(";", 1)[0].strip().lower()
+
+
+    def attachment_content_disposition(headers) -> str:
+        upstream_disposition = None
+        content_type = ""
+        for key, value in headers:
+            lowered = key.lower()
+            if lowered == "content-disposition":
+                upstream_disposition = value
+            elif lowered == "content-type":
+                content_type = base_content_type(value)
+
+        if content_type in ACTIVE_ATTACHMENT_CONTENT_TYPES or content_type.endswith("+xml"):
+            return upstream_disposition or "attachment"
+
+        if content_type in INLINE_ATTACHMENT_CONTENT_TYPES or content_type.startswith(INLINE_ATTACHMENT_PREFIXES):
+            return "inline"
+
+        return upstream_disposition or "attachment"
+
+
     def filtered_response_headers(headers, attachment=False):
         for key, value in headers:
             lowered = key.lower()
@@ -338,6 +378,8 @@ data:
             if attachment and lowered == "set-cookie":
                 continue
             if attachment and lowered == "cache-control":
+                continue
+            if attachment and lowered == "content-disposition":
                 continue
             yield key, value
 
@@ -424,8 +466,9 @@ data:
             try:
                 conn.request(self.command, self.path, body=body, headers=filtered_request_headers(self.headers))
                 response = conn.getresponse()
+                response_headers = response.getheaders()
                 self.send_response(response.status)
-                for key, value in filtered_response_headers(response.getheaders(), attachment=attachment):
+                for key, value in filtered_response_headers(response_headers, attachment=attachment):
                     self.send_header(key, value)
                 for media_cookie in media_cookies or []:
                     self.send_header("Set-Cookie", media_cookie)
@@ -433,6 +476,7 @@ data:
                 self.close_connection = True
                 if attachment:
                     self.send_header("Cache-Control", "private, no-store")
+                    self.send_header("Content-Disposition", attachment_content_disposition(response_headers))
                     self.send_header("X-Content-Type-Options", "nosniff")
                 self.end_headers()
 
@@ -495,7 +539,7 @@ spec:
   template:
     metadata:
       annotations:
-        devsh.eu/config-revision: stoat-media-gateway-20260514-01
+        devsh.eu/config-revision: stoat-media-gateway-20260514-02
       labels:
         app.kubernetes.io/name: stoat-media-gateway
     spec:
