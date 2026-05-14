@@ -114,6 +114,35 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
+  name: stoat-root-attachments-gateway
+  namespace: chat
+  annotations:
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /attachments$1$2
+    nginx.ingress.kubernetes.io/proxy-body-size: 100m
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  tls:
+    - secretName: stoat-tls
+      hosts:
+        - stoatchat.devsh.eu
+  rules:
+    - host: stoatchat.devsh.eu
+      http:
+        paths:
+          - path: /attachments(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: stoat-media-gateway
+                port:
+                  name: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
   name: stoat-web
   namespace: chat
   annotations:

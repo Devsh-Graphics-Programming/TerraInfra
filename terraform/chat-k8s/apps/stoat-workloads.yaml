@@ -4,6 +4,7 @@ metadata:
   name: database
   namespace: chat
 spec:
+  publishNotReadyAddresses: true
   selector:
     app.kubernetes.io/name: database
   ports:

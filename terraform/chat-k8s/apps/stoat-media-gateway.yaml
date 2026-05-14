@@ -24,8 +24,16 @@ data:
     AUTUMN_UPSTREAM_HOST = os.environ.get("AUTUMN_UPSTREAM_HOST", "autumn")
     AUTUMN_UPSTREAM_PORT = int(os.environ.get("AUTUMN_UPSTREAM_PORT", "14704"))
     COOKIE_NAME = os.environ.get("MEDIA_COOKIE_NAME", "stoat_media_session")
-    COOKIE_PATH = os.environ.get("MEDIA_COOKIE_PATH", "/autumn/attachments")
+    COOKIE_PATHS = [
+        path.strip()
+        for path in os.environ.get(
+            "MEDIA_COOKIE_PATHS",
+            f"{os.environ.get('MEDIA_COOKIE_PATH', '/autumn/attachments')},/attachments",
+        ).split(",")
+        if path.strip()
+    ]
     SESSION_TTL_SECONDS = int(os.environ.get("MEDIA_SESSION_TTL_SECONDS", "900"))
+    API_SESSION_CACHE_TTL_SECONDS = int(os.environ.get("MEDIA_API_SESSION_CACHE_TTL_SECONDS", "60"))
     SERVER_ADDRESS = os.environ.get("SERVER_ADDRESS", "0.0.0.0")
     SERVER_PORT = int(os.environ.get("SERVER_PORT", "8080"))
 
@@ -54,6 +62,8 @@ data:
         connectTimeoutMS=2000,
     )
     db = client.get_database()
+    api_session_cache = {}
+    api_session_cache_lock = threading.Lock()
     media_sessions = {}
     media_sessions_lock = threading.Lock()
 
@@ -64,6 +74,12 @@ data:
 
     def cleanup_sessions() -> None:
         cutoff = now()
+        with api_session_cache_lock:
+            expired_api_sessions = [
+                token for token, session in api_session_cache.items() if session["expires"] <= cutoff
+            ]
+            for token in expired_api_sessions:
+                api_session_cache.pop(token, None)
         with media_sessions_lock:
             expired = [token for token, session in media_sessions.items() if session["expires"] <= cutoff]
             for token in expired:
@@ -77,16 +93,30 @@ data:
     def validate_api_session(token: str | None) -> dict | None:
         if not token:
             return None
+        cutoff = now()
+        with api_session_cache_lock:
+            cached = api_session_cache.get(token)
+            if cached and cached["expires"] > cutoff:
+                return cached["session"]
+            if cached:
+                api_session_cache.pop(token, None)
         try:
-            return db.sessions.find_one({"token": token}, {"_id": 1, "user_id": 1})
+            session = db.sessions.find_one({"token": token}, {"_id": 1, "user_id": 1})
         except Exception:
             return None
+        if session:
+            with api_session_cache_lock:
+                api_session_cache[token] = {
+                    "session": session,
+                    "expires": cutoff + API_SESSION_CACHE_TTL_SECONDS,
+                }
+        return session
 
 
-    def mint_media_cookie(headers) -> str | None:
+    def mint_media_cookies(headers) -> list[str]:
         session = validate_api_session(request_token(headers))
         if not session:
-            return None
+            return []
 
         cleanup_sessions()
         media_token = secrets.token_urlsafe(32)
@@ -97,14 +127,17 @@ data:
                 "expires": now() + SESSION_TTL_SECONDS,
             }
 
-        morsel = cookies.SimpleCookie()
-        morsel[COOKIE_NAME] = media_token
-        morsel[COOKIE_NAME]["httponly"] = True
-        morsel[COOKIE_NAME]["secure"] = True
-        morsel[COOKIE_NAME]["samesite"] = "Lax"
-        morsel[COOKIE_NAME]["path"] = COOKIE_PATH
-        morsel[COOKIE_NAME]["max-age"] = str(SESSION_TTL_SECONDS)
-        return morsel.output(header="").strip()
+        cookie_headers = []
+        for cookie_path in COOKIE_PATHS:
+            morsel = cookies.SimpleCookie()
+            morsel[COOKIE_NAME] = media_token
+            morsel[COOKIE_NAME]["httponly"] = True
+            morsel[COOKIE_NAME]["secure"] = True
+            morsel[COOKIE_NAME]["samesite"] = "Lax"
+            morsel[COOKIE_NAME]["path"] = cookie_path
+            morsel[COOKIE_NAME]["max-age"] = str(SESSION_TTL_SECONDS)
+            cookie_headers.append(morsel.output(header="").strip())
+        return cookie_headers
 
 
     def session_from_cookie(cookie_header: str | None) -> dict | None:
@@ -356,19 +389,19 @@ data:
                 self.proxy(
                     AUTUMN_UPSTREAM_HOST,
                     AUTUMN_UPSTREAM_PORT,
-                    media_cookie=mint_media_cookie(self.headers),
+                    media_cookies=mint_media_cookies(self.headers),
                     attachment=True,
                 )
                 return
 
-            self.proxy(API_UPSTREAM_HOST, API_UPSTREAM_PORT, media_cookie=mint_media_cookie(self.headers))
+            self.proxy(API_UPSTREAM_HOST, API_UPSTREAM_PORT, media_cookies=mint_media_cookies(self.headers))
 
         def handle_attachment(self):
             if self.command not in {"GET", "HEAD"}:
                 self.proxy(
                     AUTUMN_UPSTREAM_HOST,
                     AUTUMN_UPSTREAM_PORT,
-                    media_cookie=mint_media_cookie(self.headers),
+                    media_cookies=mint_media_cookies(self.headers),
                     attachment=True,
                 )
                 return
@@ -381,7 +414,7 @@ data:
 
             self.proxy(AUTUMN_UPSTREAM_HOST, AUTUMN_UPSTREAM_PORT, attachment=True)
 
-        def proxy(self, host: str, port: int, media_cookie: str | None = None, attachment: bool = False):
+        def proxy(self, host: str, port: int, media_cookies: list[str] | None = None, attachment: bool = False):
             body = None
             content_length = self.headers.get("Content-Length")
             if content_length:
@@ -394,7 +427,7 @@ data:
                 self.send_response(response.status)
                 for key, value in filtered_response_headers(response.getheaders(), attachment=attachment):
                     self.send_header(key, value)
-                if media_cookie:
+                for media_cookie in media_cookies or []:
                     self.send_header("Set-Cookie", media_cookie)
                 self.send_header("Connection", "close")
                 self.close_connection = True
@@ -409,8 +442,13 @@ data:
                         if not chunk:
                             break
                         self.wfile.write(chunk)
+            except (BrokenPipeError, ConnectionResetError):
+                return
             except Exception:
-                self.respond_text(502, "bad gateway\n")
+                try:
+                    self.respond_text(502, "bad gateway\n")
+                except (BrokenPipeError, ConnectionResetError):
+                    return
             finally:
                 conn.close()
 
@@ -457,7 +495,7 @@ spec:
   template:
     metadata:
       annotations:
-        devsh.eu/config-revision: stoat-media-gateway-20260423-01
+        devsh.eu/config-revision: stoat-media-gateway-20260514-01
       labels:
         app.kubernetes.io/name: stoat-media-gateway
     spec:
@@ -498,6 +536,8 @@ spec:
               value: mongodb://database:27017/revolt
             - name: MEDIA_SESSION_TTL_SECONDS
               value: "900"
+            - name: MEDIA_API_SESSION_CACHE_TTL_SECONDS
+              value: "60"
           ports:
             - name: http
               containerPort: 8080
