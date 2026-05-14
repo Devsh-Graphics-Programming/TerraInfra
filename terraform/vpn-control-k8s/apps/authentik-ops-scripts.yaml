@@ -127,7 +127,8 @@ data:
     export VPN_INVITE_TTL="$ttl"
     export VPN_INVITE_DRY_RUN="$dry_run"
 
-    ak shell --no-imports -c "exec(open('/opt/authentik-ops/vpn_invite.py', encoding='utf-8').read())"
+    . /ak-root/.venv/bin/activate
+    /lifecycle/ak shell --no-imports -c "exec(open('/opt/authentik-ops/vpn_invite.py', encoding='utf-8').read())"
   vpn_invite.py: |
     import json
     import os
