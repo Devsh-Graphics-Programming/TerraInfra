@@ -27,25 +27,15 @@ resource "scaleway_instance_security_group" "chat" {
   }
 
   inbound_rule {
-    action = "accept"
-    port   = "443"
-  }
-
-  inbound_rule {
     action   = "accept"
     port     = "9100"
     ip_range = "${scaleway_instance_ip.observability.address}/32"
   }
 
   inbound_rule {
-    action = "accept"
-    port   = "7881"
-  }
-
-  inbound_rule {
-    action     = "accept"
-    protocol   = "UDP"
-    port_range = "50000-50100"
+    action   = "accept"
+    protocol = "UDP"
+    port     = "41641"
   }
 
   outbound_rule {
