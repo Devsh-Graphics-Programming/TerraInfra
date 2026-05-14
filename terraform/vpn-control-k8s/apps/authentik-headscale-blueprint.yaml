@@ -260,6 +260,18 @@ data:
           name: default-authentication-identification
         state: present
         attrs:
+          name: default-authentication-identification
+          user_fields:
+            - email
+            - username
+          password_stage: null
+          captcha_stage: null
+          webauthn_stage: null
+          case_insensitive_matching: true
+          show_matched_user: true
+          pretend_user_exists: true
+          enable_remember_me: false
+          show_source_labels: false
           recovery_flow: !KeyOf devsh-vpn-password-reset-flow
 
       - model: authentik_brands.brand
