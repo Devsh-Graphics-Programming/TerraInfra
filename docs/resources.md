@@ -15,6 +15,12 @@ This cluster is a single-node k3s setup, so one noisy workload can starve everyt
 - Kimai + MariaDB deployments: `terraform/k8s/kimai.tpl.yaml`
 - Batch CronJobs (example): `terraform/k8s/image-digest-rollout.yaml`
 
+## Dedicated nodes
+- `prod-observability-01`: `DEV1-M`, central Grafana/Prometheus/OnCall.
+- `prod-chat-01`: `DEV1-M`, StoatChat.
+- `prod-vpn-control-01`: `DEV1-M`, Authentik and Headscale.
+- `jenkins-prod`: `DEV1-S`, Jenkins controller.
+
 ## How to check CPU/RAM usage
 Run on the node:
 ```

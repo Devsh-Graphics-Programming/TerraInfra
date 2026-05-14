@@ -14,6 +14,7 @@ Managed targets:
 - `chat` -> `prod-chat-01-data` (StoatChat data)
 - `jenkins` -> `jenkins-prod-data` (Jenkins home)
 - `observability` -> `prod-observability-01-data` (Grafana/monitoring data)
+- `vpn-control` -> `prod-vpn-control-01-data` (Authentik/Headscale data)
 
 ### CI setup (once)
 Workflow expects a dedicated Object Storage bucket for Terraform state (separate from the LUKS bucket) and a Scaleway IAM key scoped to the minimum required permissions: Block Storage snapshot/volume access, temporary Instance access for restore-drill verifier machines, Object Storage access to the snapshot state bucket, and read-only access to the single LUKS key object used by the restore drill.

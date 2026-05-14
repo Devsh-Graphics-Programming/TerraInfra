@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../k8s/cluster-issuer.yaml
+  - local-path-config.yaml
+  - storage-dirs.yaml
+  - node-exporter.yaml
+  - authentik-certificate.yaml
+  - authentik-headscale-blueprint.yaml
+  - authentik-helmrelease.yaml
+  - headscale-config.yaml
+  - headscale.yaml
+

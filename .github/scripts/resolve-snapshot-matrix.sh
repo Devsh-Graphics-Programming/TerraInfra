@@ -41,6 +41,11 @@ default_snapshot_targets="$(jq -cn '{
     volume_name: "prod-observability-01-data",
     name_prefix: "prod-observability-01-data",
     tags: ["observability", "monitoring"]
+  },
+  "vpn-control": {
+    volume_name: "prod-vpn-control-01-data",
+    name_prefix: "prod-vpn-control-01-data",
+    tags: ["vpn-control", "headscale", "authentik"]
   }
 }')"
 

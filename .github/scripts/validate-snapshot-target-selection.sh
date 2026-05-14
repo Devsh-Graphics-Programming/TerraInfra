@@ -28,7 +28,7 @@ run_restore_resolver() {
 snapshot_all="${work_dir}/snapshot-all.out"
 run_snapshot_resolver "${snapshot_all}" SNAPSHOTS_TARGET_NAMES=all GITHUB_EVENT_NAME=schedule GITHUB_RUN_ID=local
 snapshot_all_matrix="$(read_output matrix "${snapshot_all}")"
-jq -e '.include | length == 4' <<< "${snapshot_all_matrix}" >/dev/null
+jq -e '.include | length == 5' <<< "${snapshot_all_matrix}" >/dev/null
 
 snapshot_jenkins="${work_dir}/snapshot-jenkins.out"
 run_snapshot_resolver "${snapshot_jenkins}" SNAPSHOTS_TARGET_NAMES=jenkins GITHUB_EVENT_NAME=workflow_dispatch SNAPSHOTS_MANUAL_TTL_HOURS=24 SNAPSHOTS_MANUAL_SNAPSHOT_NAME=local-test GITHUB_RUN_ID=local
@@ -40,7 +40,12 @@ jq -e '.include | length == 1 and .[0].target_key == "jenkins" and .[0].volume_n
 restore_all="${work_dir}/restore-all.out"
 run_restore_resolver "${restore_all}" SNAPSHOTS_TARGET_NAMES=all
 restore_all_matrix="$(read_output matrix "${restore_all}")"
-jq -e '.include | length == 4' <<< "${restore_all_matrix}" >/dev/null
+jq -e '.include | length == 5' <<< "${restore_all_matrix}" >/dev/null
+
+restore_vpn_control="${work_dir}/restore-vpn-control.out"
+run_restore_resolver "${restore_vpn_control}" SNAPSHOTS_TARGET_NAMES=vpn-control
+restore_vpn_control_matrix="$(read_output matrix "${restore_vpn_control}")"
+jq -e '.include | length == 1 and .[0].target_key == "vpn-control" and .[0].instance_type == "DEV1-M"' <<< "${restore_vpn_control_matrix}" >/dev/null
 
 restore_jenkins="${work_dir}/restore-jenkins.out"
 run_restore_resolver "${restore_jenkins}" SNAPSHOTS_TARGET_NAMES=jenkins

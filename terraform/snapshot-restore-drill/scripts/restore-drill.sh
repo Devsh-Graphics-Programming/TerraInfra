@@ -319,6 +319,13 @@ case "${TARGET_KEY}" in
     pass_check "local-path-data" "restored local-path data root exists"
     ;;
 
+  vpn-control)
+    PHASE="vpn-control-data"
+    write_status "running" "checking VPN control-plane restored data"
+    require_path "/mnt/data/local-path"
+    pass_check "local-path-data" "restored local-path data root exists"
+    ;;
+
   node1-main)
     PHASE="kimai-mariadb"
     write_status "running" "checking MariaDB from restored node1 data"

@@ -10,7 +10,7 @@ on:
         required: true
         default: "4ca4f592-005a-45dc-a016-91bd11dd5348"
       target_names:
-        description: "Snapshot targets: all or comma-separated keys (node1-main,chat,jenkins,observability)"
+        description: "Snapshot targets: all or comma-separated keys (node1-main,chat,jenkins,observability,vpn-control)"
         required: true
         default: "all"
       manual_ttl_hours:

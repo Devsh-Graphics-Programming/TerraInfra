@@ -1,0 +1,125 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: authentik
+  namespace: authentik
+spec:
+  interval: 10m
+  chart:
+    spec:
+      chart: authentik
+      version: 2026.2.3
+      sourceRef:
+        kind: HelmRepository
+        name: authentik
+        namespace: flux-system
+      interval: 1h
+  releaseName: authentik
+  targetNamespace: authentik
+  install:
+    createNamespace: false
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  valuesFrom:
+    - kind: Secret
+      name: authentik-values
+      valuesKey: values.yaml
+  values:
+    global:
+      env:
+        - name: AUTHENTIK_BOOTSTRAP_EMAIL
+          value: notifications@devsh.eu
+        - name: AUTHENTIK_BOOTSTRAP_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: authentik-bootstrap
+              key: password
+        - name: AUTHENTIK_BOOTSTRAP_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: authentik-bootstrap
+              key: token
+        - name: AUTHENTIK_EMAIL__HOST
+          value: mail.devsh.eu
+        - name: AUTHENTIK_EMAIL__PORT
+          value: "587"
+        - name: AUTHENTIK_EMAIL__USE_TLS
+          value: "true"
+        - name: AUTHENTIK_EMAIL__USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: notification-smtp
+              key: GF_SMTP_USER
+        - name: AUTHENTIK_EMAIL__PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: notification-smtp
+              key: GF_SMTP_PASSWORD
+        - name: AUTHENTIK_EMAIL__FROM
+          valueFrom:
+            secretKeyRef:
+              name: notification-smtp
+              key: GF_SMTP_FROM_ADDRESS
+        - name: HEADSCALE_OIDC_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: headscale-oidc
+              key: client_secret
+    authentik:
+      log_level: info
+      error_reporting:
+        enabled: false
+      postgresql:
+        host: authentik-postgresql
+        name: authentik
+        user: authentik
+    blueprints:
+      configMaps:
+        - authentik-headscale-blueprint
+    server:
+      replicas: 1
+      ingress:
+        enabled: true
+        ingressClassName: nginx
+        annotations:
+          nginx.ingress.kubernetes.io/proxy-body-size: 100m
+        hosts:
+          - auth.devsh.eu
+        tls:
+          - secretName: authentik-tls
+            hosts:
+              - auth.devsh.eu
+      resources:
+        requests:
+          cpu: 200m
+          memory: 512Mi
+        limits:
+          cpu: "1"
+          memory: 1Gi
+    worker:
+      replicas: 1
+      resources:
+        requests:
+          cpu: 100m
+          memory: 384Mi
+        limits:
+          cpu: "1"
+          memory: 1Gi
+    postgresql:
+      enabled: true
+      primary:
+        persistence:
+          enabled: true
+          storageClass: local-path
+          size: 8Gi
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: "1"
+            memory: 1Gi
+

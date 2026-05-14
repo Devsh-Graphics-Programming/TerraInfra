@@ -64,3 +64,13 @@ output "chat_data_volume_id" {
   value       = scaleway_block_volume.chat_data.id
   description = "ID of the dedicated StoatChat data volume"
 }
+
+output "vpn_control_node_ip" {
+  value       = scaleway_instance_ip.vpn_control.address
+  description = "Public IP of the dedicated VPN control-plane node"
+}
+
+output "vpn_control_data_volume_id" {
+  value       = scaleway_block_volume.vpn_control_data.id
+  description = "ID of the dedicated VPN control-plane data volume"
+}

@@ -86,6 +86,18 @@ variable "chat_data_volume_size_gb" {
   default     = 10
 }
 
+variable "vpn_control_instance_type" {
+  type        = string
+  description = "Scaleway commercial type for the dedicated VPN control-plane node."
+  default     = "DEV1-M"
+}
+
+variable "vpn_control_data_volume_size_gb" {
+  type        = number
+  description = "Size of the dedicated VPN control-plane data volume in GiB."
+  default     = 20
+}
+
 variable "luks_key_access_key" {
   type        = string
   description = "Access key (read-only) for fetching LUKS key from Object Storage"
