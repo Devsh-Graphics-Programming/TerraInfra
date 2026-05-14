@@ -24,10 +24,6 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
 spec:
   ingressClassName: nginx
-  tls:
-    - secretName: stoat-tls
-      hosts:
-        - stoatchat.devsh.eu
   rules:
     - host: stoatchat.devsh.eu
       http:
