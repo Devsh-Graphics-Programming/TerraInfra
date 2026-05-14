@@ -26,10 +26,14 @@ data:
     2. Install the official Tailscale client:
     https://tailscale.com/download
 
-    3. In Tailscale, sign in using this custom login server:
-    https://headscale.devsh.eu
+    3. Open PowerShell and run:
+    & "C:\Program Files\Tailscale\tailscale.exe" login --login-server=https://headscale.devsh.eu
 
-    4. Once connected to the VPN, you can access internal DevSH services using their normal URLs.
+    4. A browser window will open. Finish the DevSH login there.
+
+    5. When Tailscale shows Connected, the VPN is ready. You can click the Tailscale tray icon to see the connected account, login server, and device status.
+
+    6. Once connected to the VPN, you can access internal DevSH services using their normal URLs.
 
     This invite is single-use and expires in {{ttl}}.
     Requested profile: {{profile}}
@@ -96,10 +100,16 @@ data:
                           <ol style="margin:0;padding-left:20px;color:#3f4656;font-size:14px;line-height:1.7;">
                             <li>Click <strong>Create VPN account</strong> above, or open the setup link shown under the button, then set your account password.</li>
                             <li>Install the official Tailscale client from <a href="https://tailscale.com/download" style="color:#2563eb;">tailscale.com/download</a>.</li>
-                            <li>Sign in using the custom login server below.</li>
+                            <li>Open PowerShell and run the command below.</li>
+                            <li>A browser window will open. Finish the DevSH login there.</li>
+                            <li>When Tailscale shows <strong>Connected</strong>, the VPN is ready. Click the Tailscale tray icon to see the connected account, login server, and device status.</li>
                             <li>After connecting to the VPN, use normal DevSH service URLs.</li>
                           </ol>
-                          <p style="margin:14px 0 6px 0;font-size:13px;line-height:1.5;color:#6b7280;">Custom login server</p>
+                          <p style="margin:14px 0 6px 0;font-size:13px;line-height:1.5;color:#6b7280;">PowerShell command</p>
+                          <p style="margin:0 0 10px 0;font-size:13px;line-height:1.5;word-break:break-all;">
+                            <code style="display:block;background:#ffffff;border:1px solid #d1d5db;border-radius:6px;padding:9px 10px;color:#111827;">&amp; &quot;C:\Program Files\Tailscale\tailscale.exe&quot; login --login-server=https://headscale.devsh.eu</code>
+                          </p>
+                          <p style="margin:0 0 4px 0;font-size:13px;line-height:1.5;color:#6b7280;">Login server</p>
                           <p style="margin:0 0 4px 0;font-size:14px;line-height:1.5;word-break:break-all;">
                             <code style="background:#ffffff;border:1px solid #d1d5db;border-radius:6px;padding:6px 8px;color:#111827;">https://headscale.devsh.eu</code>
                           </p>
