@@ -63,7 +63,10 @@ data:
           - 1.1.1.1
           - 1.0.0.1
       search_domains: []
-      extra_records: []
+      extra_records:
+        - name: stoatchat.devsh.eu
+          type: A
+          value: 100.64.0.1
 
     unix_socket: /var/run/headscale/headscale.sock
     unix_socket_permission: "0770"
@@ -100,4 +103,3 @@ data:
         }
       ]
     }
-

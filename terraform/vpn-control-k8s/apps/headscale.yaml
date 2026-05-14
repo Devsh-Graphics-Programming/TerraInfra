@@ -27,6 +27,8 @@ spec:
       app.kubernetes.io/name: headscale
   template:
     metadata:
+      annotations:
+        devsh.eu/headscale-config-revision: "2026-05-14-stoat-dns"
       labels:
         app.kubernetes.io/name: headscale
     spec:
@@ -149,4 +151,3 @@ spec:
                 name: headscale
                 port:
                   name: http
-

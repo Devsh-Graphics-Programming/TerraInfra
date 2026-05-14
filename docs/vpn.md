@@ -29,9 +29,9 @@ Headscale accepts OIDC logins only for members of the Authentik `vpn-users` grou
 
 ## Service access model
 
-Private service URLs keep normal HTTPS names, for example `https://stoatchat.devsh.eu`.
+Private service URLs keep normal HTTPS names. `https://stoatchat.devsh.eu` is served over the tailnet at `100.64.0.1` for VPN clients.
 
-For VPN users, Headscale DNS can publish private `A` records in `terraform/vpn-control-k8s/apps/headscale-config.yaml` so the same public hostname resolves to the service node's tailnet IP. Public DNS stays usable for certificate automation and external discovery, but service ports are closed at the cloud security group when a service is VPN-only.
+For VPN users, Headscale DNS publishes private `A` records in `terraform/vpn-control-k8s/apps/headscale-config.yaml` so the same public hostname resolves to the service node's tailnet IP. Public DNS stays usable for certificate automation and external discovery, but service ports are closed at the cloud security group when a service is VPN-only.
 
 TLS stays enabled at the service ingress. The browser still sees the normal public hostname and a normal Let's Encrypt certificate.
 
@@ -66,4 +66,3 @@ Secrets are SOPS-encrypted in the repo:
 - SMTP credentials reused from the shared notification secret
 
 Never commit plaintext exports, pre-auth keys, device keys, database files, or kubeconfig files.
-
