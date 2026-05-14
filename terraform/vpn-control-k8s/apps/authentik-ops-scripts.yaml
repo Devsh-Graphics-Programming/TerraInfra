@@ -21,7 +21,7 @@ data:
     Next steps:
 
     1. Click Create VPN account in this email, or open the account setup link above.
-    Use the email and username shown here when the account setup page asks for them.
+    Then set your account password.
 
     2. Install the official Tailscale client:
     https://tailscale.com/download
@@ -52,7 +52,7 @@ data:
                 </tr>
                 <tr>
                   <td style="padding:26px 28px 22px 28px;">
-                    <p style="margin:0 0 20px 0;font-size:15px;line-height:1.6;color:#3f4656;">Use the button below to create your DevSH account for VPN access. After that, connect with the official Tailscale client to reach internal DevSH services through their normal URLs.</p>
+                    <p style="margin:0 0 20px 0;font-size:15px;line-height:1.6;color:#3f4656;">Use the button below to open the DevSH VPN account setup page and set your password. After that, connect with the official Tailscale client to reach internal DevSH services through their normal URLs.</p>
                     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f8fafc;border:1px solid #dbe3ef;border-radius:8px;margin:0 0 22px 0;">
                       <tr>
                         <td style="padding:16px 18px;">
@@ -94,7 +94,7 @@ data:
                         <td style="padding:18px 18px 12px 18px;">
                           <h2 style="margin:0 0 12px 0;font-size:16px;line-height:1.35;color:#111827;">Next steps</h2>
                           <ol style="margin:0;padding-left:20px;color:#3f4656;font-size:14px;line-height:1.7;">
-                            <li>Click <strong>Create VPN account</strong> above, or open the setup link shown under the button. Use the email and username from Account details if the setup page asks for them.</li>
+                            <li>Click <strong>Create VPN account</strong> above, or open the setup link shown under the button, then set your account password.</li>
                             <li>Install the official Tailscale client from <a href="https://tailscale.com/download" style="color:#2563eb;">tailscale.com/download</a>.</li>
                             <li>Sign in using the custom login server below.</li>
                             <li>After connecting to the VPN, use normal DevSH service URLs.</li>
@@ -198,7 +198,8 @@ data:
     from django.utils.timezone import now
 
     from authentik.core.models import Group, User
-    from authentik.recovery.lib import create_recovery_token
+    from authentik.flows.models import Flow
+    from authentik.stages.invitation.models import Invitation
 
 
     EMAIL = os.environ.get("VPN_INVITE_EMAIL", "").strip().lower()
@@ -209,11 +210,16 @@ data:
     SUBJECT = os.environ.get("VPN_INVITE_SUBJECT", "DevSH VPN access invite")
     TEXT_TEMPLATE = Path(os.environ.get("VPN_INVITE_TEXT_TEMPLATE", "/opt/authentik-ops/invite-email.txt"))
     HTML_TEMPLATE = Path(os.environ.get("VPN_INVITE_HTML_TEMPLATE", "/opt/authentik-ops/invite-email.html"))
-    GENERATED_FROM = "vpn-invite"
 
     DEFAULT_PROFILES = {
-        "member": ["vpn-users"],
-        "admin": ["vpn-users", "authentik Admins"],
+        "member": {
+            "flow": "devsh-vpn-enrollment",
+            "groups": ["vpn-users"],
+        },
+        "admin": {
+            "flow": "devsh-vpn-admin-enrollment",
+            "groups": ["vpn-users", "authentik Admins"],
+        },
     }
     PROFILES = json.loads(os.environ.get("VPN_INVITE_PROFILES", json.dumps(DEFAULT_PROFILES)))
 
@@ -273,55 +279,72 @@ data:
     if PROFILE not in PROFILES:
         die(f"unknown profile '{PROFILE}', allowed profiles: {', '.join(sorted(PROFILES))}")
 
-    groups = PROFILES[PROFILE]
+    profile_config = PROFILES[PROFILE]
+    if not isinstance(profile_config, dict):
+        die(f"profile '{PROFILE}' has invalid mapping")
+
+    groups = profile_config.get("groups", [])
     if not isinstance(groups, list) or not all(isinstance(group, str) and group for group in groups):
         die(f"profile '{PROFILE}' has invalid group mapping")
+
+    flow_slug = profile_config.get("flow")
+    if not isinstance(flow_slug, str) or not flow_slug:
+        die(f"profile '{PROFILE}' has invalid enrollment flow mapping")
 
     ttl_delta, ttl_label = parse_ttl(TTL_RAW)
     expiry = now() + ttl_delta
     username = username_from_email(EMAIL)
     display_name = EMAIL.split("@", 1)[0].replace(".", " ").replace("_", " ").title()
     if DRY_RUN:
-        print(f"Dry run OK for {EMAIL} with profile {PROFILE}; no user, token, or email was created.")
+        print(f"Dry run OK for {EMAIL} with profile {PROFILE}; no invitation or email was created.")
         raise SystemExit(0)
 
     with transaction.atomic():
-        user = User.objects.filter(email__iexact=EMAIL).first()
-        if user is None:
-            base_username = username
-            suffix = 2
-            while User.objects.filter(username=username).exists():
-                username = f"{base_username}-{suffix}"[:150]
-                suffix += 1
-            user = User(username=username, email=EMAIL, name=display_name, is_active=True)
-            user.set_unusable_password()
-            user.save()
-        else:
-            changed = False
-            if not user.is_active:
-                user.is_active = True
-                changed = True
-            if user.email != EMAIL:
-                user.email = EMAIL
-                changed = True
-            if not user.name:
-                user.name = display_name
-                changed = True
-            if changed:
-                user.save()
+        if User.objects.filter(email__iexact=EMAIL).exists():
+            die("a user with this email already exists; reset or remove that user before sending a new enrollment invite")
+
+        base_username = username
+        suffix = 2
+        while User.objects.filter(username=username).exists():
+            username = f"{base_username}-{suffix}"[:150]
+            suffix += 1
+
+        flow = Flow.objects.filter(slug=flow_slug).first()
+        if flow is None:
+            die(f"enrollment flow '{flow_slug}' is not installed")
+
+        creator = (
+            User.objects.filter(groups__name="authentik Admins")
+            .order_by("date_joined")
+            .first()
+            or User.objects.order_by("date_joined").first()
+        )
+        if creator is None:
+            die("no Authentik user exists to own the invitation")
 
         for group_name in groups:
-            group = ensure_group(group_name)
-            group.users.add(user)
+            ensure_group(group_name)
 
-        token, recovery_path = create_recovery_token(user, expiry, GENERATED_FROM)
-        invite_url = f"{PUBLIC_URL}{recovery_path}"
+        invitation = Invitation.objects.create(
+            name=f"vpn-{PROFILE}-{username}-{now().strftime('%Y%m%d%H%M%S')}",
+            flow=flow,
+            single_use=True,
+            created_by=creator,
+            expiring=True,
+            expires=expiry,
+            fixed_data={
+                "username": username,
+                "email": EMAIL,
+                "name": display_name,
+            },
+        )
+        invite_url = f"{PUBLIC_URL}/if/flow/{flow.slug}/?{'i' + 'token'}={invitation.invite_uuid}"
         values = {
             "email": EMAIL,
             "invite_url": invite_url,
             "ttl": ttl_label,
             "profile": PROFILE,
-            "username": user.username,
+            "username": username,
         }
         text_body = render_template(TEXT_TEMPLATE, values)
         html_body = render_template(HTML_TEMPLATE, values) if HTML_TEMPLATE.exists() else None

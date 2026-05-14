@@ -18,6 +18,272 @@ data:
         attrs:
           name: vpn-users
 
+      - model: authentik_core.group
+        identifiers:
+          name: authentik Admins
+        state: present
+        attrs:
+          name: authentik Admins
+          is_superuser: true
+
+      - model: authentik_flows.flow
+        id: devsh-vpn-enrollment-flow
+        identifiers:
+          slug: devsh-vpn-enrollment
+        state: present
+        attrs:
+          name: DevSH VPN enrollment
+          title: DevSH VPN access setup
+          slug: devsh-vpn-enrollment
+          designation: enrollment
+          authentication: none
+          layout: stacked
+
+      - model: authentik_flows.flow
+        id: devsh-vpn-admin-enrollment-flow
+        identifiers:
+          slug: devsh-vpn-admin-enrollment
+        state: present
+        attrs:
+          name: DevSH VPN admin enrollment
+          title: DevSH VPN admin access setup
+          slug: devsh-vpn-admin-enrollment
+          designation: enrollment
+          authentication: none
+          layout: stacked
+
+      - model: authentik_stages_invitation.invitationstage
+        id: devsh-vpn-invitation-stage
+        identifiers:
+          name: devsh-vpn-invitation
+        state: present
+        attrs:
+          name: devsh-vpn-invitation
+          continue_flow_without_invitation: false
+
+      - model: authentik_stages_prompt.prompt
+        id: devsh-vpn-username-prompt
+        identifiers:
+          name: devsh-vpn-username
+        state: present
+        attrs:
+          name: devsh-vpn-username
+          field_key: username
+          label: Username
+          type: hidden
+          required: true
+          placeholder: ""
+          order: 100
+
+      - model: authentik_stages_prompt.prompt
+        id: devsh-vpn-email-prompt
+        identifiers:
+          name: devsh-vpn-email
+        state: present
+        attrs:
+          name: devsh-vpn-email
+          field_key: email
+          label: Email
+          type: hidden
+          required: true
+          placeholder: ""
+          order: 110
+
+      - model: authentik_stages_prompt.prompt
+        id: devsh-vpn-name-prompt
+        identifiers:
+          name: devsh-vpn-name
+        state: present
+        attrs:
+          name: devsh-vpn-name
+          field_key: name
+          label: Name
+          type: hidden
+          required: false
+          placeholder: ""
+          order: 120
+
+      - model: authentik_stages_prompt.prompt
+        id: devsh-vpn-password-prompt
+        identifiers:
+          name: devsh-vpn-password
+        state: present
+        attrs:
+          name: devsh-vpn-password
+          field_key: password
+          label: Password
+          type: password
+          required: true
+          placeholder: Password
+          order: 300
+
+      - model: authentik_stages_prompt.prompt
+        id: devsh-vpn-password-repeat-prompt
+        identifiers:
+          name: devsh-vpn-password-repeat
+        state: present
+        attrs:
+          name: devsh-vpn-password-repeat
+          field_key: password_repeat
+          label: Password (repeat)
+          type: password
+          required: true
+          placeholder: Password (repeat)
+          order: 301
+
+      - model: authentik_stages_prompt.promptstage
+        id: devsh-vpn-password-setup-stage
+        identifiers:
+          name: devsh-vpn-password-setup
+        state: present
+        attrs:
+          name: devsh-vpn-password-setup
+          fields:
+            - !KeyOf devsh-vpn-username-prompt
+            - !KeyOf devsh-vpn-email-prompt
+            - !KeyOf devsh-vpn-name-prompt
+            - !KeyOf devsh-vpn-password-prompt
+            - !KeyOf devsh-vpn-password-repeat-prompt
+
+      - model: authentik_stages_user_write.userwritestage
+        id: devsh-vpn-user-write-stage
+        identifiers:
+          name: devsh-vpn-user-write
+        state: present
+        attrs:
+          name: devsh-vpn-user-write
+          user_creation_mode: always_create
+          create_users_as_inactive: false
+          create_users_group: !Find [authentik_core.group, [name, vpn-users]]
+          user_type: internal
+          user_path_template: users
+
+      - model: authentik_stages_user_write.userwritestage
+        id: devsh-vpn-admin-write-stage
+        identifiers:
+          name: devsh-vpn-admin-write
+        state: present
+        attrs:
+          name: devsh-vpn-admin-write
+          user_creation_mode: create_when_required
+          create_users_as_inactive: false
+          create_users_group: !Find [authentik_core.group, [name, authentik Admins]]
+          user_type: internal
+          user_path_template: users
+
+      - model: authentik_stages_user_login.userloginstage
+        id: devsh-vpn-user-login-stage
+        identifiers:
+          name: devsh-vpn-user-login
+        state: present
+        attrs:
+          name: devsh-vpn-user-login
+          session_duration: seconds=0
+          network_binding: no_binding
+          geoip_binding: no_binding
+          terminate_other_sessions: false
+          remember_me_offset: seconds=0
+          remember_device: days=30
+
+      - model: authentik_flows.flowstagebinding
+        identifiers:
+          target: !KeyOf devsh-vpn-enrollment-flow
+          stage: !KeyOf devsh-vpn-invitation-stage
+          order: 0
+        state: present
+        attrs:
+          target: !KeyOf devsh-vpn-enrollment-flow
+          stage: !KeyOf devsh-vpn-invitation-stage
+          order: 0
+
+      - model: authentik_flows.flowstagebinding
+        identifiers:
+          target: !KeyOf devsh-vpn-enrollment-flow
+          stage: !KeyOf devsh-vpn-password-setup-stage
+          order: 10
+        state: present
+        attrs:
+          target: !KeyOf devsh-vpn-enrollment-flow
+          stage: !KeyOf devsh-vpn-password-setup-stage
+          order: 10
+
+      - model: authentik_flows.flowstagebinding
+        identifiers:
+          target: !KeyOf devsh-vpn-enrollment-flow
+          stage: !KeyOf devsh-vpn-user-write-stage
+          order: 20
+        state: present
+        attrs:
+          target: !KeyOf devsh-vpn-enrollment-flow
+          stage: !KeyOf devsh-vpn-user-write-stage
+          order: 20
+
+      - model: authentik_flows.flowstagebinding
+        identifiers:
+          target: !KeyOf devsh-vpn-enrollment-flow
+          stage: !KeyOf devsh-vpn-user-login-stage
+          order: 30
+        state: present
+        attrs:
+          target: !KeyOf devsh-vpn-enrollment-flow
+          stage: !KeyOf devsh-vpn-user-login-stage
+          order: 30
+
+      - model: authentik_flows.flowstagebinding
+        identifiers:
+          target: !KeyOf devsh-vpn-admin-enrollment-flow
+          stage: !KeyOf devsh-vpn-invitation-stage
+          order: 0
+        state: present
+        attrs:
+          target: !KeyOf devsh-vpn-admin-enrollment-flow
+          stage: !KeyOf devsh-vpn-invitation-stage
+          order: 0
+
+      - model: authentik_flows.flowstagebinding
+        identifiers:
+          target: !KeyOf devsh-vpn-admin-enrollment-flow
+          stage: !KeyOf devsh-vpn-password-setup-stage
+          order: 10
+        state: present
+        attrs:
+          target: !KeyOf devsh-vpn-admin-enrollment-flow
+          stage: !KeyOf devsh-vpn-password-setup-stage
+          order: 10
+
+      - model: authentik_flows.flowstagebinding
+        identifiers:
+          target: !KeyOf devsh-vpn-admin-enrollment-flow
+          stage: !KeyOf devsh-vpn-user-write-stage
+          order: 20
+        state: present
+        attrs:
+          target: !KeyOf devsh-vpn-admin-enrollment-flow
+          stage: !KeyOf devsh-vpn-user-write-stage
+          order: 20
+
+      - model: authentik_flows.flowstagebinding
+        identifiers:
+          target: !KeyOf devsh-vpn-admin-enrollment-flow
+          stage: !KeyOf devsh-vpn-admin-write-stage
+          order: 30
+        state: present
+        attrs:
+          target: !KeyOf devsh-vpn-admin-enrollment-flow
+          stage: !KeyOf devsh-vpn-admin-write-stage
+          order: 30
+
+      - model: authentik_flows.flowstagebinding
+        identifiers:
+          target: !KeyOf devsh-vpn-admin-enrollment-flow
+          stage: !KeyOf devsh-vpn-user-login-stage
+          order: 40
+        state: present
+        attrs:
+          target: !KeyOf devsh-vpn-admin-enrollment-flow
+          stage: !KeyOf devsh-vpn-user-login-stage
+          order: 40
+
       - model: authentik_providers_oauth2.scopemapping
         id: headscale-groups-scope
         identifiers:
@@ -67,4 +333,3 @@ data:
           slug: headscale
           provider: !KeyOf headscale-provider
           policy_engine_mode: any
-
