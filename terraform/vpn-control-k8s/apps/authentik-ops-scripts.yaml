@@ -550,6 +550,7 @@ data:
     HTML_TEMPLATE = Path(os.environ.get("VPN_PASSWORD_RESET_HTML_TEMPLATE", "/opt/authentik-ops/password-reset-email.html"))
     FLOW_SLUG = os.environ.get("VPN_PASSWORD_RESET_FLOW", "devsh-vpn-password-reset")
     RESET_STAGE_NAMES = [
+        "devsh-vpn-password-reset-email",
         "devsh-vpn-password-reset-prompt",
         "devsh-vpn-password-reset-write",
         "devsh-vpn-user-login",
