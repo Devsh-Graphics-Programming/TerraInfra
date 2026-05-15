@@ -195,7 +195,7 @@ data:
             f"Role: {role}",
         ]
         if password:
-            label = "Temporary password" if created else "Current bootstrap password"
+            label = "Bootstrap password"
             lines.append(f"{label}: {password}")
         else:
             lines.append("Password: use your existing password or the password reset option on the login screen.")
@@ -206,7 +206,8 @@ data:
                 "1. Connect to the DevSH VPN.",
                 "2. Open the Rocket.Chat URL above.",
                 "3. Log in with the username shown in this email.",
-                "4. Change the password after the first login if Rocket.Chat asks for it.",
+                "4. If this email includes a bootstrap password, use it only for the first login.",
+                "5. After signing in, change it in the Rocket.Chat UI: profile menu > My Account > Security > Password.",
                 "",
                 "If you did not expect this message, you can ignore this email.",
             ]
@@ -217,13 +218,22 @@ data:
     def build_html(email: str, username: str, role: str, password: str | None, created: bool) -> str:
         public_url = required_env("ROCKET_PUBLIC_URL").rstrip("/")
         password_row = ""
+        password_note = ""
         if password:
-            label = "Temporary password" if created else "Current bootstrap password"
+            label = "Bootstrap password"
             password_row = f"""
                             <tr>
                               <td width="150" style="padding:5px 0;font-size:13px;line-height:1.5;color:#64748b;">{label}</td>
                               <td style="padding:5px 0;font-size:14px;line-height:1.5;color:#111827;font-weight:700;word-break:break-all;">{escape(password)}</td>
                             </tr>"""
+            password_note = """
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;margin:0 0 22px 0;">
+                      <tr>
+                        <td style="padding:14px 16px;">
+                          <p style="margin:0;font-size:13px;line-height:1.6;color:#1e3a8a;">The password above is a bootstrap password for the first login. After signing in, change it in Rocket.Chat: profile menu &gt; My Account &gt; Security &gt; Password.</p>
+                        </td>
+                      </tr>
+                    </table>"""
         else:
             password_row = """
                             <tr>
@@ -273,6 +283,7 @@ data:
                         </td>
                       </tr>
                     </table>
+                    {password_note}
                     <table role="presentation" border="0" cellspacing="0" cellpadding="0" style="margin:0 0 24px 0;">
                       <tr>
                         <td align="center" bgcolor="#2563eb" style="background:#2563eb;border:1px solid #1d4ed8;border-radius:7px;mso-padding-alt:13px 20px;">
@@ -292,7 +303,8 @@ data:
                             <li>Connect to the DevSH VPN.</li>
                             <li>Open Rocket.Chat with the button or link above.</li>
                             <li>Log in with the username shown in this email.</li>
-                            <li>Change the password after the first login if Rocket.Chat asks for it.</li>
+                            <li>If this email includes a bootstrap password, use it only for the first login.</li>
+                            <li>After signing in, change it in Rocket.Chat: profile menu &gt; My Account &gt; Security &gt; Password.</li>
                           </ol>
                         </td>
                       </tr>
