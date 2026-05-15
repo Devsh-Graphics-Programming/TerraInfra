@@ -28,7 +28,7 @@ spec:
   template:
     metadata:
       annotations:
-        devsh.eu/headscale-config-revision: "2026-05-14-stoat-dns"
+        devsh.eu/headscale-config-revision: "2026-05-15-rocket-dns"
       labels:
         app.kubernetes.io/name: headscale
     spec:

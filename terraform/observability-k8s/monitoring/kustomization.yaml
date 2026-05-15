@@ -54,10 +54,20 @@ patches:
                   node: prod-chat-01
                   role: chat
               - targets:
+                  - 51.15.214.53:9100
+                labels:
+                  node: prod-rocket-01
+                  role: chat
+              - targets:
                   - 163.172.171.121:9100
                 labels:
                   node: jenkins-prod
                   role: ci
+              - targets:
+                  - 51.15.227.239:9100
+                labels:
+                  node: prod-vpn-control-01
+                  role: vpn
           - job_name: devsh-jenkins-app
             scrape_interval: 60s
             scheme: https
