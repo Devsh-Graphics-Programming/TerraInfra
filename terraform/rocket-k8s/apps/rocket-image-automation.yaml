@@ -1,0 +1,48 @@
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageRepository
+metadata:
+  name: rocketchat-foss
+  namespace: flux-system
+spec:
+  image: ghcr.io/devsh-graphics-programming/rocketchat-foss
+  interval: 1m
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImagePolicy
+metadata:
+  name: rocketchat-foss
+  namespace: flux-system
+spec:
+  imageRepositoryRef:
+    name: rocketchat-foss
+  filterTags:
+    pattern: "^devsh-(?P<ts>[0-9]{14})-[0-9a-f]+$"
+    extract: "$ts"
+  policy:
+    alphabetical:
+      order: desc
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImageUpdateAutomation
+metadata:
+  name: rocket-images
+  namespace: flux-system
+spec:
+  interval: 1m
+  sourceRef:
+    kind: GitRepository
+    name: terralinfra
+  git:
+    checkout:
+      ref:
+        branch: env/prod
+    commit:
+      author:
+        name: FluxCD
+        email: flux@example.com
+      messageTemplate: "chore: update rocket image"
+    push:
+      branch: env/prod
+  update:
+    path: ./terraform/rocket-k8s/apps
+    strategy: Setters

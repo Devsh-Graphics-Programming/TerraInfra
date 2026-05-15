@@ -46,6 +46,10 @@ The expected behavior is that a copied attachment URL cannot be opened from a br
 
 Rocket.Chat is operated as a self-hosted DevSH service. Chat messages, users, rooms, and file uploads stay in the local MongoDB deployment on `prod-rocket-01`.
 
+The application image is built from the DevSH `devsh` branch of the Rocket.Chat fork as a FOSS build. The build runs `yarn fossify` before producing the Docker image, and the DevSH branch disables the air-gapped read-only restriction path for this isolated self-hosted deployment.
+
+The fork publishes immutable tags in the `devsh-YYYYMMDDHHMMSS-<sha>` format to `ghcr.io/devsh-graphics-programming/rocketchat-foss`. Flux image automation watches that repository, updates the HelmRelease tag, commits the tag bump to `env/prod`, and reconciles the rollout.
+
 The deployment disables Rocket.Chat cloud registration, usage statistics reporting, push notification gateway integration, and the marketplace endpoint:
 
 - `Register_Server=false`
@@ -56,6 +60,8 @@ The deployment disables Rocket.Chat cloud registration, usage statistics reporti
 - `Push_enable_gateway=false`
 
 Cloud and marketplace URLs are pointed at a local unroutable endpoint. The `rocket-privacy-guard` CronJob also enforces the same settings in MongoDB and keeps the setup wizard completed so the cloud registration wizard does not reappear after restarts.
+
+Deployment fingerprint changes are auto-accepted as regular configuration updates with `AUTO_ACCEPT_FINGERPRINT=true`. This prevents admin-only workspace identity prompts after expected Flux, URL, or MongoDB connection changes.
 
 ## Data
 

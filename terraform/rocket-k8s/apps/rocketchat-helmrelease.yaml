@@ -40,7 +40,8 @@ spec:
     replicaCount: 1
     minAvailable: 0
     image:
-      tag: 8.4.1
+      repository: ghcr.io/devsh-graphics-programming/rocketchat-foss
+      tag: devsh-20260515154933-81bfdfcfaa61 # {"$imagepolicy": "flux-system:rocketchat-foss:tag"}
     extraSecret: rocket-bootstrap
     existingMongodbSecret: rocket-mongodb-uri
     mongodb:
@@ -163,6 +164,8 @@ spec:
       - name: OVERWRITE_SETTING_Statistics_reporting
         value: "false"
       - name: RC_DISABLE_STATISTICS_REPORTING
+        value: "true"
+      - name: AUTO_ACCEPT_FINGERPRINT
         value: "true"
       - name: OVERWRITE_SETTING_Push_enable
         value: "false"
