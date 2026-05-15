@@ -31,7 +31,7 @@ spec:
             - name: PATH
               value: /opt/rocket-ops:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
             - name: ROCKET_URL
-              value: http://rocketchat:80
+              value: http://rocketchat-rocketchat:80
             - name: ROCKET_PUBLIC_URL
               value: https://rocketchat.devsh.eu
             - name: ROCKET_INVITE_SUBJECT
