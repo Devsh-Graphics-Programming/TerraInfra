@@ -41,7 +41,7 @@ spec:
     minAvailable: 0
     image:
       repository: ghcr.io/devsh-graphics-programming/rocketchat-foss
-      tag: 8.4.1-devsh.20260515161617.0c170744457f # {"$imagepolicy": "flux-system:rocketchat-foss:tag"}
+      tag: 8.4.1-devsh.20260515183741.7cb0f989130d # {"$imagepolicy": "flux-system:rocketchat-foss:tag"}
     extraSecret: rocket-bootstrap
     existingMongodbSecret: rocket-mongodb-uri
     mongodb:
