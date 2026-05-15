@@ -12,6 +12,7 @@ Terraform keeps exactly one managed "daily" snapshot per prod data volume. The s
 Managed targets:
 - `node1-main` -> `devsh-k3s-prod-data-node1` (Kimai/node1 data)
 - `chat` -> `prod-chat-01-data` (StoatChat data)
+- `rocket` -> `prod-rocket-01-data` (Rocket.Chat data)
 - `jenkins` -> `jenkins-prod-data` (Jenkins home)
 - `observability` -> `prod-observability-01-data` (Grafana/monitoring data)
 - `vpn-control` -> `prod-vpn-control-01-data` (Authentik/Headscale data)
@@ -133,6 +134,7 @@ By default, restore drill uses the latest managed auto snapshot. Manual restore 
 Target checks:
 - `node1-main`: restored `/mnt/data` opens, MariaDB data starts locally, Kimai var data is present. The live Kimai node is not restarted and no production pod is touched.
 - `chat`: restored MongoDB, MinIO and RabbitMQ data start locally and respond to health checks.
+- `rocket`: restored local-path data root is present for Rocket.Chat and MongoDB.
 - `jenkins`: restored Jenkins home includes controller config, master key, plugins, the managed smoke job, the generic runner plan job, and the configured `ci/ditt` jobs; the restored controller starts locally, `/login` responds, and `/prometheus/` is present but requires authentication.
 - `observability`: restored Grafana and OnCall Grafana data start locally and `/api/health` responds; local-path data root is present.
 

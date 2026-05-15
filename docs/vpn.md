@@ -50,7 +50,7 @@ The reset email contains a single-use password reset link and the Headscale logi
 
 ## Service access model
 
-Private service URLs keep normal HTTPS names. `https://stoatchat.devsh.eu` is served over the tailnet at `100.64.0.1` for VPN clients.
+Private service URLs keep normal HTTPS names. `https://stoatchat.devsh.eu` and `https://rocketchat.devsh.eu` are served over the tailnet for VPN clients.
 
 For VPN users, Headscale DNS publishes private `A` records in `terraform/vpn-control-k8s/apps/headscale-config.yaml` so the same public hostname resolves to the service node's tailnet IP. Public DNS stays usable for certificate automation and external discovery, but service ports are closed at the cloud security group when a service is VPN-only.
 

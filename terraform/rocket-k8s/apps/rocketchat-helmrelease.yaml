@@ -1,0 +1,129 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: rocketchat-cert
+  namespace: rocket
+spec:
+  secretName: rocketchat-tls
+  dnsNames:
+    - rocketchat.devsh.eu
+  issuerRef:
+    name: letsencrypt-http
+    kind: ClusterIssuer
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: rocketchat
+  namespace: rocket
+spec:
+  interval: 10m
+  chart:
+    spec:
+      chart: rocketchat
+      version: 6.32.1
+      sourceRef:
+        kind: HelmRepository
+        name: rocketchat
+        namespace: flux-system
+      interval: 1h
+  releaseName: rocketchat
+  targetNamespace: rocket
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    host: rocketchat.devsh.eu
+    replicaCount: 1
+    minAvailable: 0
+    image:
+      tag: 8.4.1
+    extraSecret: rocket-bootstrap
+    existingMongodbSecret: rocket-mongodb-uri
+    mongodb:
+      enabled: false
+    postgresql:
+      enabled: false
+    nats:
+      enabled: false
+    smtp:
+      enabled: true
+      existingSecret: rocket-mail-url
+    persistence:
+      enabled: false
+    microservices:
+      enabled: false
+    podDisruptionBudget:
+      enabled: false
+    prometheusScraping:
+      enabled: true
+      port: 9100
+    serviceMonitor:
+      enabled: false
+    podMonitor:
+      enabled: false
+    ingress:
+      enabled: true
+      ingressClassName: nginx
+      path: /
+      pathType: Prefix
+      annotations:
+        nginx.ingress.kubernetes.io/proxy-body-size: 100m
+        nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+        nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+      tls:
+        - secretName: rocketchat-tls
+          hosts:
+            - rocketchat.devsh.eu
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1200Mi
+      limits:
+        cpu: "2"
+        memory: 2200Mi
+    livenessProbe:
+      enabled: true
+      path: /health
+      initialDelaySeconds: 180
+      periodSeconds: 30
+      timeoutSeconds: 5
+      failureThreshold: 10
+      successThreshold: 1
+    readinessProbe:
+      enabled: true
+      path: /health
+      initialDelaySeconds: 60
+      periodSeconds: 15
+      timeoutSeconds: 5
+      failureThreshold: 20
+      successThreshold: 1
+    extraEnv:
+      - name: MONGO_OPLOG_URL
+        valueFrom:
+          secretKeyRef:
+            name: rocket-mongodb-uri
+            key: mongo-oplog-uri
+      - name: OVERWRITE_SETTING_Show_Setup_Wizard
+        value: completed
+      - name: OVERWRITE_SETTING_Site_Name
+        value: DevSH Rocket.Chat
+      - name: OVERWRITE_SETTING_Accounts_RegistrationForm
+        value: Disabled
+      - name: OVERWRITE_SETTING_Accounts_PasswordReset
+        value: "true"
+      - name: OVERWRITE_SETTING_FileUpload_ProtectFiles
+        value: "true"
+      - name: OVERWRITE_SETTING_FileUpload_Restrict_to_room_members
+        value: "true"
+      - name: OVERWRITE_SETTING_FileUpload_Restrict_to_users_who_can_access_room
+        value: "false"
+      - name: OVERWRITE_SETTING_FileUpload_Enable_json_web_token_for_files
+        value: "false"
+      - name: OVERWRITE_SETTING_Cloud_Service_Agree_PrivacyTerms
+        value: "false"
+      - name: OVERWRITE_SETTING_Register_Server
+        value: "false"

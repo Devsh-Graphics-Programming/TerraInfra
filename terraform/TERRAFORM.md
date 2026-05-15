@@ -77,6 +77,8 @@
 | <a name="input_project_id"></a> [project\_id](#input\_project\_id) | Scaleway Project ID | `string` | n/a | yes |
 | <a name="input_public_ip_address"></a> [public\_ip\_address](#input\_public\_ip\_address) | Existing Flexible IP address to attach (alternative to public\_ip\_id). | `string` | `""` | no |
 | <a name="input_public_ip_id"></a> [public\_ip\_id](#input\_public\_ip\_id) | Existing Flexible IP ID to attach (leave empty to let Terraform create one). | `string` | `""` | no |
+| <a name="input_rocket_data_volume_size_gb"></a> [rocket\_data\_volume\_size\_gb](#input\_rocket\_data\_volume\_size\_gb) | Size of the dedicated Rocket.Chat data volume in GiB. | `number` | `20` | no |
+| <a name="input_rocket_instance_type"></a> [rocket\_instance\_type](#input\_rocket\_instance\_type) | Scaleway commercial type for the dedicated Rocket.Chat node. | `string` | `"DEV1-M"` | no |
 | <a name="input_sops_age_key"></a> [sops\_age\_key](#input\_sops\_age\_key) | Age private key used by Flux to decrypt SOPS-managed secrets (optional). | `string` | `""` | no |
 | <a name="input_swap_file"></a> [swap\_file](#input\_swap\_file) | Swap file path used during bootstrap. | `string` | `"/swapfile"` | no |
 | <a name="input_swap_size_gb"></a> [swap\_size\_gb](#input\_swap\_size\_gb) | Swap size in GiB for the node bootstrap. | `number` | `4` | no |
@@ -99,6 +101,8 @@
 | <a name="output_manual_snapshot_ids"></a> [manual\_snapshot\_ids](#output\_manual\_snapshot\_ids) | IDs of managed manual snapshots (empty when none are configured) |
 | <a name="output_observability_data_volume_id"></a> [observability\_data\_volume\_id](#output\_observability\_data\_volume\_id) | ID of the dedicated observability data volume |
 | <a name="output_observability_node_ip"></a> [observability\_node\_ip](#output\_observability\_node\_ip) | Public IP of the dedicated observability node |
+| <a name="output_rocket_data_volume_id"></a> [rocket\_data\_volume\_id](#output\_rocket\_data\_volume\_id) | ID of the dedicated Rocket.Chat data volume |
+| <a name="output_rocket_node_ip"></a> [rocket\_node\_ip](#output\_rocket\_node\_ip) | Public IP of the dedicated Rocket.Chat node |
 | <a name="output_store_bucket_host"></a> [store\_bucket\_host](#output\_store\_bucket\_host) | Object Storage host used by the static store proxy |
 | <a name="output_store_bucket_name"></a> [store\_bucket\_name](#output\_store\_bucket\_name) | Object Storage bucket used by the static store proxy |
 | <a name="output_vpn_control_data_volume_id"></a> [vpn\_control\_data\_volume\_id](#output\_vpn\_control\_data\_volume\_id) | ID of the dedicated VPN control-plane data volume |

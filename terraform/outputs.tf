@@ -65,6 +65,16 @@ output "chat_data_volume_id" {
   description = "ID of the dedicated StoatChat data volume"
 }
 
+output "rocket_node_ip" {
+  value       = scaleway_instance_ip.rocket.address
+  description = "Public IP of the dedicated Rocket.Chat node"
+}
+
+output "rocket_data_volume_id" {
+  value       = scaleway_block_volume.rocket_data.id
+  description = "ID of the dedicated Rocket.Chat data volume"
+}
+
 output "vpn_control_node_ip" {
   value       = scaleway_instance_ip.vpn_control.address
   description = "Public IP of the dedicated VPN control-plane node"

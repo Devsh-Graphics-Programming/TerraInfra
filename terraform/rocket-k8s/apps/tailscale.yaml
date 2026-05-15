@@ -1,0 +1,97 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tailscale-node
+  namespace: vpn-agent
+  labels:
+    app.kubernetes.io/name: tailscale-node
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tailscale-node
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tailscale-node
+    spec:
+      enableServiceLinks: false
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+        - name: tailscale
+          image: docker.io/tailscale/tailscale:v1.96.5
+          env:
+            - name: TS_AUTHKEY
+              valueFrom:
+                secretKeyRef:
+                  name: tailscale-auth
+                  key: TS_AUTHKEY
+            - name: TS_HOSTNAME
+              value: prod-rocket-01
+            - name: TS_STATE_DIR
+              value: /var/lib/tailscale
+            - name: TS_KUBE_SECRET
+              value: ""
+            - name: TS_USERSPACE
+              value: "false"
+            - name: TS_AUTH_ONCE
+              value: "true"
+            - name: TS_ACCEPT_DNS
+              value: "false"
+            - name: TS_ENABLE_HEALTH_CHECK
+              value: "true"
+            - name: TS_LOCAL_ADDR_PORT
+              value: 0.0.0.0:9002
+            - name: TS_EXPERIMENTAL_SERVICE_AUTO_ADVERTISEMENT
+              value: "false"
+            - name: TS_EXTRA_ARGS
+              value: --login-server=https://headscale.devsh.eu
+          ports:
+            - name: health
+              containerPort: 9002
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 18
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: state
+              mountPath: /var/lib/tailscale
+            - name: tun
+              mountPath: /dev/net/tun
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          securityContext:
+            capabilities:
+              add:
+                - NET_ADMIN
+                - NET_RAW
+            allowPrivilegeEscalation: false
+      volumes:
+        - name: state
+          hostPath:
+            path: /mnt/data/tailscale/prod-rocket-01
+            type: DirectoryOrCreate
+        - name: tun
+          hostPath:
+            path: /dev/net/tun
+            type: CharDevice

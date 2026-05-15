@@ -86,6 +86,18 @@ variable "chat_data_volume_size_gb" {
   default     = 10
 }
 
+variable "rocket_instance_type" {
+  type        = string
+  description = "Scaleway commercial type for the dedicated Rocket.Chat node."
+  default     = "DEV1-M"
+}
+
+variable "rocket_data_volume_size_gb" {
+  type        = number
+  description = "Size of the dedicated Rocket.Chat data volume in GiB."
+  default     = 20
+}
+
 variable "vpn_control_instance_type" {
   type        = string
   description = "Scaleway commercial type for the dedicated VPN control-plane node."

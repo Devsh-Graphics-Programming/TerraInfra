@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rocket-ops
+  namespace: rocket
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rocket-ops
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rocket-ops
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      containers:
+        - name: ops
+          image: docker.io/python:3.13-slim
+          command:
+            - /bin/sh
+            - -lc
+            - sleep infinity
+          envFrom:
+            - secretRef:
+                name: notification-smtp
+            - secretRef:
+                name: rocket-bootstrap
+          env:
+            - name: PATH
+              value: /opt/rocket-ops:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+            - name: ROCKET_URL
+              value: http://rocketchat:80
+            - name: ROCKET_PUBLIC_URL
+              value: https://rocketchat.devsh.eu
+            - name: ROCKET_INVITE_SUBJECT
+              value: DevSH Rocket.Chat access
+          volumeMounts:
+            - name: rocket-ops-scripts
+              mountPath: /opt/rocket-ops
+              readOnly: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+      volumes:
+        - name: rocket-ops-scripts
+          configMap:
+            name: rocket-ops-scripts
+            defaultMode: 0555

@@ -1,0 +1,365 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rocket-ops-scripts
+  namespace: rocket
+data:
+  rocket-invite: |
+    #!/usr/bin/env python3
+    import argparse
+    import json
+    import os
+    import re
+    import secrets
+    import smtplib
+    import ssl
+    import string
+    import sys
+    import time
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+    from email.message import EmailMessage
+    from html import escape
+
+
+    def die(message: str, code: int = 1) -> None:
+        print(f"error: {message}", file=sys.stderr)
+        raise SystemExit(code)
+
+
+    def env(name: str, default: str = "") -> str:
+        return os.environ.get(name, default).strip()
+
+
+    def required_env(name: str) -> str:
+        value = env(name)
+        if not value:
+            die(f"missing environment variable: {name}")
+        return value
+
+
+    def parse_json_response(response) -> dict:
+        raw = response.read().decode("utf-8", errors="replace")
+        if not raw:
+            return {}
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return {"raw": raw}
+
+
+    def http_request(method: str, path: str, data: dict | None = None, headers: dict | None = None) -> tuple[int, dict]:
+        base_url = required_env("ROCKET_URL").rstrip("/")
+        body = None
+        request_headers = {"Content-Type": "application/json"}
+        if headers:
+            request_headers.update(headers)
+        if data is not None:
+            body = json.dumps(data).encode("utf-8")
+
+        request = urllib.request.Request(
+            f"{base_url}{path}",
+            data=body,
+            headers=request_headers,
+            method=method,
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return response.status, parse_json_response(response)
+        except urllib.error.HTTPError as exc:
+            try:
+                payload = parse_json_response(exc)
+            except Exception:
+                payload = {"error": str(exc)}
+            return exc.code, payload
+
+
+    def login_with_retry() -> dict:
+        username = required_env("ADMIN_USERNAME")
+        password = required_env("ADMIN_PASS")
+        last_error = ""
+        for _ in range(60):
+            status, payload = http_request("POST", "/api/v1/login", {"user": username, "password": password})
+            if status == 200 and payload.get("status") == "success":
+                data = payload["data"]
+                return {
+                    "X-User-Id": data["userId"],
+                    "X-Auth-Token": data["authToken"],
+                }
+            last_error = payload.get("error") or payload.get("message") or str(payload)
+            time.sleep(5)
+        die(f"Rocket.Chat admin login failed: {last_error}")
+
+
+    def api(headers: dict, method: str, path: str, data: dict | None = None, ok_statuses: tuple[int, ...] = (200,)) -> dict:
+        status, payload = http_request(method, path, data, headers)
+        if status in ok_statuses and payload.get("success", True) is not False:
+            return payload
+        error = payload.get("error") or payload.get("errorType") or payload.get("message") or str(payload)
+        raise RuntimeError(f"{method} {path} failed: {error}")
+
+
+    def username_from_email(email: str) -> str:
+        local = email.split("@", 1)[0].lower()
+        username = re.sub(r"[^a-z0-9._-]+", ".", local).strip("._-")
+        return username or f"user{secrets.randbelow(100000)}"
+
+
+    def display_name_from_email(email: str) -> str:
+        local = email.split("@", 1)[0]
+        parts = re.split(r"[._-]+", local)
+        return " ".join(part.capitalize() for part in parts if part) or email
+
+
+    def random_password() -> str:
+        alphabet = string.ascii_letters + string.digits
+        return "".join(secrets.choice(alphabet) for _ in range(28))
+
+
+    def user_info(headers: dict, username: str) -> dict | None:
+        query = urllib.parse.urlencode({"username": username})
+        status, payload = http_request("GET", f"/api/v1/users.info?{query}", headers=headers)
+        if status == 200 and payload.get("success") is True:
+            return payload.get("user")
+        return None
+
+
+    def email_matches(user: dict, email: str) -> bool:
+        expected = email.lower()
+        for item in user.get("emails", []) or []:
+            if (item.get("address") or "").lower() == expected:
+                return True
+        return False
+
+
+    def ensure_admin_role(headers: dict, username: str) -> None:
+        try:
+            api(headers, "POST", "/api/v1/roles.addUserToRole", {"username": username, "roleId": "admin"})
+        except RuntimeError as exc:
+            if "already-in-role" not in str(exc):
+                raise
+
+
+    def create_or_update_user(headers: dict, email: str, role: str) -> tuple[str, str | None, bool]:
+        username = username_from_email(email)
+        existing = user_info(headers, username)
+        if existing:
+            if not email_matches(existing, email):
+                die(f"username {username!r} exists but does not belong to {email}")
+            if role == "admin":
+                ensure_admin_role(headers, username)
+            return username, None, False
+
+        password = random_password()
+        roles = ["user"]
+        if role == "admin":
+            roles.append("admin")
+        api(
+            headers,
+            "POST",
+            "/api/v1/users.create",
+            {
+                "email": email,
+                "name": display_name_from_email(email),
+                "password": password,
+                "username": username,
+                "active": True,
+                "roles": roles,
+                "joinDefaultChannels": True,
+                "requirePasswordChange": True,
+                "sendWelcomeEmail": False,
+                "verified": True,
+            },
+        )
+        return username, password, True
+
+
+    def split_host_port(value: str, default_port: int = 587) -> tuple[str, int]:
+        if ":" in value:
+            host, port = value.rsplit(":", 1)
+            return host, int(port)
+        return value, default_port
+
+
+    def build_plain_text(email: str, username: str, role: str, password: str | None, created: bool) -> str:
+        public_url = required_env("ROCKET_PUBLIC_URL").rstrip("/")
+        lines = [
+            "Hello,",
+            "",
+            "You have DevSH Rocket.Chat access.",
+            "",
+            f"Service URL: {public_url}",
+            f"Email: {email}",
+            f"Username: {username}",
+            f"Role: {role}",
+        ]
+        if password:
+            label = "Temporary password" if created else "Current bootstrap password"
+            lines.append(f"{label}: {password}")
+        else:
+            lines.append("Password: use your existing password or the password reset option on the login screen.")
+        lines.extend(
+            [
+                "",
+                "Next steps:",
+                "1. Connect to the DevSH VPN.",
+                "2. Open the Rocket.Chat URL above.",
+                "3. Log in with the username shown in this email.",
+                "4. Change the password after the first login if Rocket.Chat asks for it.",
+                "",
+                "If you did not expect this message, you can ignore this email.",
+            ]
+        )
+        return "\n".join(lines)
+
+
+    def build_html(email: str, username: str, role: str, password: str | None, created: bool) -> str:
+        public_url = required_env("ROCKET_PUBLIC_URL").rstrip("/")
+        password_row = ""
+        if password:
+            label = "Temporary password" if created else "Current bootstrap password"
+            password_row = f"""
+                            <tr>
+                              <td width="150" style="padding:5px 0;font-size:13px;line-height:1.5;color:#64748b;">{label}</td>
+                              <td style="padding:5px 0;font-size:14px;line-height:1.5;color:#111827;font-weight:700;word-break:break-all;">{escape(password)}</td>
+                            </tr>"""
+        else:
+            password_row = """
+                            <tr>
+                              <td width="150" style="padding:5px 0;font-size:13px;line-height:1.5;color:#64748b;">Password</td>
+                              <td style="padding:5px 0;font-size:14px;line-height:1.5;color:#111827;font-weight:700;">Use your existing password or password reset.</td>
+                            </tr>"""
+
+        return f"""<!doctype html>
+    <html lang="en">
+      <body style="margin:0;padding:0;background:#f6f7fb;color:#1f2430;font-family:Arial,sans-serif;">
+        <div style="display:none;max-height:0;overflow:hidden;color:#f6f7fb;">DevSH Rocket.Chat access. Connect to the DevSH VPN before opening Rocket.Chat.</div>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f6f7fb;padding:32px 12px;">
+          <tr>
+            <td align="center">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:620px;background:#ffffff;border:1px solid #e5e7ef;border-radius:8px;overflow:hidden;">
+                <tr>
+                  <td bgcolor="#0f172a" style="padding:24px 28px;background:#0f172a;">
+                    <p style="margin:0 0 8px 0;font-size:13px;line-height:1.5;color:#bfdbfe;">DevSH chat</p>
+                    <h1 style="margin:0;font-size:25px;line-height:1.25;color:#ffffff;">Rocket.Chat access</h1>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:26px 28px 22px 28px;">
+                    <p style="margin:0 0 20px 0;font-size:15px;line-height:1.6;color:#3f4656;">Your Rocket.Chat account is ready. Connect to the DevSH VPN first, then use the button below to open Rocket.Chat.</p>
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f8fafc;border:1px solid #dbe3ef;border-radius:8px;margin:0 0 22px 0;">
+                      <tr>
+                        <td style="padding:16px 18px;">
+                          <p style="margin:0 0 12px 0;font-size:15px;line-height:1.35;color:#111827;font-weight:700;">Account details</p>
+                          <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                            <tr>
+                              <td width="150" style="padding:5px 0;font-size:13px;line-height:1.5;color:#64748b;">Email</td>
+                              <td style="padding:5px 0;font-size:14px;line-height:1.5;color:#111827;font-weight:700;word-break:break-all;">{escape(email)}</td>
+                            </tr>
+                            <tr>
+                              <td width="150" style="padding:5px 0;font-size:13px;line-height:1.5;color:#64748b;">Username</td>
+                              <td style="padding:5px 0;font-size:14px;line-height:1.5;color:#111827;font-weight:700;word-break:break-all;">{escape(username)}</td>
+                            </tr>
+                            <tr>
+                              <td width="150" style="padding:5px 0;font-size:13px;line-height:1.5;color:#64748b;">Role</td>
+                              <td style="padding:5px 0;font-size:14px;line-height:1.5;color:#111827;font-weight:700;">{escape(role)}</td>
+                            </tr>{password_row}
+                            <tr>
+                              <td width="150" style="padding:5px 0;font-size:13px;line-height:1.5;color:#64748b;">Service URL</td>
+                              <td style="padding:5px 0;font-size:14px;line-height:1.5;color:#111827;font-weight:700;word-break:break-all;">{escape(public_url)}</td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </table>
+                    <table role="presentation" border="0" cellspacing="0" cellpadding="0" style="margin:0 0 24px 0;">
+                      <tr>
+                        <td align="center" bgcolor="#2563eb" style="background:#2563eb;border:1px solid #1d4ed8;border-radius:7px;mso-padding-alt:13px 20px;">
+                          <a href="{escape(public_url)}" style="display:block;background:#2563eb;border-radius:7px;color:#ffffff;text-decoration:none;font-size:15px;line-height:18px;font-weight:700;padding:13px 20px;">Open Rocket.Chat</a>
+                        </td>
+                      </tr>
+                    </table>
+                    <p style="margin:0 0 8px 0;font-size:13px;line-height:1.5;color:#6b7280;">If the button does not work, open this link:</p>
+                    <p style="margin:0 0 22px 0;font-size:13px;line-height:1.5;word-break:break-all;">
+                      <a href="{escape(public_url)}" style="color:#2563eb;">{escape(public_url)}</a>
+                    </p>
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;margin:0 0 22px 0;">
+                      <tr>
+                        <td style="padding:18px 18px 12px 18px;">
+                          <h2 style="margin:0 0 12px 0;font-size:16px;line-height:1.35;color:#111827;">Next steps</h2>
+                          <ol style="margin:0;padding-left:20px;color:#3f4656;font-size:14px;line-height:1.7;">
+                            <li>Connect to the DevSH VPN.</li>
+                            <li>Open Rocket.Chat with the button or link above.</li>
+                            <li>Log in with the username shown in this email.</li>
+                            <li>Change the password after the first login if Rocket.Chat asks for it.</li>
+                          </ol>
+                        </td>
+                      </tr>
+                    </table>
+                    <p style="margin:0;font-size:13px;line-height:1.6;color:#6b7280;">If you did not expect this message, you can ignore this email.</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </body>
+    </html>"""
+
+
+    def send_email(email: str, username: str, role: str, password: str | None, created: bool) -> None:
+        smtp_host, smtp_port = split_host_port(env("GF_SMTP_HOST", env("SMTP_HOST", "mail.devsh.eu:587")))
+        smtp_user = env("GF_SMTP_USER", env("SMTP_USERNAME"))
+        smtp_password = env("GF_SMTP_PASSWORD", env("SMTP_PASSWORD"))
+        smtp_from = env("GF_SMTP_FROM_ADDRESS", env("SMTP_FROM_ADDRESS"))
+        smtp_from_name = env("GF_SMTP_FROM_NAME", "DevSH Rocket.Chat")
+        if not smtp_user or not smtp_password or not smtp_from:
+            die("SMTP is not configured")
+
+        subject = env("ROCKET_INVITE_SUBJECT", "DevSH Rocket.Chat access")
+        message = EmailMessage()
+        message["From"] = f"{smtp_from_name} <{smtp_from}>"
+        message["To"] = email
+        message["Subject"] = subject
+        message.set_content(build_plain_text(email, username, role, password, created))
+        message.add_alternative(build_html(email, username, role, password, created), subtype="html")
+
+        context = ssl.create_default_context()
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as smtp:
+            smtp.starttls(context=context)
+            smtp.login(smtp_user, smtp_password)
+            smtp.send_message(message)
+
+
+    def main() -> None:
+        parser = argparse.ArgumentParser(description="Create or update Rocket.Chat access and send the DevSH access email.")
+        parser.add_argument("email")
+        parser.add_argument("--role", choices=["member", "admin"], default="member")
+        parser.add_argument("--send-bootstrap-password", action="store_true")
+        parser.add_argument("--dry-run", action="store_true")
+        args = parser.parse_args()
+
+        if not re.match(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$", args.email):
+            die("invalid email address", 64)
+
+        username = username_from_email(args.email)
+        if args.dry_run:
+            print(f"dry-run: would ensure {args.role} access for {args.email} as {username}")
+            return
+
+        api_headers = login_with_retry()
+        api_role = "admin" if args.role == "admin" else "member"
+        username, password, created = create_or_update_user(api_headers, args.email, api_role)
+
+        if not password and args.send_bootstrap_password:
+            admin_email = env("ADMIN_EMAIL").lower()
+            if admin_email and args.email.lower() == admin_email:
+                password = required_env("ADMIN_PASS")
+
+        send_email(args.email, username, api_role, password, created)
+        print(f"Rocket.Chat access email sent to {args.email}.")
+
+
+    if __name__ == "__main__":
+        main()

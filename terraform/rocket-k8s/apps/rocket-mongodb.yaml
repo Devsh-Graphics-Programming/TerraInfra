@@ -1,0 +1,78 @@
+apiVersion: mongodbcommunity.mongodb.com/v1
+kind: MongoDBCommunity
+metadata:
+  name: rocket-mongodb
+  namespace: rocket
+spec:
+  members: 1
+  type: ReplicaSet
+  version: "8.0.6"
+  security:
+    authentication:
+      modes:
+        - SCRAM
+  users:
+    - name: rocketchat
+      db: admin
+      passwordSecretRef:
+        name: rocket-mongodb-user-password
+      roles:
+        - name: readWrite
+          db: rocketchat
+        - name: dbAdmin
+          db: rocketchat
+        - name: read
+          db: local
+      scramCredentialsSecretName: rocket-mongodb-user-scram
+      connectionStringSecretName: rocket-mongodb-connection
+  additionalMongodConfig:
+    storage.wiredTiger.engineConfig.cacheSizeGB: 0.75
+  statefulSet:
+    spec:
+      volumeClaimTemplates:
+        - metadata:
+            name: data-volume
+          spec:
+            storageClassName: local-path
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 14Gi
+        - metadata:
+            name: logs-volume
+          spec:
+            storageClassName: local-path
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 2Gi
+      template:
+        spec:
+          containers:
+            - name: mongod
+              resources:
+                requests:
+                  cpu: 250m
+                  memory: 768Mi
+                limits:
+                  cpu: "1"
+                  memory: 1536Mi
+            - name: mongodb-agent
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 192Mi
+                limits:
+                  cpu: 500m
+                  memory: 384Mi
+          initContainers:
+            - name: mongodb-agent-readinessprobe
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 64Mi
+                limits:
+                  cpu: 500m
+                  memory: 128Mi
