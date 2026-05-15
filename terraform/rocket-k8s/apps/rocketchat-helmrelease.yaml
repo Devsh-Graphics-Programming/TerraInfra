@@ -115,6 +115,14 @@ spec:
         value: Disabled
       - name: OVERWRITE_SETTING_Accounts_PasswordReset
         value: "true"
+      - name: OVERWRITE_SETTING_Accounts_TwoFactorAuthentication_Enabled
+        value: "true"
+      - name: OVERWRITE_SETTING_Accounts_TwoFactorAuthentication_By_TOTP_Enabled
+        value: "true"
+      - name: OVERWRITE_SETTING_Accounts_TwoFactorAuthentication_By_Email_Enabled
+        value: "true"
+      - name: OVERWRITE_SETTING_Accounts_TwoFactorAuthentication_By_Email_Auto_Opt_In
+        value: "false"
       - name: OVERWRITE_SETTING_FileUpload_ProtectFiles
         value: "true"
       - name: OVERWRITE_SETTING_FileUpload_Restrict_to_room_members

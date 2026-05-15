@@ -27,6 +27,8 @@ The command creates or updates the Rocket.Chat user, assigns the requested role,
 
 `rocket-ops` authenticates to Rocket.Chat with a dedicated technical bootstrap admin account. Human admins are separate users created through `rocket-invite`; do not reuse a human account as the bootstrap account.
 
+Two-factor authentication is available for users to enable themselves, but email 2FA auto opt-in is disabled. A newly invited user must be able to sign in with the bootstrap password from the access email without an automatic 2FA prompt.
+
 ## Attachments
 
 Rocket.Chat file access is handled by the application. The deployment keeps these settings enabled:
