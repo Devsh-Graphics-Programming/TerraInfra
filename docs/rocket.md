@@ -48,7 +48,7 @@ Rocket.Chat is operated as a self-hosted DevSH service. Chat messages, users, ro
 
 The application image is built from the DevSH `devsh` branch of the Rocket.Chat fork as a FOSS build. The build runs `yarn fossify` before producing the Docker image, and the DevSH branch disables the air-gapped read-only restriction path for this isolated self-hosted deployment.
 
-The fork publishes immutable tags in the `devsh-YYYYMMDDHHMMSS-<sha>` format to `ghcr.io/devsh-graphics-programming/rocketchat-foss`. Flux image automation watches that repository, updates the HelmRelease tag, commits the tag bump to `env/prod`, and reconciles the rollout.
+The fork publishes immutable semver-compatible tags in the `<rocket-version>-devsh.YYYYMMDDHHMMSS.<sha>` format to `ghcr.io/devsh-graphics-programming/rocketchat-foss`. Flux image automation watches that repository, updates the HelmRelease tag, commits the tag bump to `env/prod`, and reconciles the rollout. The tag must stay semver-compatible because the upstream Helm chart uses `.Values.image.tag` in chart semver checks.
 
 The deployment disables Rocket.Chat cloud registration, usage statistics reporting, push notification gateway integration, and the marketplace endpoint:
 

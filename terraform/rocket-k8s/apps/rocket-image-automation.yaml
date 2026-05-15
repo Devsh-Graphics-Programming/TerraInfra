@@ -16,7 +16,7 @@ spec:
   imageRepositoryRef:
     name: rocketchat-foss
   filterTags:
-    pattern: "^devsh-(?P<ts>[0-9]{14})-[0-9a-f]+$"
+    pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+-devsh\\.(?P<ts>[0-9]{14})\\.[0-9a-f]+$"
     extract: "$ts"
   policy:
     alphabetical:
