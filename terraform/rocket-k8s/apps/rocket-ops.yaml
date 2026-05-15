@@ -12,6 +12,8 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: rocket-ops
+      annotations:
+        ops.devsh.eu/bootstrap-account: rocket.ops
     spec:
       automountServiceAccountToken: false
       enableServiceLinks: false

@@ -364,11 +364,6 @@ data:
         api_role = "admin" if args.role == "admin" else "member"
         username, password, created = create_or_update_user(api_headers, args.email, api_role)
 
-        if not password and args.send_bootstrap_password:
-            admin_email = env("ADMIN_EMAIL").lower()
-            if admin_email and args.email.lower() == admin_email:
-                password = required_env("ADMIN_PASS")
-
         send_email(args.email, username, api_role, password, created)
         print(f"Rocket.Chat access email sent to {args.email}.")
 

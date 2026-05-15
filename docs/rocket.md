@@ -25,6 +25,8 @@ k3s kubectl -n rocket exec deploy/rocket-ops -- rocket-invite admin@example.com 
 
 The command creates or updates the Rocket.Chat user, assigns the requested role, and sends a custom DevSH access email through the shared notification SMTP credentials. Temporary passwords are not printed to stdout.
 
+`rocket-ops` authenticates to Rocket.Chat with a dedicated technical bootstrap admin account. Human admins are separate users created through `rocket-invite`; do not reuse a human account as the bootstrap account.
+
 ## Attachments
 
 Rocket.Chat file access is handled by the application. The deployment keeps these settings enabled:
@@ -65,7 +67,7 @@ Persistent data lives under `/mnt/data/local-path` through the local-path provis
 
 Secrets are SOPS-encrypted in the repo:
 
-- Rocket.Chat bootstrap admin
+- Rocket.Chat bootstrap admin service account
 - Rocket.Chat MongoDB connection strings
 - MongoDB application user password
 - Rocket.Chat SMTP URL
