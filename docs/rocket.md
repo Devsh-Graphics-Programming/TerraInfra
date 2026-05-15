@@ -36,6 +36,21 @@ Rocket.Chat file access is handled by the application. The deployment keeps thes
 
 The expected behavior is that a copied attachment URL cannot be opened from a browser session that is not authenticated and authorized for the room. Do not add an infra media gateway unless this application-level behavior regresses.
 
+## Privacy
+
+Rocket.Chat is operated as a self-hosted DevSH service. Chat messages, users, rooms, and file uploads stay in the local MongoDB deployment on `prod-rocket-01`.
+
+The deployment disables Rocket.Chat cloud registration, usage statistics reporting, push notification gateway integration, and the marketplace endpoint:
+
+- `Register_Server=false`
+- `Cloud_Service_Agree_PrivacyTerms=false`
+- `Statistics_reporting=false`
+- `RC_DISABLE_STATISTICS_REPORTING=true`
+- `Push_enable=false`
+- `Push_enable_gateway=false`
+
+Cloud and marketplace URLs are pointed at a local unroutable endpoint. The `rocket-privacy-guard` CronJob also enforces the same settings in MongoDB and keeps the setup wizard completed so the cloud registration wizard does not reappear after restarts.
+
 ## Data
 
 MongoDB is deployed as a single-member replica set through MongoDB Community Operator. Rocket.Chat uses authenticated MongoDB credentials and GridFS-backed file storage by default.

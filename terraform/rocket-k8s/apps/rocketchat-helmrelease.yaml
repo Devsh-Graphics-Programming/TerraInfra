@@ -127,3 +127,19 @@ spec:
         value: "false"
       - name: OVERWRITE_SETTING_Register_Server
         value: "false"
+      - name: OVERWRITE_SETTING_Statistics_reporting
+        value: "false"
+      - name: RC_DISABLE_STATISTICS_REPORTING
+        value: "true"
+      - name: OVERWRITE_SETTING_Push_enable
+        value: "false"
+      - name: OVERWRITE_SETTING_Push_enable_gateway
+        value: "false"
+      - name: OVERWRITE_SETTING_Cloud_Url
+        value: http://127.0.0.1:9
+      - name: OVERWRITE_SETTING_Cloud_Billing_Url
+        value: http://127.0.0.1:9
+      - name: OVERWRITE_SETTING_Cloud_Workspace_Registration_Client_Uri
+        value: http://127.0.0.1:9
+      - name: OVERWRITE_INTERNAL_MARKETPLACE_URL
+        value: http://127.0.0.1:9

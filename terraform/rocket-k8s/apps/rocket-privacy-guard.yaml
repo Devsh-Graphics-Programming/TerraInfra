@@ -1,0 +1,73 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: rocket-privacy-guard
+  namespace: rocket
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 600
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: guard
+              image: docker.io/mongodb/mongodb-community-server:8.0.6-ubi8
+              command:
+                - /bin/sh
+                - -lc
+                - |
+                  mongosh "$MONGO_URI" --quiet <<'JS'
+                  const settings = db.rocketchat_settings;
+                  const now = new Date();
+                  const desired = {
+                    Show_Setup_Wizard: "completed",
+                    Register_Server: false,
+                    Cloud_Service_Agree_PrivacyTerms: false,
+                    Statistics_reporting: false,
+                    Push_enable: false,
+                    Push_enable_gateway: false,
+                    Organization_Name: "",
+                    Industry: "",
+                    Size: "",
+                    Country: "",
+                    Website: "",
+                    Cloud_Url: "http://127.0.0.1:9",
+                    Cloud_Billing_Url: "http://127.0.0.1:9",
+                    Cloud_Workspace_Registration_Client_Uri: "http://127.0.0.1:9",
+                    Cloud_Workspace_Id: "",
+                    Cloud_Workspace_Name: "",
+                    Cloud_Workspace_Client_Id: "",
+                    Cloud_Workspace_Client_Secret: "",
+                    Cloud_Workspace_Client_Secret_Expires_At: 0,
+                    Cloud_Workspace_PublicKey: "",
+                    Cloud_Workspace_License: "",
+                    Cloud_Workspace_Had_Trial: false,
+                    Cloud_Sync_Announcement_Payload: "null"
+                  };
+
+                  for (const [id, value] of Object.entries(desired)) {
+                    settings.updateOne({ _id: id }, { $set: { value, updatedAt: now } });
+                  }
+
+                  db.rocketchat_workspace_credentials.deleteMany({});
+                  db.rocketchat_statistics.updateMany({}, { $unset: { statsToken: "" } });
+                  print("rocket privacy guard applied");
+                  JS
+              env:
+                - name: MONGO_URI
+                  valueFrom:
+                    secretKeyRef:
+                      name: rocket-mongodb-uri
+                      key: mongo-uri
+              resources:
+                requests:
+                  cpu: 25m
+                  memory: 64Mi
+                limits:
+                  cpu: 250m
+                  memory: 256Mi
