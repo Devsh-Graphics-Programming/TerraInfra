@@ -167,7 +167,7 @@ data:
                 "active": True,
                 "roles": roles,
                 "joinDefaultChannels": True,
-                "requirePasswordChange": True,
+                "requirePasswordChange": False,
                 "sendWelcomeEmail": False,
                 "verified": True,
             },
