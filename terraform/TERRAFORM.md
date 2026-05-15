@@ -25,6 +25,7 @@
 | [scaleway_block_volume.chat_data](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/block_volume) | resource |
 | [scaleway_block_volume.jenkins_data](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/block_volume) | resource |
 | [scaleway_block_volume.observability_data](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/block_volume) | resource |
+| [scaleway_block_volume.rocket_data](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/block_volume) | resource |
 | [scaleway_block_volume.vpn_control_data](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/block_volume) | resource |
 | [scaleway_iam_api_key.store_publisher](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/iam_api_key) | resource |
 | [scaleway_iam_application.store_publisher](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/iam_application) | resource |
@@ -32,14 +33,17 @@
 | [scaleway_instance_ip.chat](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_ip) | resource |
 | [scaleway_instance_ip.jenkins](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_ip) | resource |
 | [scaleway_instance_ip.observability](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_ip) | resource |
+| [scaleway_instance_ip.rocket](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_ip) | resource |
 | [scaleway_instance_ip.vpn_control](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_ip) | resource |
 | [scaleway_instance_security_group.chat](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_security_group) | resource |
 | [scaleway_instance_security_group.jenkins](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_security_group) | resource |
 | [scaleway_instance_security_group.observability](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_security_group) | resource |
+| [scaleway_instance_security_group.rocket](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_security_group) | resource |
 | [scaleway_instance_security_group.vpn_control](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_security_group) | resource |
 | [scaleway_instance_server.chat](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_server) | resource |
 | [scaleway_instance_server.jenkins](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_server) | resource |
 | [scaleway_instance_server.observability](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_server) | resource |
+| [scaleway_instance_server.rocket](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_server) | resource |
 | [scaleway_instance_server.vpn_control](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_server) | resource |
 | [scaleway_object_bucket.luks_keys](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/object_bucket) | resource |
 | [scaleway_object_bucket.store](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/object_bucket) | resource |
