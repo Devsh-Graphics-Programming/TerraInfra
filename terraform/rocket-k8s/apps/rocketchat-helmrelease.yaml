@@ -123,6 +123,31 @@ spec:
         value: "true"
       - name: OVERWRITE_SETTING_Accounts_TwoFactorAuthentication_By_Email_Auto_Opt_In
         value: "false"
+      - name: OVERWRITE_SETTING_SMTP_Protocol
+        value: smtp
+      - name: OVERWRITE_SETTING_SMTP_Host
+        value: mail.devsh.eu
+      - name: OVERWRITE_SETTING_SMTP_Port
+        value: "587"
+      - name: OVERWRITE_SETTING_SMTP_IgnoreTLS
+        value: "false"
+      - name: OVERWRITE_SETTING_SMTP_Pool
+        value: "true"
+      - name: OVERWRITE_SETTING_SMTP_Username
+        valueFrom:
+          secretKeyRef:
+            name: notification-smtp
+            key: GF_SMTP_USER
+      - name: OVERWRITE_SETTING_SMTP_Password
+        valueFrom:
+          secretKeyRef:
+            name: notification-smtp
+            key: GF_SMTP_PASSWORD
+      - name: OVERWRITE_SETTING_From_Email
+        valueFrom:
+          secretKeyRef:
+            name: notification-smtp
+            key: GF_SMTP_FROM_ADDRESS
       - name: OVERWRITE_SETTING_FileUpload_ProtectFiles
         value: "true"
       - name: OVERWRITE_SETTING_FileUpload_Restrict_to_room_members

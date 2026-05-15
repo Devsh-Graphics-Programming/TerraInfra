@@ -29,6 +29,8 @@ The command creates or updates the Rocket.Chat user, assigns the requested role,
 
 Two-factor authentication is available for users to enable themselves, but email 2FA auto opt-in is disabled. A newly invited user must be able to sign in with the bootstrap password from the access email without an automatic 2FA prompt.
 
+Rocket.Chat SMTP is configured through the shared `notification-smtp` secret and explicit `SMTP_*` application settings. Do not rely on `MAIL_URL` alone because Rocket.Chat rebuilds that environment variable from its SMTP settings at runtime.
+
 ## Attachments
 
 Rocket.Chat file access is handled by the application. The deployment keeps these settings enabled:
