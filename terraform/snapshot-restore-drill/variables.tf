@@ -102,3 +102,9 @@ variable "result_endpoint" {
   description = "Object Storage endpoint used for sanitized restore drill status upload"
   default     = "https://s3.fr-par.scw.cloud"
 }
+
+variable "rocket_restore_expected_message" {
+  type        = string
+  description = "Optional Rocket.Chat general-channel message text expected in restored data."
+  default     = ""
+}

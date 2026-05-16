@@ -112,6 +112,7 @@ It runs daily after the managed snapshot job and can be started manually. Inputs
 - Terraform state bucket/key settings
 - `snapshot_source` (default `auto`; set to `manual` to restore a specific manual snapshot)
 - `manual_snapshot_name` (required only when `snapshot_source=manual`)
+- `expected_rocket_message` (optional; only for `rocket`, verifies that a specific `#general` message exists in the restored database)
 
 Before creating any verifier, the workflow runs a janitor that first destroys any leftover resources still tracked in the dedicated restore-drill Terraform state and then deletes only stale Scaleway resources that match all restore-drill safety gates: the project, the `devsh` and `restore-drill` tags, an allowed target tag/name, a `restore-drill-*` resource name where applicable, a non-current run tag, and the minimum age window. It does not delete production nodes, production volumes, snapshots, buckets, DNS, or any untagged resource.
 
@@ -134,7 +135,7 @@ By default, restore drill uses the latest managed auto snapshot. Manual restore 
 Target checks:
 - `node1-main`: restored `/mnt/data` opens, MariaDB data starts locally, Kimai var data is present. The live Kimai node is not restarted and no production pod is touched.
 - `chat`: restored MongoDB, MinIO and RabbitMQ data start locally and respond to health checks.
-- `rocket`: restored local-path data root is present for Rocket.Chat and MongoDB.
+- `rocket`: restored local-path data root is present, restored MongoDB starts from the snapshot, the Rocket.Chat `general` room exists, and the room contains restored user messages. Manual runs can also set `expected_rocket_message` to prove a specific message survived the snapshot.
 - `jenkins`: restored Jenkins home includes controller config, master key, plugins, the managed smoke job, the generic runner plan job, and the configured `ci/ditt` jobs; the restored controller starts locally, `/login` responds, and `/prometheus/` is present but requires authentication.
 - `observability`: restored Grafana and OnCall Grafana data start locally and `/api/health` responds; local-path data root is present.
 

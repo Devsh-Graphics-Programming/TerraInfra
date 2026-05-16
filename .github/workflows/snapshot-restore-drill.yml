@@ -37,6 +37,10 @@ on:
         description: "Manual snapshot key to restore when snapshot_source=manual"
         required: false
         default: ""
+      expected_rocket_message:
+        description: "Optional Rocket.Chat #general message text that must exist in restored data."
+        required: false
+        default: ""
 
 concurrency:
   group: snapshot-restore-drill-${{ github.ref_name }}
@@ -168,6 +172,7 @@ jobs:
       TF_VAR_result_object_key: terraform/snapshot-restore-drill/results/${{ github.run_id }}-${{ github.run_attempt }}/${{ matrix.target_key }}.json
       TF_VAR_result_region: ${{ github.event.inputs.tfstate_region || 'fr-par' }}
       TF_VAR_result_endpoint: ${{ github.event.inputs.tfstate_endpoint || 'https://s3.fr-par.scw.cloud' }}
+      TF_VAR_rocket_restore_expected_message: ${{ github.event.inputs.expected_rocket_message || '' }}
     defaults:
       run:
         shell: bash

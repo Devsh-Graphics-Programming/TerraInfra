@@ -6,6 +6,7 @@ resources:
   - storage-dirs.yaml
   - node-exporter.yaml
   - rocket-mongodb.yaml
+  - rocket-healthcheck.yaml
   - rocket-settings-guard.yaml
   - rocketchat-helmrelease.yaml
   - rocket-ops-scripts.yaml

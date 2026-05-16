@@ -168,7 +168,39 @@ run_container() {
 }
 
 cleanup_containers() {
-  docker rm -f drill-mongo drill-minio drill-rabbit drill-jenkins drill-grafana drill-oncall-grafana drill-mariadb >/dev/null 2>&1 || true
+  docker rm -f drill-mongo drill-minio drill-rabbit drill-jenkins drill-grafana drill-oncall-grafana drill-mariadb drill-rocket-mongo >/dev/null 2>&1 || true
+}
+
+decode_optional_b64() {
+  local value="${1:-}"
+  if [ -z "${value}" ]; then
+    return 0
+  fi
+  printf '%s' "${value}" | base64 -d 2>/dev/null || true
+}
+
+find_rocket_mongo_dbpath() {
+  local root="/mnt/data/local-path"
+  local path
+  [ -d "${root}" ] || return 1
+
+  while IFS= read -r path; do
+    case "${path}" in
+      *data-volume-rocket-mongodb-0*)
+        echo "${path}"
+        return 0
+        ;;
+    esac
+  done < <(find "${root}" -maxdepth 5 -type f -name WiredTiger -printf '%h\n' 2>/dev/null | sort)
+
+  while IFS= read -r path; do
+    if [ -f "${path}/_mdb_catalog.wt" ]; then
+      echo "${path}"
+      return 0
+    fi
+  done < <(find "${root}" -maxdepth 5 -type f -name WiredTiger -printf '%h\n' 2>/dev/null | sort)
+
+  return 1
 }
 
 run_mount_check() {
@@ -331,6 +363,87 @@ case "${TARGET_KEY}" in
     write_status "running" "checking Rocket.Chat restored data"
     require_path "/mnt/data/local-path"
     pass_check "local-path-data" "restored local-path data root exists"
+
+    PHASE="rocket-mongo"
+    write_status "running" "checking MongoDB from restored Rocket.Chat data"
+    rocket_mongo_dbpath="$(find_rocket_mongo_dbpath || true)"
+    if [ -z "${rocket_mongo_dbpath}" ]; then
+      fail "restored Rocket.Chat MongoDB data path was not found"
+    fi
+    pass_check "rocket-mongodb-data" "restored Rocket.Chat MongoDB data path exists"
+
+    run_container drill-rocket-mongo \
+      -p 127.0.0.1:27018:27017 \
+      -v "${rocket_mongo_dbpath}:/data/db" \
+      docker.io/mongo:8.0.6 \
+      --bind_ip_all \
+      --port 27017 \
+      --dbpath /data/db \
+      --setParameter diagnosticDataCollectionEnabled=false
+    wait_for_exec 300 docker exec drill-rocket-mongo mongosh "mongodb://127.0.0.1:27017/rocketchat?directConnection=true" --quiet --eval 'db.runCommand({ ping: 1 }).ok'
+    pass_check "rocket-mongodb-ping" "restored Rocket.Chat MongoDB ping succeeded"
+
+    cat > "${STATUS_DIR}/rocket-restore-check.js" <<'JS'
+    function fail(message, code) {
+      print(message);
+      quit(code || 1);
+    }
+
+    const rooms = db.rocketchat_room.countDocuments();
+    if (rooms < 1) {
+      fail("no Rocket.Chat rooms were restored", 2);
+    }
+
+    const general = db.rocketchat_room.findOne({ $or: [{ name: "general" }, { fname: "general" }] });
+    if (!general) {
+      fail("Rocket.Chat general room was not restored", 3);
+    }
+
+    const roomId = general._id;
+    const messageCount = db.rocketchat_message.countDocuments({ rid: roomId });
+    if (messageCount < 1) {
+      fail("Rocket.Chat general room has no restored messages", 4);
+    }
+
+    const userMessageCount = db.rocketchat_message.countDocuments({
+      rid: roomId,
+      msg: { $type: "string", $ne: "" },
+      t: { $exists: false },
+    });
+    if (userMessageCount < 1) {
+      fail("Rocket.Chat general room has no restored user messages", 5);
+    }
+
+    const expected = process.env.ROCKET_RESTORE_EXPECTED_MESSAGE || "";
+    if (expected) {
+      const expectedMessage = db.rocketchat_message.findOne({
+        rid: roomId,
+        msg: expected,
+      });
+      if (!expectedMessage) {
+        fail("expected Rocket.Chat general message was not found in restored data", 6);
+      }
+    }
+
+    printjson({
+      rooms,
+      generalMessages: messageCount,
+      generalUserMessages: userMessageCount,
+      expectedMessageFound: expected ? true : null,
+    });
+JS
+    docker cp "${STATUS_DIR}/rocket-restore-check.js" drill-rocket-mongo:/tmp/rocket-restore-check.js >/dev/null
+    rocket_expected_message="$(decode_optional_b64 "${ROCKET_RESTORE_EXPECTED_MESSAGE_B64:-}")"
+    if ! docker exec -e ROCKET_RESTORE_EXPECTED_MESSAGE="${rocket_expected_message}" drill-rocket-mongo \
+      mongosh "mongodb://127.0.0.1:27017/rocketchat?directConnection=true" --quiet /tmp/rocket-restore-check.js \
+      > "${STATUS_DIR}/rocket-mongo-check.log" 2>&1; then
+      fail "restored Rocket.Chat MongoDB content check failed" "$(log_excerpt "${STATUS_DIR}/rocket-mongo-check.log")"
+    fi
+    pass_check "rocket-general-room" "restored Rocket.Chat general room exists"
+    pass_check "rocket-general-messages" "restored Rocket.Chat general room contains user messages"
+    if [ -n "${rocket_expected_message}" ]; then
+      pass_check "rocket-expected-message" "expected Rocket.Chat general message exists in restored data"
+    fi
     ;;
 
   node1-main)

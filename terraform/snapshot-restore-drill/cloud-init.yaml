@@ -45,6 +45,7 @@ write_files:
       RESULT_OBJECT_KEY=${result_object_key}
       RESULT_REGION=${result_region}
       RESULT_ENDPOINT=${result_endpoint}
+      ROCKET_RESTORE_EXPECTED_MESSAGE_B64=${rocket_restore_expected_message_b64}
 
 runcmd:
   - systemctl enable --now docker

@@ -61,6 +61,33 @@ spec:
           annotations:
             summary: Flux reconciliation failed
             description: Flux resource {{ $labels.name }} in namespace {{ $labels.exported_namespace }} is not Ready.
+        - alert: RocketWorkspaceReadOnlyRisk
+          expr: rocket_workspace_airgapped_remaining_days{node="prod-rocket-01"} >= 0 and rocket_workspace_airgapped_remaining_days{node="prod-rocket-01"} <= 7
+          for: 5m
+          labels:
+            severity: critical
+            team: devops
+          annotations:
+            summary: Rocket.Chat read-only risk
+            description: Rocket.Chat reports air-gapped read-only risk. Remaining days is {{ $value }}.
+        - alert: RocketStatsTokenMissing
+          expr: rocket_workspace_stats_token_present{node="prod-rocket-01"} == 0
+          for: 10m
+          labels:
+            severity: critical
+            team: devops
+          annotations:
+            summary: Rocket.Chat stats token missing
+            description: Rocket.Chat does not have a stats token in MongoDB. The supported self-managed path may regress to read-only mode.
+        - alert: RocketAttachmentProtectionFailed
+          expr: rocket_synthetic_attachment_unauth_denied{node="prod-rocket-01"} == 0
+          for: 10m
+          labels:
+            severity: critical
+            team: devops
+          annotations:
+            summary: Rocket.Chat attachment protection failed
+            description: Rocket.Chat synthetic check could read an attachment without an authenticated session or could not verify the denial.
     - name: devsh-warning
       rules:
         - alert: CrashLoopBackOff
@@ -99,6 +126,42 @@ spec:
           annotations:
             summary: Jenkins metrics scrape down
             description: Central Prometheus cannot scrape Jenkins application metrics for more than 5 minutes.
+        - alert: RocketWorkspaceHealthcheckFailed
+          expr: rocket_workspace_health_success{node="prod-rocket-01"} == 0
+          for: 10m
+          labels:
+            severity: warning
+            team: devops
+          annotations:
+            summary: Rocket.Chat workspace healthcheck failed
+            description: Rocket.Chat workspace policy healthcheck is failing on prod-rocket-01.
+        - alert: RocketWorkspaceHealthcheckStale
+          expr: absent(rocket_workspace_health_last_run_timestamp_seconds{node="prod-rocket-01"}) or time() - rocket_workspace_health_last_run_timestamp_seconds{node="prod-rocket-01"} > 900
+          for: 5m
+          labels:
+            severity: warning
+            team: devops
+          annotations:
+            summary: Rocket.Chat workspace healthcheck stale
+            description: Rocket.Chat workspace health metrics have not refreshed for more than 15 minutes.
+        - alert: RocketSyntheticCheckFailed
+          expr: rocket_synthetic_success{node="prod-rocket-01"} == 0
+          for: 10m
+          labels:
+            severity: warning
+            team: devops
+          annotations:
+            summary: Rocket.Chat synthetic check failed
+            description: Rocket.Chat API synthetic login, message, or attachment check is failing.
+        - alert: RocketSyntheticCheckStale
+          expr: absent(rocket_synthetic_last_run_timestamp_seconds{node="prod-rocket-01"}) or time() - rocket_synthetic_last_run_timestamp_seconds{node="prod-rocket-01"} > 1200
+          for: 5m
+          labels:
+            severity: warning
+            team: devops
+          annotations:
+            summary: Rocket.Chat synthetic check stale
+            description: Rocket.Chat synthetic metrics have not refreshed for more than 20 minutes.
         - alert: JenkinsDataVolumeUsageHigh
           expr: (1 - (node_filesystem_avail_bytes{job="node-exporter",mountpoint="/mnt/data",fstype!~"tmpfs|ramfs"} / node_filesystem_size_bytes{job="node-exporter",mountpoint="/mnt/data",fstype!~"tmpfs|ramfs"})) * 100 >= 80
           for: 15m

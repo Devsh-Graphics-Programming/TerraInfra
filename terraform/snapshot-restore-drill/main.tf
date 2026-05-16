@@ -58,18 +58,19 @@ resource "scaleway_instance_server" "restore_drill" {
 
   user_data = {
     cloud-init = templatefile("${path.root}/cloud-init.yaml", {
-      ensure_data_mount_b64 = base64encode(file("${path.root}/../bootstrap/ensure-data-mount.sh"))
-      restore_drill_b64     = base64encode(file("${path.root}/scripts/restore-drill.sh"))
-      luks_key_access_key   = var.luks_key_access_key
-      luks_key_secret_key   = var.luks_key_secret_key
-      luks_key_url          = var.luks_key_url
-      result_bucket_name    = var.result_bucket_name
-      result_object_key     = var.result_object_key
-      result_region         = var.result_region
-      result_endpoint       = var.result_endpoint
-      ssh_public_key        = var.ssh_public_key
-      target_key            = var.target_key
-      run_id                = var.run_id
+      ensure_data_mount_b64               = base64encode(file("${path.root}/../bootstrap/ensure-data-mount.sh"))
+      restore_drill_b64                   = base64encode(file("${path.root}/scripts/restore-drill.sh"))
+      luks_key_access_key                 = var.luks_key_access_key
+      luks_key_secret_key                 = var.luks_key_secret_key
+      luks_key_url                        = var.luks_key_url
+      result_bucket_name                  = var.result_bucket_name
+      result_object_key                   = var.result_object_key
+      result_region                       = var.result_region
+      result_endpoint                     = var.result_endpoint
+      rocket_restore_expected_message_b64 = base64encode(var.rocket_restore_expected_message)
+      ssh_public_key                      = var.ssh_public_key
+      target_key                          = var.target_key
+      run_id                              = var.run_id
     })
   }
 

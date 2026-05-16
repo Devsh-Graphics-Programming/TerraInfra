@@ -81,12 +81,60 @@ Persistent data lives under `/mnt/data/local-path` through the local-path provis
 
 `prod-rocket-01` runs the same node-exporter DaemonSet as the other dedicated nodes. Terraform exposes port `9100` only to the observability node public IP.
 
+Rocket.Chat application health is exported through node-exporter textfile metrics. The Rocket node runs:
+
+- `rocket-mongo-healthcheck` every 5 minutes, reading MongoDB settings and the Rocket.Chat statistics token state.
+- `rocket-api-synthetic-check` every 10 minutes, logging in through the Rocket.Chat API, creating and deleting a synthetic message, uploading a temporary attachment, verifying unauthenticated attachment access is denied, and verifying authenticated attachment access works.
+
+The generated metrics are written under `/var/lib/node_exporter/textfile_collector` and scraped by central Prometheus through the existing node-exporter target. The key metrics are:
+
+- `rocket_workspace_health_success`
+- `rocket_workspace_stats_token_present`
+- `rocket_workspace_airgapped_remaining_days`
+- `rocket_workspace_read_only_risk`
+- `rocket_synthetic_success`
+- `rocket_synthetic_attachment_unauth_denied`
+
+Alert rules live in `terraform/k8s/monitoring-alerts/monitoring-alerts.tpl.yaml`. They page on Rocket.Chat read-only risk, missing stats token, failed or stale health checks, and attachment protection regression.
+
 Deployment checks:
 
 ```bash
 k3s kubectl -n rocket rollout status deploy/rocketchat-rocketchat
 k3s kubectl -n rocket get pods
 ```
+
+Manual healthcheck run:
+
+```bash
+k3s kubectl -n rocket create job --from=cronjob/rocket-mongo-healthcheck rocket-mongo-healthcheck-manual
+k3s kubectl -n rocket create job --from=cronjob/rocket-api-synthetic-check rocket-api-synthetic-check-manual
+k3s kubectl -n rocket logs job/rocket-mongo-healthcheck-manual
+k3s kubectl -n rocket logs job/rocket-api-synthetic-check-manual
+k3s kubectl -n rocket delete job/rocket-mongo-healthcheck-manual job/rocket-api-synthetic-check-manual
+```
+
+Node-exporter metrics check:
+
+```bash
+curl -s http://127.0.0.1:9100/metrics | grep '^rocket_'
+```
+
+The synthetic check uses the dedicated `rocket.ops` bootstrap admin account. It does not use a human admin account and does not print secrets.
+
+## Restore Drill
+
+The `rocket` snapshot target is included in the managed snapshot and restore-drill workflows. The restore drill creates a temporary verifier from a selected snapshot and does not touch the production Rocket.Chat node, DNS, ingress, or live MongoDB.
+
+Use `.github/workflows/snapshot-restore-drill.yml` with:
+
+```text
+target_names=rocket
+snapshot_source=auto
+```
+
+For a fresh manual snapshot, run the snapshots workflow first for `target_names=rocket`, then run the restore drill with `snapshot_source=manual` and the manual snapshot name.
+When validating a specific chat message, set `expected_rocket_message` to that exact `#general` message text. The workflow only reports whether it was found and does not print the message content in the sanitized result.
 
 ## Secrets
 
