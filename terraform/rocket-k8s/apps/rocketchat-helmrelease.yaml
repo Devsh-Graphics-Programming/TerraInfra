@@ -40,8 +40,8 @@ spec:
     replicaCount: 1
     minAvailable: 0
     image:
-      repository: ghcr.io/devsh-graphics-programming/rocketchat-foss
-      tag: 8.4.1-devsh
+      repository: registry.rocket.chat/rocketchat/rocket.chat
+      tag: 8.4.1
       pullPolicy: Always
     extraSecret: rocket-bootstrap
     existingMongodbSecret: rocket-mongodb-uri
@@ -113,6 +113,18 @@ spec:
         value: completed
       - name: OVERWRITE_SETTING_Site_Name
         value: DevSH Rocket.Chat
+      - name: OVERWRITE_SETTING_Site_Url
+        value: https://rocketchat.devsh.eu
+      - name: OVERWRITE_SETTING_Organization_Name
+        value: Devsh Graphics Programming
+      - name: OVERWRITE_SETTING_Industry
+        value: technologyServices
+      - name: OVERWRITE_SETTING_Size
+        value: "0"
+      - name: OVERWRITE_SETTING_Country
+        value: poland
+      - name: OVERWRITE_SETTING_Website
+        value: https://www.devsh.eu
       - name: OVERWRITE_SETTING_Accounts_RegistrationForm
         value: Disabled
       - name: OVERWRITE_SETTING_Accounts_PasswordReset
@@ -159,12 +171,8 @@ spec:
       - name: OVERWRITE_SETTING_FileUpload_Enable_json_web_token_for_files
         value: "false"
       - name: OVERWRITE_SETTING_Cloud_Service_Agree_PrivacyTerms
-        value: "false"
-      - name: OVERWRITE_SETTING_Register_Server
-        value: "false"
+        value: "true"
       - name: OVERWRITE_SETTING_Statistics_reporting
-        value: "false"
-      - name: RC_DISABLE_STATISTICS_REPORTING
         value: "true"
       - name: AUTO_ACCEPT_FINGERPRINT
         value: "true"
@@ -172,11 +180,3 @@ spec:
         value: "false"
       - name: OVERWRITE_SETTING_Push_enable_gateway
         value: "false"
-      - name: OVERWRITE_SETTING_Cloud_Url
-        value: http://127.0.0.1:9
-      - name: OVERWRITE_SETTING_Cloud_Billing_Url
-        value: http://127.0.0.1:9
-      - name: OVERWRITE_SETTING_Cloud_Workspace_Registration_Client_Uri
-        value: http://127.0.0.1:9
-      - name: OVERWRITE_INTERNAL_MARKETPLACE_URL
-        value: http://127.0.0.1:9

@@ -8,7 +8,7 @@ Hosts:
 - Prod app node: `devsh.eu`, `www.devsh.eu`, `blog.devsh.eu`, `kimai2.devsh.eu`, `store.devsh.eu`, `flux-hook.devsh.eu`, `k8s.devsh.eu`
 - Prod observability node: `monitoring.devsh.eu`, `oncall.devsh.eu`
 - Prod chat node: `stoatchat.devsh.eu`
-- Prod Rocket.Chat node: `rocketchat.devsh.eu`, `rocket-flux-hook.devsh.eu`
+- Prod Rocket.Chat node: `rocketchat.devsh.eu`
 - Prod CI node: `jenkins.devsh.eu`
 - Prod VPN control node: `auth.devsh.eu`, `headscale.devsh.eu`
 - Test: prefixed equivalents (`test.www.devsh.eu`, etc.) - update to current test IP

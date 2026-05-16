@@ -2,7 +2,7 @@
 
 Container services that publish mutable channel tags use this production model:
 
-1. The application repository builds and pushes an immutable audit tag plus a stable channel tag such as `latest` or `8.4.1-devsh`.
+1. The application repository builds and pushes an immutable audit tag plus a stable channel tag such as `latest`.
 2. Kubernetes manifests point at the stable channel tag and set `imagePullPolicy: Always`.
 3. The cluster exposes a Flux `Receiver` for image webhooks, backed by an HMAC secret. The repository that publishes the image sends GitHub package webhooks to that receiver so Flux image-reflector can rescan immediately.
 4. A small digest rollout job compares the live pod image digest with the registry digest for the stable tag. If the digest changed, it patches a deployment pod-template annotation and lets Kubernetes perform a normal rollout.

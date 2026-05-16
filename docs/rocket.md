@@ -46,22 +46,28 @@ The expected behavior is that a copied attachment URL cannot be opened from a br
 
 Rocket.Chat is operated as a self-hosted DevSH service. Chat messages, users, rooms, and file uploads stay in the local MongoDB deployment on `prod-rocket-01`.
 
-The application image is built from the DevSH `devsh` branch of the Rocket.Chat fork as a FOSS build. The build runs `yarn fossify` before producing the Docker image, and the DevSH branch disables the air-gapped read-only restriction path for this isolated self-hosted deployment.
+The application runs from the official Rocket.Chat image:
 
-The fork publishes immutable semver-compatible tags in the `<rocket-version>-devsh.YYYYMMDDHHMMSS.<sha>` format and also updates the stable `<rocket-version>-devsh` channel tag in `ghcr.io/devsh-graphics-programming/rocketchat-foss`. The HelmRelease tracks the stable `8.4.1-devsh` tag with `image.pullPolicy=Always`.
+```text
+registry.rocket.chat/rocketchat/rocket.chat:8.4.1
+```
 
-Rocket image rollouts do not commit tag bumps to TerraInfra. GitHub package webhooks hit the Rocket cluster Receiver on `rocket-flux-hook.devsh.eu` so Flux image-reflector rescans immediately. The `rocket-image-digest-rollout` CronJob and webhook runner compare the live pod digest with the current `8.4.1-devsh` registry digest and patch the deployment pod-template annotation when a rollout is needed. The CronJob is the fallback path if a webhook delivery is missed.
+Rocket.Chat source code is not patched for production. Version changes happen by changing the official image tag in the HelmRelease and letting Flux reconcile the deployment.
 
-The deployment disables Rocket.Chat cloud registration, usage statistics reporting, push notification gateway integration, and the marketplace endpoint:
+The deployment sends Rocket.Chat metadata and usage statistics to the official collector so the workspace follows the supported self-managed Starter path instead of the air-gapped read-only path. The committed metadata is:
 
-- `Register_Server=false`
-- `Cloud_Service_Agree_PrivacyTerms=false`
-- `Statistics_reporting=false`
-- `RC_DISABLE_STATISTICS_REPORTING=true`
+- `Organization_Name=Devsh Graphics Programming`
+- `Industry=technologyServices`
+- `Size=0` (1-10 people)
+- `Country=poland`
+- `Website=https://www.devsh.eu`
+
+The deployment keeps Rocket.Chat push gateway integration disabled:
+
 - `Push_enable=false`
 - `Push_enable_gateway=false`
 
-Cloud and marketplace URLs are pointed at a local unroutable endpoint. The `rocket-privacy-guard` CronJob also enforces the same settings in MongoDB and keeps the setup wizard completed so the cloud registration wizard does not reappear after restarts.
+The `rocket-settings-guard` CronJob enforces local policy settings in MongoDB, including setup wizard completion, file protection, account policy, metadata, and deployment fingerprint verification. It must not clear `Cloud_Workspace_*`, collector tokens, cloud URLs, registration data, or license data.
 
 Deployment fingerprint changes are auto-accepted as regular configuration updates with `AUTO_ACCEPT_FINGERPRINT=true`. This prevents admin-only workspace identity prompts after expected Flux, URL, or MongoDB connection changes.
 
@@ -75,13 +81,11 @@ Persistent data lives under `/mnt/data/local-path` through the local-path provis
 
 `prod-rocket-01` runs the same node-exporter DaemonSet as the other dedicated nodes. Terraform exposes port `9100` only to the observability node public IP.
 
-Image rollout checks:
+Deployment checks:
 
 ```bash
-k3s kubectl -n flux-system get imagerepository rocketchat-foss
-k3s kubectl -n flux-system get receiver rocketchat-foss-image
-k3s kubectl -n rocket create job --from=cronjob/rocket-image-digest-rollout rocket-image-digest-rollout-manual
-k3s kubectl -n rocket logs job/rocket-image-digest-rollout-manual
+k3s kubectl -n rocket rollout status deploy/rocketchat-rocketchat
+k3s kubectl -n rocket get pods
 ```
 
 ## Secrets

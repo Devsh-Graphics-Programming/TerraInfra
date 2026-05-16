@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: rocket-privacy-guard
+  name: rocket-settings-guard
   namespace: rocket
 spec:
   schedule: "*/5 * * * *"
@@ -26,45 +26,44 @@ spec:
                   const now = new Date();
                   const desired = {
                     Show_Setup_Wizard: "completed",
-                    Register_Server: false,
-                    Cloud_Service_Agree_PrivacyTerms: false,
-                    Statistics_reporting: false,
+                    Cloud_Service_Agree_PrivacyTerms: true,
+                    Statistics_reporting: true,
+                    Site_Name: "DevSH Rocket.Chat",
+                    Site_Url: "https://rocketchat.devsh.eu",
+                    Organization_Name: "Devsh Graphics Programming",
+                    Industry: "technologyServices",
+                    Size: "0",
+                    Country: "poland",
+                    Website: "https://www.devsh.eu",
+                    Accounts_RegistrationForm: "Disabled",
+                    Accounts_PasswordReset: true,
                     Accounts_TwoFactorAuthentication_Enabled: true,
                     Accounts_TwoFactorAuthentication_By_TOTP_Enabled: true,
                     Accounts_TwoFactorAuthentication_By_Email_Enabled: true,
                     Accounts_TwoFactorAuthentication_By_Email_Auto_Opt_In: false,
+                    SMTP_Protocol: "smtp",
+                    SMTP_Host: "mail.devsh.eu",
+                    SMTP_Port: "587",
+                    SMTP_IgnoreTLS: false,
+                    SMTP_Pool: true,
+                    FileUpload_ProtectFiles: true,
+                    FileUpload_Restrict_to_room_members: true,
+                    FileUpload_Restrict_to_users_who_can_access_room: false,
+                    FileUpload_Enable_json_web_token_for_files: false,
                     Push_enable: false,
                     Push_enable_gateway: false,
-                    Organization_Name: "",
-                    Industry: "",
-                    Size: "",
-                    Country: "",
-                    Website: "",
-                    Cloud_Url: "http://127.0.0.1:9",
-                    Cloud_Billing_Url: "http://127.0.0.1:9",
-                    Cloud_Workspace_Registration_Client_Uri: "http://127.0.0.1:9",
-                    Cloud_Workspace_Id: "",
-                    Cloud_Workspace_Name: "",
-                    Cloud_Workspace_Client_Id: "",
-                    Cloud_Workspace_Client_Secret: "",
-                    Cloud_Workspace_Client_Secret_Expires_At: 0,
-                    Cloud_Workspace_PublicKey: "",
-                    Cloud_Workspace_License: "",
-                    Cloud_Workspace_Had_Trial: false,
-                    Cloud_Sync_Announcement_Payload: "null"
+                    Deployment_FingerPrint_Verified: true
                   };
 
                   for (const [id, value] of Object.entries(desired)) {
                     settings.updateOne({ _id: id }, { $set: { value, updatedAt: now } });
                   }
 
-                  db.rocketchat_workspace_credentials.deleteMany({});
-                  db.rocketchat_statistics.updateMany({}, { $unset: { statsToken: "" } });
                   db.users.updateOne(
                     { username: "rocket.ops" },
                     { $unset: { "services.email2fa": "", "services.totp": "", "services.emailCode": "" } }
                   );
-                  print("rocket privacy guard applied");
+                  print("rocket settings guard applied");
                   JS
               env:
                 - name: MONGO_URI
