@@ -41,7 +41,7 @@ spec:
       priorityClassName: prod-app-critical
       containers:
         - name: website
-          image: ghcr.io/devsh-graphics-programming/www-website:latest # {"$imagepolicy": "flux-system:www-website:tag"}
+          image: ghcr.io/devsh-graphics-programming/www-website:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 3000
@@ -222,7 +222,7 @@ spec:
       priorityClassName: prod-app-critical
       containers:
         - name: blog
-          image: ghcr.io/devsh-graphics-programming/www-blog:latest # {"$imagepolicy": "flux-system:www-blog:tag"}
+          image: ghcr.io/devsh-graphics-programming/www-blog:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 3000

@@ -48,7 +48,9 @@ Rocket.Chat is operated as a self-hosted DevSH service. Chat messages, users, ro
 
 The application image is built from the DevSH `devsh` branch of the Rocket.Chat fork as a FOSS build. The build runs `yarn fossify` before producing the Docker image, and the DevSH branch disables the air-gapped read-only restriction path for this isolated self-hosted deployment.
 
-The fork publishes immutable semver-compatible tags in the `<rocket-version>-devsh.YYYYMMDDHHMMSS.<sha>` format to `ghcr.io/devsh-graphics-programming/rocketchat-foss`. Flux image automation watches that repository, updates the HelmRelease tag, commits the tag bump to `env/prod`, and reconciles the rollout. The tag must stay semver-compatible because the upstream Helm chart uses `.Values.image.tag` in chart semver checks.
+The fork publishes immutable semver-compatible tags in the `<rocket-version>-devsh.YYYYMMDDHHMMSS.<sha>` format and also updates the stable `devsh` channel tag in `ghcr.io/devsh-graphics-programming/rocketchat-foss`. The HelmRelease tracks the stable `devsh` tag with `image.pullPolicy=Always`.
+
+Rocket image rollouts do not commit tag bumps to TerraInfra. GitHub package webhooks hit the Rocket cluster Receiver on `rocket-flux-hook.devsh.eu` so Flux image-reflector rescans immediately. The `rocket-image-digest-rollout` CronJob and webhook runner compare the live pod digest with the current `devsh` registry digest and patch the deployment pod-template annotation when a rollout is needed. The CronJob is the fallback path if a webhook delivery is missed.
 
 The deployment disables Rocket.Chat cloud registration, usage statistics reporting, push notification gateway integration, and the marketplace endpoint:
 
@@ -72,6 +74,15 @@ Persistent data lives under `/mnt/data/local-path` through the local-path provis
 ## Monitoring
 
 `prod-rocket-01` runs the same node-exporter DaemonSet as the other dedicated nodes. Terraform exposes port `9100` only to the observability node public IP.
+
+Image rollout checks:
+
+```bash
+k3s kubectl -n flux-system get imagerepository rocketchat-foss
+k3s kubectl -n flux-system get receiver rocketchat-foss-image
+k3s kubectl -n rocket create job --from=cronjob/rocket-image-digest-rollout rocket-image-digest-rollout-manual
+k3s kubectl -n rocket logs job/rocket-image-digest-rollout-manual
+```
 
 ## Secrets
 

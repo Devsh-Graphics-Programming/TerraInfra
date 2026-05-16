@@ -7,42 +7,52 @@ spec:
   image: ghcr.io/devsh-graphics-programming/rocketchat-foss
   interval: 1m
 ---
-apiVersion: image.toolkit.fluxcd.io/v1
-kind: ImagePolicy
+apiVersion: v1
+kind: Secret
 metadata:
-  name: rocketchat-foss
+  name: github-webhook-token
   namespace: flux-system
-spec:
-  imageRepositoryRef:
-    name: rocketchat-foss
-  filterTags:
-    pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+-devsh\\.(?P<ts>[0-9]{14})\\.[0-9a-f]+$"
-    extract: "$ts"
-  policy:
-    alphabetical:
-      order: desc
+type: Opaque
+stringData:
+  token: "${GITHUB_WEBHOOK_SECRET}"
 ---
-apiVersion: image.toolkit.fluxcd.io/v1beta2
-kind: ImageUpdateAutomation
+apiVersion: notification.toolkit.fluxcd.io/v1
+kind: Receiver
 metadata:
-  name: rocket-images
+  name: rocketchat-foss-image
   namespace: flux-system
 spec:
-  interval: 1m
-  sourceRef:
-    kind: GitRepository
-    name: terralinfra
-  git:
-    checkout:
-      ref:
-        branch: env/prod
-    commit:
-      author:
-        name: FluxCD
-        email: flux@example.com
-      messageTemplate: "chore: update rocket image"
-    push:
-      branch: env/prod
-  update:
-    path: ./terraform/rocket-k8s/apps
-    strategy: Setters
+  type: github
+  events:
+    - ping
+    - package
+    - registry_package
+  secretRef:
+    name: github-webhook-token
+  resources:
+    - apiVersion: image.toolkit.fluxcd.io/v1
+      kind: ImageRepository
+      name: rocketchat-foss
+      namespace: flux-system
+  suspend: false
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rocket-flux-receiver
+  namespace: flux-system
+  annotations:
+    kubernetes.io/ingress.class: nginx
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: rocket-flux-hook.devsh.eu
+      http:
+        paths:
+          - path: /hook
+            pathType: Prefix
+            backend:
+              service:
+                name: notification-controller
+                port:
+                  number: 80

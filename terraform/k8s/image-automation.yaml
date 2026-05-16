@@ -8,21 +8,6 @@ spec:
   interval: 1m
 ---
 apiVersion: image.toolkit.fluxcd.io/v1
-kind: ImagePolicy
-metadata:
-  name: www-website
-  namespace: flux-system
-spec:
-  imageRepositoryRef:
-    name: www-website
-  filterTags:
-    pattern: "^sha-(?P<ts>.*)$"
-    extract: "$ts"
-  policy:
-    alphabetical:
-      order: desc
----
-apiVersion: image.toolkit.fluxcd.io/v1
 kind: ImageRepository
 metadata:
   name: www-blog
@@ -30,43 +15,3 @@ metadata:
 spec:
   image: ghcr.io/devsh-graphics-programming/www-blog
   interval: 1m
----
-apiVersion: image.toolkit.fluxcd.io/v1
-kind: ImagePolicy
-metadata:
-  name: www-blog
-  namespace: flux-system
-spec:
-  imageRepositoryRef:
-    name: www-blog
-  filterTags:
-    pattern: "^sha-(?P<ts>.*)$"
-    extract: "$ts"
-  policy:
-    alphabetical:
-      order: desc
----
-apiVersion: image.toolkit.fluxcd.io/v1beta2
-kind: ImageUpdateAutomation
-metadata:
-  name: www-images
-  namespace: flux-system
-spec:
-  interval: 1m
-  sourceRef:
-    kind: GitRepository
-    name: terralinfra
-  git:
-    checkout:
-      ref:
-        branch: env/prod
-    commit:
-      author:
-        name: FluxCD
-        email: flux@example.com
-      messageTemplate: "chore: update website/blog images"
-    push:
-      branch: env/prod
-  update:
-    path: ./terraform/k8s
-    strategy: Setters

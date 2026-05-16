@@ -3,6 +3,8 @@
 GitOps-first: manifests live in this repo, Flux syncs per branch (`env/prod`, `env/test`). Terraform only builds the node and bootstraps Flux; day-2 is Git-only. (Branch details: `docs/environments.md`. Fast-forward rules: `docs/how-to-commit.md`.)
 > Pushing to `env/prod` updates live prod. Pushing to `env/test` updates the test cluster.
 
+Container image rollouts use stable channel tags plus digest rollout jobs. Do not add per-image tag bump commits or cluster write access back to TerraInfra for routine image publication; see `docs/image-rollouts.md`.
+
 ### Prerequisites
 - Windows PowerShell
 - Terraform

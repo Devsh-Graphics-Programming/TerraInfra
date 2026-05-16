@@ -38,8 +38,8 @@ Notes
 - Alert rules live in `terraform/k8s/monitoring-alerts.tpl.yaml` (node readiness, disk/pvc pressure, CoreDNS/control-plane targets, Jenkins metrics scrape, Flux stalled/failed, CrashLoop, HPA max, etc.).
 
 ## Image digest rollout (www/blog)
-- Flux image automation resources live in `terraform/k8s/image-automation.yaml` (ImageRepository/ImagePolicy/ImageUpdateAutomation) and can update manifests in-repo when images are published as immutable tags.
-- Until that is fully relied on for `www/blog`, CronJob `digest-rollout` (namespace `website`) runs every 2m:
+- The general image rollout model is documented in `docs/image-rollouts.md`: stable channel tag, `imagePullPolicy: Always`, webhook-triggered image scans, and a digest rollout fallback.
+- CronJob `digest-rollout` (namespace `website`) runs every 2m:
   - reads latest digest for `www-website:latest` and `www-blog:latest`,
   - compares with deployment annotation,
   - if changed, patches the deployment annotation to force a restart.
