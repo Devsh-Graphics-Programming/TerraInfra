@@ -7,7 +7,6 @@ Manual for now (TODO: automate via DNS API):
 Hosts:
 - Prod app node: `devsh.eu`, `www.devsh.eu`, `blog.devsh.eu`, `kimai2.devsh.eu`, `store.devsh.eu`, `flux-hook.devsh.eu`, `k8s.devsh.eu`
 - Prod observability node: `monitoring.devsh.eu`, `oncall.devsh.eu`
-- Prod chat node: `stoatchat.devsh.eu`
 - Prod Rocket.Chat node: `rocketchat.devsh.eu`
 - Prod CI node: `jenkins.devsh.eu`
 - Prod VPN control node: `auth.devsh.eu`, `headscale.devsh.eu`
@@ -16,6 +15,6 @@ Hosts:
 Certs:
 - Let's Encrypt HTTP-01 via cert-manager. Ensure DNS points correctly; allow a few minutes for propagation. Kimai cert is subject to LE rate limits if hammered; retry after window if needed. After DNS change you can force re-issue per cert: `k3s kubectl -n <ns> delete order,challenge -l acme.cert-manager.io/certificate-name=<cert_name>`.
 
-VPN-only service hosts keep their public DNS records for ACME and operational clarity. Headscale DNS overrides the same hostnames for VPN clients with tailnet IP records from `terraform/vpn-control-k8s/apps/headscale-config.yaml`; `stoatchat.devsh.eu` and `rocketchat.devsh.eu` resolve to their service node tailnet IPs inside the tailnet.
+VPN-only service hosts keep their public DNS records for ACME and operational clarity. Headscale DNS overrides the same hostnames for VPN clients with tailnet IP records from `terraform/vpn-control-k8s/apps/headscale-config.yaml`; `rocketchat.devsh.eu` resolves to its service node tailnet IP inside the tailnet.
 
 Future: automate DNS updates via API (not yet wired).

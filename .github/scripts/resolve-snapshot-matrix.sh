@@ -27,11 +27,6 @@ default_snapshot_targets="$(jq -cn '{
     name_prefix: "devsh-k3s-prod-data",
     tags: ["node1", "kimai"]
   },
-  chat: {
-    volume_name: "prod-chat-01-data",
-    name_prefix: "prod-chat-01-data",
-    tags: ["chat", "stoatchat"]
-  },
   rocket: {
     volume_name: "prod-rocket-01-data",
     name_prefix: "prod-rocket-01-data",

@@ -26,7 +26,7 @@ require_env SNAPSHOTS_TFSTATE_REGION
 require_env TF_VAR_project_id
 
 ZONE="${RESTORE_DRILL_ZONE:-fr-par-1}"
-TARGET_KEYS_CSV="${RESTORE_DRILL_TARGET_KEYS:-chat,jenkins,node1-main,observability}"
+TARGET_KEYS_CSV="${RESTORE_DRILL_TARGET_KEYS:-jenkins,node1-main,observability,rocket,vpn-control}"
 MIN_AGE_HOURS="${RESTORE_DRILL_JANITOR_MIN_AGE_HOURS:-6}"
 CURRENT_RUN_ID="${RESTORE_DRILL_CURRENT_RUN_ID:-${GITHUB_RUN_ID:-manual}-${GITHUB_RUN_ATTEMPT:-0}}"
 PROJECT_ID="${TF_VAR_project_id}"

@@ -11,7 +11,6 @@ Terraform keeps exactly one managed "daily" snapshot per prod data volume. The s
 
 Managed targets:
 - `node1-main` -> `devsh-k3s-prod-data-node1` (Kimai/node1 data)
-- `chat` -> `prod-chat-01-data` (StoatChat data)
 - `rocket` -> `prod-rocket-01-data` (Rocket.Chat data)
 - `jenkins` -> `jenkins-prod-data` (Jenkins home)
 - `observability` -> `prod-observability-01-data` (Grafana/monitoring data)
@@ -90,7 +89,7 @@ Manual snapshots are separate from the rotating daily snapshot. They do not repl
 Use the `terraform-snapshots` workflow (`workflow_dispatch`) on branch `env/prod`.
 
 Inputs:
-- `target_names` (default `all`; comma-separated allowed, e.g. `chat,jenkins`)
+- `target_names` (default `all`; comma-separated allowed, e.g. `rocket,jenkins`)
 - `manual_ttl_hours` (default `24`)
 - `manual_snapshot_name` (optional) - keep it short and unique (e.g. `incident-2025-12-14`)
 
@@ -100,7 +99,7 @@ The run output prints only target keys and counts. Snapshot IDs, volume IDs, and
 From the dedicated snapshots root, initialize the target state first, then read outputs:
 ```
 cd terraform/snapshots
-terraform init -reconfigure -backend-config="key=terraform/snapshots/chat.tfstate" ...
+terraform init -reconfigure -backend-config="key=terraform/snapshots/rocket.tfstate" ...
 terraform output -json latest_snapshot_ids
 terraform output -json manual_snapshot_ids
 ```
@@ -109,7 +108,7 @@ terraform output -json manual_snapshot_ids
 The `snapshot-restore-drill` workflow (`.github/workflows/snapshot-restore-drill.yml`) verifies that the latest managed snapshots can be restored without touching production nodes or production workloads.
 
 It runs daily after the managed snapshot job and can be started manually. Inputs:
-- `target_names` (default `all`; comma-separated allowed, e.g. `chat,jenkins`)
+- `target_names` (default `all`; comma-separated allowed, e.g. `rocket,jenkins`)
 - `project_id`
 - Terraform state bucket/key settings
 - `snapshot_source` (default `auto`; set to `manual` to restore a specific manual snapshot)
@@ -136,12 +135,11 @@ By default, restore drill uses the latest managed auto snapshot. Manual restore 
 
 Target checks:
 - `node1-main`: restored `/mnt/data` opens, MariaDB data starts locally, Kimai var data is present. The live Kimai node is not restarted and no production pod is touched.
-- `chat`: restored MongoDB, MinIO and RabbitMQ data start locally and respond to health checks.
 - `rocket`: restored local-path data root is present, restored MongoDB starts from the snapshot, the Rocket.Chat `general` room exists, and the room contains restored user messages. Manual runs can also set `expected_rocket_message` to prove a specific message survived the snapshot.
 - `jenkins`: restored Jenkins home includes controller config, master key, plugins, the managed smoke job, the generic runner plan job, and the configured `ci/ditt` jobs; the restored controller starts locally, `/login` responds, and `/prometheus/` is present but requires authentication.
 - `observability`: restored Grafana and OnCall Grafana data start locally and `/api/health` responds; local-path data root is present.
 
-The restore drill intentionally does not reuse production DNS, ingress, cert-manager challenges, Flux alerting, or public service endpoints. This avoids duplicate alerts and avoids any interaction with live Kimai, StoatChat, Jenkins, or monitoring workloads.
+The restore drill intentionally does not reuse production DNS, ingress, cert-manager challenges, Flux alerting, or public service endpoints. This avoids duplicate alerts and avoids any interaction with live Kimai, Rocket.Chat, Jenkins, or monitoring workloads.
 Terraform output and apply logs are redacted before they are written to public CI logs. The matrix passed between jobs contains only target keys and instance types, not snapshot IDs.
 The temporary verifier uploads only sanitized status JSON (target, phase, message, check names, check statuses, check messages, and cleanup state) to the restore-drill state prefix so CI can report health checks without exposing temporary IPs or resource IDs.
 The workflow treats cleanup as part of the result: `destroy` must succeed and the per-target restore-drill Terraform state must be empty after cleanup. The janitor report contains counts only. It does not expose resource IDs, IPs, snapshot IDs, or provider response bodies in public logs or Discord messages.

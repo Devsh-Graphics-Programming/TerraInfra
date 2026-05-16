@@ -239,46 +239,6 @@ docker info >/dev/null
 pass_check "docker" "docker runtime is available"
 
 case "${TARGET_KEY}" in
-  chat)
-    PHASE="chat-mongo"
-    write_status "running" "checking MongoDB from restored chat data"
-    require_path "/mnt/data/stoat/self-hosted/data/db"
-    pass_check "mongodb-data" "restored MongoDB data path exists"
-    run_container drill-mongo \
-      -p 127.0.0.1:27017:27017 \
-      -v /mnt/data/stoat/self-hosted/data/db:/data/db \
-      docker.io/mongo
-    wait_for_exec 300 docker exec drill-mongo mongosh localhost:27017/test --quiet --eval 'db.runCommand("ping").ok'
-    pass_check "mongodb-ping" "MongoDB ping succeeded"
-
-    PHASE="chat-minio"
-    write_status "running" "checking MinIO from restored chat data"
-    require_path "/mnt/data/stoat/self-hosted/data/minio"
-    pass_check "minio-data" "restored MinIO data path exists"
-    run_container drill-minio \
-      -p 127.0.0.1:9000:9000 \
-      -e MINIO_ROOT_USER=restorecheck \
-      -e MINIO_ROOT_PASSWORD=restorecheck123 \
-      -e MINIO_DOMAIN=minio \
-      -v /mnt/data/stoat/self-hosted/data/minio:/data \
-      docker.io/minio/minio server /data
-    wait_for_http "http://127.0.0.1:9000/minio/health/ready" 300
-    pass_check "minio-health" "MinIO health endpoint is ready"
-
-    PHASE="chat-rabbit"
-    write_status "running" "checking RabbitMQ from restored chat data"
-    require_path "/mnt/data/stoat/self-hosted/data/rabbit"
-    pass_check "rabbitmq-data" "restored RabbitMQ data path exists"
-    run_container drill-rabbit \
-      --hostname rabbit-0 \
-      -p 127.0.0.1:5672:5672 \
-      -e RABBITMQ_NODENAME=rabbit@rabbit-0 \
-      -v /mnt/data/stoat/self-hosted/data/rabbit:/var/lib/rabbitmq \
-      docker.io/rabbitmq:4
-    wait_for_exec 300 docker exec drill-rabbit rabbitmq-diagnostics -q ping
-    pass_check "rabbitmq-ping" "RabbitMQ ping succeeded"
-    ;;
-
   jenkins)
     PHASE="jenkins"
     write_status "running" "checking Jenkins from restored home"

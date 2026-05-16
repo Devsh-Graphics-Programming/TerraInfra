@@ -17,7 +17,6 @@ This cluster is a single-node k3s setup, so one noisy workload can starve everyt
 
 ## Dedicated nodes
 - `prod-observability-01`: `DEV1-M`, central Grafana/Prometheus/OnCall.
-- `prod-chat-01`: `DEV1-M`, StoatChat.
 - `prod-rocket-01`: `DEV1-M`, Rocket.Chat pilot.
 - `prod-vpn-control-01`: `DEV1-M`, Authentik and Headscale.
 - `jenkins-prod`: `DEV1-S`, Jenkins controller.

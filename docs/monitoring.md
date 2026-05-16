@@ -5,7 +5,7 @@ Provisioning
 - Files live in repo: `terraform/k8s/grafana-dashboards/*.json`. Flux apps kustomization includes this folder; Grafana mounts it via `dashboardProviders`/`dashboardsConfigMaps`.
 - The dedicated observability cluster uses the GitOps tree under `terraform/observability-k8s/` and serves `monitoring.devsh.eu` and `oncall.devsh.eu`.
 - `prod-observability-01` is the central Prometheus/Grafana/OnCall node.
-- Host metrics from the app node, chat node, Rocket.Chat node, Jenkins node, and VPN control-plane node are scraped by the central Prometheus through `node_exporter`.
+- Host metrics from the app node, Rocket.Chat node, Jenkins node, and VPN control-plane node are scraped by the central Prometheus through `node_exporter`.
 - Rocket.Chat application health is scraped from the dedicated Rocket.Chat health exporter on the Rocket.Chat node. The checks cover workspace read-only risk, stats token presence, API login/message flow, and attachment URL protection.
 - Jenkins application metrics are scraped centrally from `https://jenkins.devsh.eu/prometheus/`; the Prometheus pod resolves that host directly to the Jenkins ingress address and authenticates with a dedicated SOPS-managed Jenkins metrics user.
 - Terraform security groups expose the metrics port only to the observability node public IP.

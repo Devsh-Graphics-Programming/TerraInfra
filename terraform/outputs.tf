@@ -55,16 +55,6 @@ output "observability_data_volume_id" {
   description = "ID of the dedicated observability data volume"
 }
 
-output "chat_node_ip" {
-  value       = scaleway_instance_ip.chat.address
-  description = "Public IP of the dedicated StoatChat node"
-}
-
-output "chat_data_volume_id" {
-  value       = scaleway_block_volume.chat_data.id
-  description = "ID of the dedicated StoatChat data volume"
-}
-
 output "rocket_node_ip" {
   value       = scaleway_instance_ip.rocket.address
   description = "Public IP of the dedicated Rocket.Chat node"

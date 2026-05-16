@@ -74,18 +74,6 @@ variable "observability_data_volume_size_gb" {
   default     = 10
 }
 
-variable "chat_instance_type" {
-  type        = string
-  description = "Scaleway commercial type for the dedicated StoatChat node."
-  default     = "DEV1-M"
-}
-
-variable "chat_data_volume_size_gb" {
-  type        = number
-  description = "Size of the dedicated StoatChat data volume in GiB."
-  default     = 10
-}
-
 variable "rocket_instance_type" {
   type        = string
   description = "Scaleway commercial type for the dedicated Rocket.Chat node."

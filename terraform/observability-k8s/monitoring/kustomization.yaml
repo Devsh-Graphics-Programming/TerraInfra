@@ -49,11 +49,6 @@ patches:
                   node: devsh-k3s-prod-node-1
                   role: apps
               - targets:
-                  - 51.158.103.39:9100
-                labels:
-                  node: prod-chat-01
-                  role: chat
-              - targets:
                   - 51.15.214.53:9100
                 labels:
                   node: prod-rocket-01

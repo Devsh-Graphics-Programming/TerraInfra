@@ -64,9 +64,6 @@ data:
           - 1.0.0.1
       search_domains: []
       extra_records:
-        - name: stoatchat.devsh.eu
-          type: A
-          value: 100.64.0.1
         - name: rocketchat.devsh.eu
           type: A
           value: 100.64.0.8

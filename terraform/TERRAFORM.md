@@ -22,7 +22,6 @@
 
 | Name | Type |
 |------|------|
-| [scaleway_block_volume.chat_data](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/block_volume) | resource |
 | [scaleway_block_volume.jenkins_data](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/block_volume) | resource |
 | [scaleway_block_volume.observability_data](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/block_volume) | resource |
 | [scaleway_block_volume.rocket_data](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/block_volume) | resource |
@@ -30,17 +29,14 @@
 | [scaleway_iam_api_key.store_publisher](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/iam_api_key) | resource |
 | [scaleway_iam_application.store_publisher](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/iam_application) | resource |
 | [scaleway_iam_policy.store_publisher_object_storage](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/iam_policy) | resource |
-| [scaleway_instance_ip.chat](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_ip) | resource |
 | [scaleway_instance_ip.jenkins](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_ip) | resource |
 | [scaleway_instance_ip.observability](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_ip) | resource |
 | [scaleway_instance_ip.rocket](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_ip) | resource |
 | [scaleway_instance_ip.vpn_control](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_ip) | resource |
-| [scaleway_instance_security_group.chat](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_security_group) | resource |
 | [scaleway_instance_security_group.jenkins](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_security_group) | resource |
 | [scaleway_instance_security_group.observability](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_security_group) | resource |
 | [scaleway_instance_security_group.rocket](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_security_group) | resource |
 | [scaleway_instance_security_group.vpn_control](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_security_group) | resource |
-| [scaleway_instance_server.chat](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_server) | resource |
 | [scaleway_instance_server.jenkins](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_server) | resource |
 | [scaleway_instance_server.observability](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_server) | resource |
 | [scaleway_instance_server.rocket](https://registry.terraform.io/providers/scaleway/scaleway/latest/docs/resources/instance_server) | resource |
@@ -58,8 +54,6 @@
 |------|-------------|------|---------|:--------:|
 | <a name="input_acme_email"></a> [acme\_email](#input\_acme\_email) | Email for ACME | `string` | n/a | yes |
 | <a name="input_allow_fresh_bootstrap"></a> [allow\_fresh\_bootstrap](#input\_allow\_fresh\_bootstrap) | Set to true when you intentionally want to recreate secrets (new volume or clean data). | `bool` | `false` | no |
-| <a name="input_chat_data_volume_size_gb"></a> [chat\_data\_volume\_size\_gb](#input\_chat\_data\_volume\_size\_gb) | Size of the dedicated StoatChat data volume in GiB. | `number` | `10` | no |
-| <a name="input_chat_instance_type"></a> [chat\_instance\_type](#input\_chat\_instance\_type) | Scaleway commercial type for the dedicated StoatChat node. | `string` | `"DEV1-M"` | no |
 | <a name="input_config_repo_branch"></a> [config\_repo\_branch](#input\_config\_repo\_branch) | Branch to track in the config repo | `string` | `"master"` | no |
 | <a name="input_config_repo_path"></a> [config\_repo\_path](#input\_config\_repo\_path) | Path inside the config repo with Kubernetes manifests | `string` | `"terraform/k8s"` | no |
 | <a name="input_config_repo_url"></a> [config\_repo\_url](#input\_config\_repo\_url) | Git repo URL containing Kubernetes manifests for this environment | `string` | n/a | yes |
@@ -94,8 +88,6 @@
 
 | Name | Description |
 |------|-------------|
-| <a name="output_chat_data_volume_id"></a> [chat\_data\_volume\_id](#output\_chat\_data\_volume\_id) | ID of the dedicated StoatChat data volume |
-| <a name="output_chat_node_ip"></a> [chat\_node\_ip](#output\_chat\_node\_ip) | Public IP of the dedicated StoatChat node |
 | <a name="output_data_volume_id"></a> [data\_volume\_id](#output\_data\_volume\_id) | ID of the environment's data volume |
 | <a name="output_jenkins_data_volume_id"></a> [jenkins\_data\_volume\_id](#output\_jenkins\_data\_volume\_id) | ID of the standalone Jenkins controller data volume |
 | <a name="output_jenkins_node_ip"></a> [jenkins\_node\_ip](#output\_jenkins\_node\_ip) | Public IP of the standalone Jenkins controller node |

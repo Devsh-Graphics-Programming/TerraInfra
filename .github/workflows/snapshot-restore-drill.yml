@@ -10,7 +10,7 @@ on:
         required: true
         default: "4ca4f592-005a-45dc-a016-91bd11dd5348"
       target_names:
-        description: "Restore targets: all or comma-separated keys (node1-main,chat,jenkins,observability,rocket,vpn-control)"
+        description: "Restore targets: all or comma-separated keys (node1-main,jenkins,observability,rocket,vpn-control)"
         required: true
         default: "all"
       tfstate_bucket:
@@ -72,7 +72,7 @@ jobs:
       SNAPSHOTS_TFSTATE_ENDPOINT: ${{ github.event.inputs.tfstate_endpoint || 'https://s3.fr-par.scw.cloud' }}
       SNAPSHOTS_TFSTATE_REGION: ${{ github.event.inputs.tfstate_region || 'fr-par' }}
       TF_VAR_project_id: ${{ github.event.inputs.project_id || '4ca4f592-005a-45dc-a016-91bd11dd5348' }}
-      RESTORE_DRILL_TARGET_KEYS: chat,jenkins,node1-main,observability,rocket,vpn-control
+      RESTORE_DRILL_TARGET_KEYS: jenkins,node1-main,observability,rocket,vpn-control
       RESTORE_DRILL_CURRENT_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
       RESTORE_DRILL_JANITOR_MIN_AGE_HOURS: "6"
     defaults:

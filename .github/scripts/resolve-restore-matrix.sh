@@ -21,7 +21,7 @@ write_output() {
 
 require_command jq
 
-all_targets='["chat","jenkins","node1-main","observability","rocket","vpn-control"]'
+all_targets='["jenkins","node1-main","observability","rocket","vpn-control"]'
 requested_targets="$(echo "${SNAPSHOTS_TARGET_NAMES:-all}" | tr -d '[:space:]')"
 wanted="$(jq -cn --arg names "${requested_targets}" --argjson all "${all_targets}" '
   if ($names == "" or $names == "all") then
@@ -40,8 +40,7 @@ wanted="$(jq -cn --arg names "${requested_targets}" --argjson all "${all_targets
 
 matrix="$(jq -cn --argjson wanted "${wanted}" '
   def instance_type($key):
-    if $key == "chat" then "DEV1-M"
-    elif $key == "jenkins" then "DEV1-S"
+    if $key == "jenkins" then "DEV1-S"
     elif $key == "observability" then "DEV1-S"
     elif $key == "rocket" then "DEV1-M"
     elif $key == "vpn-control" then "DEV1-M"
