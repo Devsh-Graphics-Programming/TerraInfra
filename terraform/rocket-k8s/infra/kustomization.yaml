@@ -9,3 +9,15 @@ resources:
   - ../../k8s/infra/cert-manager-helmrelease.yaml
   - ../../k8s/infra/ingress-helmrelease.yaml
   - mongodb-operator-helmrelease.yaml
+patches:
+  - target:
+      group: helm.toolkit.fluxcd.io
+      version: v2
+      kind: HelmRelease
+      name: ingress-nginx
+      namespace: infra
+    patch: |-
+      - op: add
+        path: /spec/values/controller/service
+        value:
+          externalTrafficPolicy: Local
