@@ -32,6 +32,11 @@ default_snapshot_targets="$(jq -cn '{
     name_prefix: "prod-chat-01-data",
     tags: ["chat", "stoatchat"]
   },
+  rocket: {
+    volume_name: "prod-rocket-01-data",
+    name_prefix: "prod-rocket-01-data",
+    tags: ["rocket", "rocketchat"]
+  },
   jenkins: {
     volume_name: "jenkins-prod-data",
     name_prefix: "jenkins-prod-data",
