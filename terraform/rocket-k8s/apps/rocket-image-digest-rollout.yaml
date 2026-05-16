@@ -58,21 +58,21 @@ data:
     #!/bin/sh
     set -euo pipefail
 
-    namespace="${NAMESPACE:-rocket}"
-    deployment="${DEPLOYMENT:-rocketchat-rocketchat}"
-    container="${CONTAINER:-rocketchat}"
-    selector="${POD_SELECTOR:-app.kubernetes.io/instance=rocketchat,app.kubernetes.io/name=rocketchat}"
-    image="${IMAGE:-ghcr.io/devsh-graphics-programming/rocketchat-foss:devsh}"
+    namespace="rocket"
+    deployment="rocketchat-rocketchat"
+    container="rocketchat"
+    selector="app.kubernetes.io/instance=rocketchat,app.kubernetes.io/name=rocketchat"
+    image="ghcr.io/devsh-graphics-programming/rocketchat-foss:8.4.1-devsh"
 
-    desired="$(skopeo inspect --override-os linux "docker://${image}" | jq -r '.Digest')"
-    if [ -z "${desired}" ] || [ "${desired}" = "null" ]; then
-      echo "could not resolve digest for ${image}" >&2
+    desired="$(skopeo inspect --override-os linux "docker://$image" | jq -r '.Digest')"
+    if [ -z "$desired" ] || [ "$desired" = "null" ]; then
+      echo "could not resolve digest for $image" >&2
       exit 1
     fi
 
     needs_rollout="$(
-      kubectl -n "${namespace}" get pods -l "${selector}" -o json \
-        | jq -r --arg container "${container}" --arg desired "${desired}" '
+      kubectl -n "$namespace" get pods -l "$selector" -o json \
+        | jq -r --arg container "$container" --arg desired "$desired" '
             [
               .items[]
               | select((.metadata.deletionTimestamp // "") == "")
@@ -88,18 +88,18 @@ data:
           '
     )"
 
-    if [ "${needs_rollout}" = "true" ]; then
+    if [ "$needs_rollout" = "true" ]; then
       ts="$(date -u +%Y%m%dT%H%M%SZ)"
       patch="$(
         jq -n \
           --arg key "rollout.devsh.eu/rocketchat-foss" \
-          --arg value "${desired}-${ts}" \
+          --arg value "$desired-$ts" \
           '{spec:{template:{metadata:{annotations:{($key):$value}}}}}'
       )"
-      kubectl -n "${namespace}" patch deployment "${deployment}" --type merge -p "${patch}"
-      echo "patched ${deployment} to digest ${desired}"
+      kubectl -n "$namespace" patch deployment "$deployment" --type merge -p "$patch"
+      echo "patched $deployment to digest $desired"
     else
-      echo "no change for ${deployment} (digest ${desired})"
+      echo "no change for $deployment (digest $desired)"
     fi
   webhook.py: |
     import hashlib

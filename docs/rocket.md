@@ -48,9 +48,9 @@ Rocket.Chat is operated as a self-hosted DevSH service. Chat messages, users, ro
 
 The application image is built from the DevSH `devsh` branch of the Rocket.Chat fork as a FOSS build. The build runs `yarn fossify` before producing the Docker image, and the DevSH branch disables the air-gapped read-only restriction path for this isolated self-hosted deployment.
 
-The fork publishes immutable semver-compatible tags in the `<rocket-version>-devsh.YYYYMMDDHHMMSS.<sha>` format and also updates the stable `devsh` channel tag in `ghcr.io/devsh-graphics-programming/rocketchat-foss`. The HelmRelease tracks the stable `devsh` tag with `image.pullPolicy=Always`.
+The fork publishes immutable semver-compatible tags in the `<rocket-version>-devsh.YYYYMMDDHHMMSS.<sha>` format and also updates the stable `<rocket-version>-devsh` channel tag in `ghcr.io/devsh-graphics-programming/rocketchat-foss`. The HelmRelease tracks the stable `8.4.1-devsh` tag with `image.pullPolicy=Always`.
 
-Rocket image rollouts do not commit tag bumps to TerraInfra. GitHub package webhooks hit the Rocket cluster Receiver on `rocket-flux-hook.devsh.eu` so Flux image-reflector rescans immediately. The `rocket-image-digest-rollout` CronJob and webhook runner compare the live pod digest with the current `devsh` registry digest and patch the deployment pod-template annotation when a rollout is needed. The CronJob is the fallback path if a webhook delivery is missed.
+Rocket image rollouts do not commit tag bumps to TerraInfra. GitHub package webhooks hit the Rocket cluster Receiver on `rocket-flux-hook.devsh.eu` so Flux image-reflector rescans immediately. The `rocket-image-digest-rollout` CronJob and webhook runner compare the live pod digest with the current `8.4.1-devsh` registry digest and patch the deployment pod-template annotation when a rollout is needed. The CronJob is the fallback path if a webhook delivery is missed.
 
 The deployment disables Rocket.Chat cloud registration, usage statistics reporting, push notification gateway integration, and the marketplace endpoint:
 

@@ -41,7 +41,7 @@ spec:
     minAvailable: 0
     image:
       repository: ghcr.io/devsh-graphics-programming/rocketchat-foss
-      tag: devsh
+      tag: 8.4.1-devsh
       pullPolicy: Always
     extraSecret: rocket-bootstrap
     existingMongodbSecret: rocket-mongodb-uri
