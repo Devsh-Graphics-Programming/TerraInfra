@@ -81,12 +81,11 @@ Persistent data lives under `/mnt/data/local-path` through the local-path provis
 
 `prod-rocket-01` runs the same node-exporter DaemonSet as the other dedicated nodes. Terraform exposes port `9100` only to the observability node public IP.
 
-Rocket.Chat application health is exported through node-exporter textfile metrics. The Rocket node runs:
+Rocket.Chat application health is exported through `rocket-healthcheck`, a small in-cluster exporter exposed on NodePort `30101`. Terraform exposes that port only to the observability node public IP.
 
-- `rocket-mongo-healthcheck` every 5 minutes, reading MongoDB settings and the Rocket.Chat statistics token state.
-- `rocket-api-synthetic-check` every 10 minutes, logging in through the Rocket.Chat API, creating and deleting a synthetic message, uploading a temporary attachment, verifying unauthenticated attachment access is denied, and verifying authenticated attachment access works.
+The exporter logs in through the Rocket.Chat API, checks workspace read-only risk, verifies the statistics token, verifies the supported free self-managed path is not blocked, creates and deletes a synthetic message, uploads a temporary attachment, verifies unauthenticated attachment access is denied, and verifies authenticated attachment access works. Expensive checks are cached for 5 minutes.
 
-The generated metrics are written under `/var/lib/node_exporter/textfile_collector` and scraped by central Prometheus through the existing node-exporter target. The key metrics are:
+The key metrics are:
 
 - `rocket_workspace_health_success`
 - `rocket_workspace_stats_token_present`
@@ -107,17 +106,15 @@ k3s kubectl -n rocket get pods
 Manual healthcheck run:
 
 ```bash
-k3s kubectl -n rocket create job --from=cronjob/rocket-mongo-healthcheck rocket-mongo-healthcheck-manual
-k3s kubectl -n rocket create job --from=cronjob/rocket-api-synthetic-check rocket-api-synthetic-check-manual
-k3s kubectl -n rocket logs job/rocket-mongo-healthcheck-manual
-k3s kubectl -n rocket logs job/rocket-api-synthetic-check-manual
-k3s kubectl -n rocket delete job/rocket-mongo-healthcheck-manual job/rocket-api-synthetic-check-manual
+k3s kubectl -n rocket rollout status deploy/rocket-healthcheck
+k3s kubectl -n rocket port-forward svc/rocket-healthcheck 9101:9101
+curl -s http://127.0.0.1:9101/metrics | grep '^rocket_'
 ```
 
-Node-exporter metrics check:
+NodePort check from the Rocket node:
 
 ```bash
-curl -s http://127.0.0.1:9100/metrics | grep '^rocket_'
+curl -s http://127.0.0.1:30101/metrics | grep '^rocket_'
 ```
 
 The synthetic check uses the dedicated `rocket.ops` bootstrap admin account. It does not use a human admin account and does not print secrets.

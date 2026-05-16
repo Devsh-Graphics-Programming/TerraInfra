@@ -24,7 +24,6 @@ spec:
           args:
             - --path.rootfs=/host
             - --web.listen-address=:9100
-            - --collector.textfile.directory=/textfile-collector
             - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|var/lib/docker/.+|var/lib/kubelet/.+)($|/)
           ports:
             - name: metrics
@@ -35,9 +34,6 @@ spec:
               mountPath: /host
               readOnly: true
               mountPropagation: HostToContainer
-            - name: textfile-collector
-              mountPath: /textfile-collector
-              readOnly: true
           resources:
             requests:
               cpu: 25m
@@ -54,7 +50,3 @@ spec:
         - name: root
           hostPath:
             path: /
-        - name: textfile-collector
-          hostPath:
-            path: /var/lib/node_exporter/textfile_collector
-            type: DirectoryOrCreate

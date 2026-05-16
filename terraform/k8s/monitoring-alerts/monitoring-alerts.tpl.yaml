@@ -88,6 +88,15 @@ spec:
           annotations:
             summary: Rocket.Chat attachment protection failed
             description: Rocket.Chat synthetic check could read an attachment without an authenticated session or could not verify the denial.
+        - alert: RocketHealthExporterDown
+          expr: up{job="devsh-rocket-health"} == 0
+          for: 5m
+          labels:
+            severity: critical
+            team: devops
+          annotations:
+            summary: Rocket.Chat health exporter down
+            description: Central Prometheus cannot scrape Rocket.Chat health exporter for more than 5 minutes.
     - name: devsh-warning
       rules:
         - alert: CrashLoopBackOff

@@ -34,6 +34,12 @@ resource "scaleway_instance_security_group" "rocket" {
 
   inbound_rule {
     action   = "accept"
+    port     = "30101"
+    ip_range = "${scaleway_instance_ip.observability.address}/32"
+  }
+
+  inbound_rule {
+    action   = "accept"
     protocol = "UDP"
     port     = "41641"
   }

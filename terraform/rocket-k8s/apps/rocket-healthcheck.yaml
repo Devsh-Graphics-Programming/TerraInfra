@@ -4,99 +4,25 @@ metadata:
   name: rocket-healthcheck-scripts
   namespace: rocket
 data:
-  rocket-mongo-health.js: |
-    const now = Math.floor(Date.now() / 1000);
-
-    function setting(id) {
-      const doc = db.rocketchat_settings.findOne({ _id: id });
-      return doc ? doc.value : null;
-    }
-
-    function boolValue(value) {
-      if (value === true) return true;
-      if (value === false) return false;
-      if (typeof value === "string") return value.toLowerCase() === "true";
-      return false;
-    }
-
-    function numberValue(value, fallback) {
-      const parsed = Number(value);
-      return Number.isFinite(parsed) ? parsed : fallback;
-    }
-
-    function metric(name, value) {
-      print(`${name} ${value}`);
-    }
-
-    function latestStatsTokenPresent() {
-      const candidates = db.getCollectionNames().filter((name) => name.toLowerCase().includes("stat"));
-      for (const name of candidates) {
-        const cursor = db.getCollection(name)
-          .find({ statsToken: { $exists: true, $ne: null } })
-          .sort({ createdAt: -1 })
-          .limit(1);
-        const doc = cursor.hasNext() ? cursor.next() : null;
-        if (doc && typeof doc.statsToken === "string" && doc.statsToken.length > 0) {
-          return true;
-        }
-      }
-      return false;
-    }
-
-    const setupCompleted = setting("Show_Setup_Wizard") === "completed";
-    const statsReporting = boolValue(setting("Statistics_reporting"));
-    const cloudTerms = boolValue(setting("Cloud_Service_Agree_PrivacyTerms"));
-    const fingerprintVerified = boolValue(setting("Deployment_FingerPrint_Verified"));
-    const statsTokenPresent = latestStatsTokenPresent();
-    const remainingDays = numberValue(setting("Cloud_Workspace_AirGapped_Restrictions_Remaining_Days"), -1);
-    const readOnlyRisk = remainingDays >= 0 && remainingDays <= 7;
-
-    const success = setupCompleted
-      && statsReporting
-      && cloudTerms
-      && fingerprintVerified
-      && statsTokenPresent
-      && !readOnlyRisk;
-
-    print("# HELP rocket_workspace_health_success Rocket.Chat workspace policy healthcheck success.");
-    print("# TYPE rocket_workspace_health_success gauge");
-    metric("rocket_workspace_health_success", success ? 1 : 0);
-    metric("rocket_workspace_health_last_run_timestamp_seconds", now);
-    metric("rocket_workspace_health_last_success_timestamp_seconds", success ? now : 0);
-    metric("rocket_workspace_setup_completed", setupCompleted ? 1 : 0);
-    metric("rocket_workspace_statistics_reporting_enabled", statsReporting ? 1 : 0);
-    metric("rocket_workspace_cloud_terms_agreed", cloudTerms ? 1 : 0);
-    metric("rocket_workspace_fingerprint_verified", fingerprintVerified ? 1 : 0);
-    metric("rocket_workspace_stats_token_present", statsTokenPresent ? 1 : 0);
-    metric("rocket_workspace_airgapped_remaining_days", remainingDays);
-    metric("rocket_workspace_read_only_risk", readOnlyRisk ? 1 : 0);
-
-  rocket-api-synthetic.py: |
+  rocket-health-exporter.py: |
     #!/usr/bin/env python3
-    import argparse
     import json
     import os
-    import sys
+    import threading
     import time
     import urllib.error
     import urllib.parse
     import urllib.request
     import uuid
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
-    METRICS = {
-        "rocket_synthetic_success": 0,
-        "rocket_synthetic_login_success": 0,
-        "rocket_synthetic_message_success": 0,
-        "rocket_synthetic_message_delete_success": 0,
-        "rocket_synthetic_attachment_upload_success": 0,
-        "rocket_synthetic_attachment_unauth_denied": 0,
-        "rocket_synthetic_attachment_auth_read_success": 0,
-        "rocket_synthetic_last_success_timestamp_seconds": 0,
-    }
+    LAST_SUCCESS = 0
+    CACHE = {"deadline": 0.0, "body": ""}
+    LOCK = threading.Lock()
 
 
-    class SyntheticError(RuntimeError):
+    class CheckError(RuntimeError):
         pass
 
 
@@ -107,7 +33,7 @@ data:
     def required_env(name: str) -> str:
         value = env(name)
         if not value:
-            raise SyntheticError(f"missing environment variable: {name}")
+            raise CheckError(f"missing environment variable: {name}")
         return value
 
 
@@ -149,10 +75,10 @@ data:
         if status in ok and payload.get("success", True) is not False:
             return payload
         error = payload.get("error") or payload.get("errorType") or payload.get("message") or str(payload)
-        raise SyntheticError(f"{method} {path} failed: {error}")
+        raise CheckError(f"{method} {path} failed: {error}")
 
 
-    def login() -> dict:
+    def login(metrics: dict) -> dict:
         status, payload, _ = request(
             "POST",
             "/api/v1/login",
@@ -160,10 +86,67 @@ data:
         )
         if status != 200 or payload.get("status") != "success":
             error = payload.get("error") or payload.get("message") or str(payload)
-            raise SyntheticError(f"login failed: {error}")
-        METRICS["rocket_synthetic_login_success"] = 1
+            raise CheckError(f"login failed: {error}")
+        metrics["rocket_synthetic_login_success"] = 1
         data = payload["data"]
         return {"X-User-Id": data["userId"], "X-Auth-Token": data["authToken"]}
+
+
+    def bool_metric(value) -> int:
+        if value is True:
+            return 1
+        if value is False:
+            return 0
+        if isinstance(value, str):
+            return 1 if value.lower() == "true" else 0
+        return 0
+
+
+    def number_metric(value, fallback=-1) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return float(fallback)
+
+
+    def setting(headers: dict, setting_id: str):
+        payload = api(headers, "GET", f"/api/v1/settings/{urllib.parse.quote(setting_id)}")
+        return payload.get("value")
+
+
+    def check_workspace(headers: dict, metrics: dict) -> None:
+        setup_completed = setting(headers, "Show_Setup_Wizard") == "completed"
+        cloud_terms = bool_metric(setting(headers, "Cloud_Service_Agree_PrivacyTerms"))
+        fingerprint = bool_metric(setting(headers, "Deployment_FingerPrint_Verified"))
+        remaining_days = number_metric(setting(headers, "Cloud_Workspace_AirGapped_Restrictions_Remaining_Days"), -1)
+
+        stats = api(headers, "GET", "/api/v1/statistics")
+        stats_token = stats.get("statsToken")
+        stats_token_present = isinstance(stats_token, str) and len(stats_token) > 0
+
+        license_info = api(headers, "GET", "/api/v1/licenses.info")
+        prevented = ((license_info.get("license") or {}).get("preventedActions") or {})
+        free_path_allowed = all(
+            prevented.get(name) is False
+            for name in ("activeUsers", "guestUsers", "roomsPerGuest", "marketplaceApps", "monthlyActiveContacts")
+        )
+
+        read_only_risk = remaining_days >= 0 and remaining_days <= 7
+        metrics["rocket_workspace_setup_completed"] = 1 if setup_completed else 0
+        metrics["rocket_workspace_cloud_terms_agreed"] = cloud_terms
+        metrics["rocket_workspace_fingerprint_verified"] = fingerprint
+        metrics["rocket_workspace_stats_token_present"] = 1 if stats_token_present else 0
+        metrics["rocket_workspace_airgapped_remaining_days"] = remaining_days
+        metrics["rocket_workspace_read_only_risk"] = 1 if read_only_risk else 0
+        metrics["rocket_workspace_free_path_allowed"] = 1 if free_path_allowed else 0
+        metrics["rocket_workspace_health_success"] = 1 if (
+            setup_completed
+            and cloud_terms == 1
+            and fingerprint == 1
+            and stats_token_present
+            and free_path_allowed
+            and not read_only_risk
+        ) else 0
 
 
     def get_or_create_room(headers: dict) -> str:
@@ -174,7 +157,7 @@ data:
         try:
             payload = api(headers, "POST", "/api/v1/groups.create", {"name": "rocket-health"})
             return payload["group"]["_id"]
-        except SyntheticError:
+        except CheckError:
             status, payload, _ = request("GET", f"/api/v1/groups.info?{query}", headers=headers)
             if status == 200 and payload.get("success") is True:
                 return payload["group"]["_id"]
@@ -183,21 +166,31 @@ data:
 
     def delete_message(headers: dict, room_id: str, msg_id: str) -> None:
         api(headers, "POST", "/api/v1/chat.delete", {"roomId": room_id, "msgId": msg_id, "asUser": False})
-        METRICS["rocket_synthetic_message_delete_success"] = 1
 
 
-    def post_message(headers: dict, room_id: str) -> str:
+    def post_message(headers: dict, room_id: str, metrics: dict) -> str:
         payload = api(
             headers,
             "POST",
             "/api/v1/chat.postMessage",
             {"roomId": room_id, "text": f"rocket synthetic check {int(time.time())}"},
         )
-        METRICS["rocket_synthetic_message_success"] = 1
+        metrics["rocket_synthetic_message_success"] = 1
         return payload["message"]["_id"]
 
 
-    def multipart_upload(headers: dict, room_id: str):
+    def internal_file_url(file_url: str) -> str:
+        base_url = required_env("ROCKET_URL").rstrip("/")
+        if file_url.startswith("/"):
+            return f"{base_url}{file_url}"
+        parsed = urllib.parse.urlparse(file_url)
+        suffix = parsed.path
+        if parsed.query:
+            suffix = f"{suffix}?{parsed.query}"
+        return f"{base_url}{suffix}"
+
+
+    def multipart_upload(headers: dict, room_id: str, metrics: dict):
         boundary = f"----devsh-rocket-{uuid.uuid4().hex}"
         fields = [
             ("msg", "rocket synthetic attachment check"),
@@ -228,8 +221,8 @@ data:
         )
         if status != 200 or payload.get("success") is False:
             error = payload.get("error") or payload.get("errorType") or payload.get("message") or str(payload)
-            raise SyntheticError(f"attachment upload failed: {error}")
-        METRICS["rocket_synthetic_attachment_upload_success"] = 1
+            raise CheckError(f"attachment upload failed: {error}")
+        metrics["rocket_synthetic_attachment_upload_success"] = 1
         message = payload.get("message") or {}
         file_url = None
         for attachment in message.get("attachments", []) or []:
@@ -242,203 +235,215 @@ data:
                 if file_url:
                     break
         if not file_url:
-            raise SyntheticError("attachment upload did not return a file URL")
+            raise CheckError("attachment upload did not return a file URL")
         return message.get("_id"), internal_file_url(file_url)
 
 
-    def internal_file_url(file_url: str) -> str:
-        base_url = required_env("ROCKET_URL").rstrip("/")
-        if file_url.startswith("/"):
-            return f"{base_url}{file_url}"
-        parsed = urllib.parse.urlparse(file_url)
-        suffix = parsed.path
-        if parsed.query:
-            suffix = f"{suffix}?{parsed.query}"
-        return f"{base_url}{suffix}"
-
-
-    def check_attachment(headers: dict, file_url: str) -> None:
+    def check_attachment(headers: dict, file_url: str, metrics: dict) -> None:
         unauth_status, _, _ = request("GET", file_url, timeout=30)
         if unauth_status not in (401, 403, 404):
-            raise SyntheticError(f"unauthenticated attachment read returned HTTP {unauth_status}")
-        METRICS["rocket_synthetic_attachment_unauth_denied"] = 1
+            raise CheckError(f"unauthenticated attachment read returned HTTP {unauth_status}")
+        metrics["rocket_synthetic_attachment_unauth_denied"] = 1
 
         auth_status, _, _ = request("GET", file_url, headers=headers, timeout=30)
         if auth_status != 200:
-            raise SyntheticError(f"authenticated attachment read returned HTTP {auth_status}")
-        METRICS["rocket_synthetic_attachment_auth_read_success"] = 1
+            raise CheckError(f"authenticated attachment read returned HTTP {auth_status}")
+        metrics["rocket_synthetic_attachment_auth_read_success"] = 1
 
 
-    def write_metrics(path: str) -> None:
-        now = int(time.time())
-        METRICS["rocket_synthetic_last_run_timestamp_seconds"] = now
-        if METRICS["rocket_synthetic_success"]:
-            METRICS["rocket_synthetic_last_success_timestamp_seconds"] = now
-
-        tmp = f"{path}.{os.getpid()}.tmp"
-        with open(tmp, "w", encoding="utf-8") as handle:
-            handle.write("# HELP rocket_synthetic_success Rocket.Chat API and attachment synthetic check success.\n")
-            handle.write("# TYPE rocket_synthetic_success gauge\n")
-            for name in sorted(METRICS):
-                handle.write(f"{name} {METRICS[name]}\n")
-        os.replace(tmp, path)
-
-
-    def main() -> int:
-        parser = argparse.ArgumentParser()
-        parser.add_argument("--output", required=True)
-        args = parser.parse_args()
-        uploaded_msg_id = None
-        message_msg_id = None
-        room_id = ""
-        headers = {}
+    def check_synthetic(headers: dict, metrics: dict) -> None:
+        room_id = get_or_create_room(headers)
+        message_id = ""
+        upload_id = ""
         try:
-            headers = login()
-            room_id = get_or_create_room(headers)
-            message_msg_id = post_message(headers, room_id)
-            uploaded_msg_id, file_url = multipart_upload(headers, room_id)
-            check_attachment(headers, file_url)
-            if message_msg_id:
-                delete_message(headers, room_id, message_msg_id)
-            if uploaded_msg_id:
-                delete_message(headers, room_id, uploaded_msg_id)
-            METRICS["rocket_synthetic_success"] = 1
-            return 0
-        except Exception as exc:
-            print(f"rocket synthetic check failed: {exc}", file=sys.stderr)
-            return 1
+            message_id = post_message(headers, room_id, metrics)
+            upload_id, file_url = multipart_upload(headers, room_id, metrics)
+            check_attachment(headers, file_url, metrics)
+            if message_id:
+                delete_message(headers, room_id, message_id)
+                metrics["rocket_synthetic_message_delete_success"] = 1
+            if upload_id:
+                delete_message(headers, room_id, upload_id)
+                metrics["rocket_synthetic_attachment_delete_success"] = 1
         finally:
-            try:
-                if headers and room_id and message_msg_id and not METRICS["rocket_synthetic_message_delete_success"]:
-                    delete_message(headers, room_id, message_msg_id)
-            except Exception:
-                pass
-            try:
-                write_metrics(args.output)
-            except Exception as exc:
-                print(f"failed to write synthetic metrics: {exc}", file=sys.stderr)
+            for msg_id in (message_id, upload_id):
+                if not msg_id:
+                    continue
+                try:
+                    delete_message(headers, room_id, msg_id)
+                except Exception:
+                    pass
+
+
+    def render_metrics(metrics: dict, error: str = "") -> str:
+        global LAST_SUCCESS
+        now = int(time.time())
+        metrics["rocket_workspace_health_last_run_timestamp_seconds"] = now
+        metrics["rocket_synthetic_last_run_timestamp_seconds"] = now
+        metrics["rocket_healthcheck_error"] = 1 if error else 0
+        if metrics.get("rocket_workspace_health_success") == 1 and metrics.get("rocket_synthetic_success") == 1:
+            LAST_SUCCESS = now
+        metrics["rocket_workspace_health_last_success_timestamp_seconds"] = LAST_SUCCESS
+        metrics["rocket_synthetic_last_success_timestamp_seconds"] = LAST_SUCCESS
+
+        lines = [
+            "# HELP rocket_workspace_health_success Rocket.Chat workspace policy healthcheck success.",
+            "# TYPE rocket_workspace_health_success gauge",
+            "# HELP rocket_synthetic_success Rocket.Chat API and attachment synthetic check success.",
+            "# TYPE rocket_synthetic_success gauge",
+        ]
+        if error:
+            lines.append(f"# last_error {error[:180].replace(chr(10), ' ')}")
+        for name in sorted(metrics):
+            lines.append(f"{name} {metrics[name]}")
+        return "\n".join(lines) + "\n"
+
+
+    def run_checks() -> str:
+        metrics = {
+            "rocket_workspace_health_success": 0,
+            "rocket_workspace_setup_completed": 0,
+            "rocket_workspace_cloud_terms_agreed": 0,
+            "rocket_workspace_fingerprint_verified": 0,
+            "rocket_workspace_stats_token_present": 0,
+            "rocket_workspace_airgapped_remaining_days": -1,
+            "rocket_workspace_read_only_risk": 0,
+            "rocket_workspace_free_path_allowed": 0,
+            "rocket_synthetic_success": 0,
+            "rocket_synthetic_login_success": 0,
+            "rocket_synthetic_message_success": 0,
+            "rocket_synthetic_message_delete_success": 0,
+            "rocket_synthetic_attachment_upload_success": 0,
+            "rocket_synthetic_attachment_unauth_denied": 0,
+            "rocket_synthetic_attachment_auth_read_success": 0,
+            "rocket_synthetic_attachment_delete_success": 0,
+        }
+        try:
+            headers = login(metrics)
+            check_workspace(headers, metrics)
+            check_synthetic(headers, metrics)
+            metrics["rocket_synthetic_success"] = 1
+            return render_metrics(metrics)
+        except Exception as exc:
+            return render_metrics(metrics, str(exc))
+
+
+    def cached_metrics() -> str:
+        ttl = int(env("CHECK_TTL_SECONDS", "300"))
+        now = time.time()
+        with LOCK:
+            if CACHE["body"] and CACHE["deadline"] > now:
+                return CACHE["body"]
+            body = run_checks()
+            CACHE["body"] = body
+            CACHE["deadline"] = now + ttl
+            return body
+
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == "/healthz":
+                body = b"ok\n"
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            if self.path.split("?", 1)[0] != "/metrics":
+                self.send_response(404)
+                self.end_headers()
+                return
+            body = cached_metrics().encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, fmt, *args):
+            return
 
 
     if __name__ == "__main__":
-        raise SystemExit(main())
+        port = int(env("PORT", "9101"))
+        server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
+        server.serve_forever()
 ---
-apiVersion: batch/v1
-kind: CronJob
+apiVersion: apps/v1
+kind: Deployment
 metadata:
-  name: rocket-mongo-healthcheck
+  name: rocket-healthcheck
   namespace: rocket
 spec:
-  schedule: "*/5 * * * *"
-  concurrencyPolicy: Forbid
-  successfulJobsHistoryLimit: 1
-  failedJobsHistoryLimit: 3
-  jobTemplate:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rocket-healthcheck
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rocket-healthcheck
     spec:
-      ttlSecondsAfterFinished: 600
-      template:
-        spec:
-          automountServiceAccountToken: false
-          restartPolicy: Never
-          containers:
-            - name: healthcheck
-              image: docker.io/mongodb/mongodb-community-server:8.0.6-ubi8
-              command:
-                - /bin/sh
-                - -lc
-                - |
-                  OUT=/textfile-collector/rocket_workspace_health.prom
-                  TMP="${OUT}.$$"
-                  if mongosh "$MONGO_URI" --quiet /scripts/rocket-mongo-health.js > "$TMP"; then
-                    mv "$TMP" "$OUT"
-                  else
-                    NOW="$(date +%s)"
-                    {
-                      echo "rocket_workspace_health_success 0"
-                      echo "rocket_workspace_health_last_run_timestamp_seconds $NOW"
-                      echo "rocket_workspace_health_last_success_timestamp_seconds 0"
-                    } > "$TMP"
-                    mv "$TMP" "$OUT"
-                    exit 1
-                  fi
-              env:
-                - name: MONGO_URI
-                  valueFrom:
-                    secretKeyRef:
-                      name: rocket-mongodb-uri
-                      key: mongo-uri
-              volumeMounts:
-                - name: scripts
-                  mountPath: /scripts
-                  readOnly: true
-                - name: textfile-collector
-                  mountPath: /textfile-collector
-              resources:
-                requests:
-                  cpu: 25m
-                  memory: 64Mi
-                limits:
-                  cpu: 250m
-                  memory: 256Mi
-          volumes:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      containers:
+        - name: exporter
+          image: docker.io/python:3.13-slim
+          command:
+            - /usr/local/bin/python
+            - /opt/rocket-health/rocket-health-exporter.py
+          envFrom:
+            - secretRef:
+                name: rocket-bootstrap
+          env:
+            - name: ROCKET_URL
+              value: http://rocketchat-rocketchat:80
+            - name: PORT
+              value: "9101"
+            - name: CHECK_TTL_SECONDS
+              value: "300"
+          ports:
+            - name: metrics
+              containerPort: 9101
+          volumeMounts:
             - name: scripts
-              configMap:
-                name: rocket-healthcheck-scripts
-                defaultMode: 0555
-            - name: textfile-collector
-              hostPath:
-                path: /var/lib/node_exporter/textfile_collector
-                type: DirectoryOrCreate
+              mountPath: /opt/rocket-health
+              readOnly: true
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            periodSeconds: 30
+      volumes:
+        - name: scripts
+          configMap:
+            name: rocket-healthcheck-scripts
+            defaultMode: 0555
 ---
-apiVersion: batch/v1
-kind: CronJob
+apiVersion: v1
+kind: Service
 metadata:
-  name: rocket-api-synthetic-check
+  name: rocket-healthcheck
   namespace: rocket
 spec:
-  schedule: "*/10 * * * *"
-  concurrencyPolicy: Forbid
-  successfulJobsHistoryLimit: 1
-  failedJobsHistoryLimit: 3
-  jobTemplate:
-    spec:
-      ttlSecondsAfterFinished: 600
-      template:
-        spec:
-          automountServiceAccountToken: false
-          restartPolicy: Never
-          containers:
-            - name: synthetic
-              image: docker.io/python:3.13-slim
-              command:
-                - /usr/local/bin/python
-                - /scripts/rocket-api-synthetic.py
-                - --output
-                - /textfile-collector/rocket_synthetic.prom
-              envFrom:
-                - secretRef:
-                    name: rocket-bootstrap
-              env:
-                - name: ROCKET_URL
-                  value: http://rocketchat-rocketchat:80
-              volumeMounts:
-                - name: scripts
-                  mountPath: /scripts
-                  readOnly: true
-                - name: textfile-collector
-                  mountPath: /textfile-collector
-              resources:
-                requests:
-                  cpu: 25m
-                  memory: 64Mi
-                limits:
-                  cpu: 250m
-                  memory: 256Mi
-          volumes:
-            - name: scripts
-              configMap:
-                name: rocket-healthcheck-scripts
-                defaultMode: 0555
-            - name: textfile-collector
-              hostPath:
-                path: /var/lib/node_exporter/textfile_collector
-                type: DirectoryOrCreate
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: rocket-healthcheck
+  ports:
+    - name: metrics
+      port: 9101
+      targetPort: metrics
+      nodePort: 30101

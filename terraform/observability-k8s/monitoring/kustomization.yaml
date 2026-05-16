@@ -82,3 +82,13 @@ patches:
                   node: jenkins-prod
                   role: ci
                   service: jenkins
+          - job_name: devsh-rocket-health
+            scrape_interval: 60s
+            metrics_path: /metrics
+            static_configs:
+              - targets:
+                  - 51.15.214.53:30101
+                labels:
+                  node: prod-rocket-01
+                  role: chat
+                  service: rocketchat
