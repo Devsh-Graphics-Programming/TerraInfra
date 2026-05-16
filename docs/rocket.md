@@ -76,6 +76,7 @@ Deployment fingerprint changes are auto-accepted as regular configuration update
 MongoDB is deployed as a single-member replica set through MongoDB Community Operator. Rocket.Chat uses authenticated MongoDB credentials and GridFS-backed file storage by default.
 
 Persistent data lives under `/mnt/data/local-path` through the local-path provisioner. The `rocket` data volume is a managed snapshot target in `terraform/snapshots/`.
+The bootstrap script links the k3s default local-path storage directory to `/mnt/data/local-path` before k3s starts, so early PVC provisioning still lands on the encrypted data volume even before Flux patches the local-path provisioner config.
 
 ## Monitoring
 

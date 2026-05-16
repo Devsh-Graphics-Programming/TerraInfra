@@ -17,6 +17,8 @@ Managed targets:
 - `observability` -> `prod-observability-01-data` (Grafana/monitoring data)
 - `vpn-control` -> `prod-vpn-control-01-data` (Authentik/Headscale data)
 
+For k3s nodes that use `local-path`, bootstrap links `/var/lib/rancher/k3s/storage` to `/mnt/data/local-path` before k3s starts. This keeps PVC data on the encrypted data volume even if the default k3s local-path provisioner creates a PVC before Flux has reconciled the custom local-path config.
+
 ### CI setup (once)
 Workflow expects a dedicated Object Storage bucket for Terraform state (separate from the LUKS bucket) and a Scaleway IAM key scoped to the minimum required permissions: Block Storage snapshot/volume access, temporary Instance access for restore-drill verifier machines, Object Storage access to the snapshot state bucket, and read-only access to the single LUKS key object used by the restore drill.
 The LUKS bucket policy grants the snapshot application read access only to that key object. It does not grant broad bucket access.

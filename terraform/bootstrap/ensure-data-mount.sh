@@ -12,8 +12,36 @@ is_true() {
   esac
 }
 
+ensure_local_path_storage_on_data() {
+  local target="/mnt/data/local-path"
+  local link="/var/lib/rancher/k3s/storage"
+
+  mkdir -p "${target}" /var/lib/rancher/k3s
+  chmod 0777 "${target}" || true
+
+  if [ -L "${link}" ]; then
+    if [ "$(readlink "${link}")" != "${target}" ]; then
+      log "${link} is already a symlink to a different target; leaving it unchanged"
+    fi
+    return
+  fi
+
+  if [ -e "${link}" ]; then
+    if [ -d "${link}" ] && [ -z "$(find "${link}" -mindepth 1 -maxdepth 1 -print -quit)" ]; then
+      rmdir "${link}"
+    else
+      log "${link} already exists and is not empty; leaving it unchanged"
+      return
+    fi
+  fi
+
+  ln -s "${target}" "${link}"
+  log "Linked ${link} to ${target}"
+}
+
 if findmnt -n /mnt/data >/dev/null 2>&1; then
   log "/mnt/data already mounted"
+  ensure_local_path_storage_on_data
   exit 0
 fi
 
@@ -44,6 +72,7 @@ if [ -n "${FSTYPE}" ] && [ "${FSTYPE}" != "crypto_LUKS" ]; then
   fi
   mount -a
   mkdir -p /mnt/data/mariadb /mnt/data/kimai-var
+  ensure_local_path_storage_on_data
   log "Mounted /mnt/data without LUKS"
   exit 0
 fi
@@ -98,4 +127,5 @@ fi
 
 mount -a
 mkdir -p /mnt/data/mariadb /mnt/data/kimai-var
+ensure_local_path_storage_on_data
 log "Mounted /mnt/data via LUKS"
