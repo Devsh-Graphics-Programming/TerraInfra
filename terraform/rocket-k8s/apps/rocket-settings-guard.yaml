@@ -63,6 +63,11 @@ spec:
                     { username: "rocket.ops" },
                     { $unset: { "services.email2fa": "", "services.totp": "", "services.emailCode": "" } }
                   );
+
+                  db.rocketchat_permissions.updateOne(
+                    { _id: "api-bypass-rate-limit" },
+                    { $addToSet: { roles: "user" }, $set: { updatedAt: now } }
+                  );
                   print("rocket settings guard applied");
                   JS
               env:

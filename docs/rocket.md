@@ -31,6 +31,8 @@ Two-factor authentication is available for users to enable themselves, but email
 
 Rocket.Chat SMTP is configured through the shared `notification-smtp` secret and explicit `SMTP_*` application settings. Do not rely on `MAIL_URL` alone because Rocket.Chat rebuilds that environment variable from its SMTP settings at runtime.
 
+The `user` role has `api-bypass-rate-limit` so authenticated UI actions are not blocked by Rocket.Chat REST route limits that key only by client IP. Unauthenticated endpoints such as login still use Rocket.Chat's API rate limiter.
+
 ## Attachments
 
 Rocket.Chat file access is handled by the application. The deployment keeps these settings enabled:
