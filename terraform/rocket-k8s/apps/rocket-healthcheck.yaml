@@ -192,16 +192,8 @@ data:
 
     def multipart_upload(headers: dict, room_id: str, metrics: dict):
         boundary = f"----devsh-rocket-{uuid.uuid4().hex}"
-        fields = [
-            ("msg", "rocket synthetic attachment check"),
-            ("description", "rocket synthetic attachment check"),
-        ]
         file_content = b"rocket synthetic attachment check\n"
         chunks = []
-        for name, value in fields:
-            chunks.append(f"--{boundary}\r\n".encode("utf-8"))
-            chunks.append(f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode("utf-8"))
-            chunks.append(value.encode("utf-8") + b"\r\n")
         chunks.append(f"--{boundary}\r\n".encode("utf-8"))
         chunks.append(
             b'Content-Disposition: form-data; name="file"; filename="rocket-health.txt"\r\n'
@@ -214,7 +206,7 @@ data:
         upload_headers["Content-Type"] = f"multipart/form-data; boundary={boundary}"
         status, payload, _ = request(
             "POST",
-            f"/api/v1/rooms.upload/{room_id}",
+            f"/api/v1/rooms.media/{room_id}",
             data=body,
             headers=upload_headers,
             timeout=60,
@@ -223,7 +215,23 @@ data:
             error = payload.get("error") or payload.get("errorType") or payload.get("message") or str(payload)
             raise CheckError(f"attachment upload failed: {error}")
         metrics["rocket_synthetic_attachment_upload_success"] = 1
-        message = payload.get("message") or {}
+        file_info = payload.get("file") or {}
+        file_id = file_info.get("_id")
+        file_url = file_info.get("url")
+        if not file_id:
+            raise CheckError("attachment upload did not return a file ID")
+
+        confirm = api(
+            headers,
+            "POST",
+            f"/api/v1/rooms.mediaConfirm/{room_id}/{urllib.parse.quote(file_id)}",
+            {
+                "msg": "rocket synthetic attachment check",
+                "description": "rocket synthetic attachment check",
+                "groupable": False,
+            },
+        )
+        message = confirm.get("message") or {}
         file_url = None
         for attachment in message.get("attachments", []) or []:
             file_url = attachment.get("title_link") or attachment.get("titleLink") or attachment.get("image_url")
@@ -235,7 +243,9 @@ data:
                 if file_url:
                     break
         if not file_url:
-            raise CheckError("attachment upload did not return a file URL")
+            file_url = (payload.get("file") or {}).get("url")
+        if not file_url:
+            raise CheckError("attachment confirm did not return a file URL")
         return message.get("_id"), internal_file_url(file_url)
 
 
