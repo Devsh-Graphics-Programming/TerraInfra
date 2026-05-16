@@ -38,7 +38,7 @@ Supported profiles:
 - `member`: adds the user to `vpn-users`.
 - `admin`: adds the user to `vpn-users` and `authentik Admins`.
 
-The invite email contains a single-use account setup link, Tailscale download link, and the Headscale login server URL. Invite links and user email addresses are runtime state and must not be committed to Git.
+The invite email contains a single-use account setup link, the Tailscale download link, the official Tailscale custom control server guide, and the Headscale login server URL. Invite links and user email addresses are runtime state and must not be committed to Git.
 
 Operators can send a one-time DevSH VPN password reset email for an existing Authentik user:
 
