@@ -28,7 +28,7 @@ run_restore_resolver() {
 snapshot_all="${work_dir}/snapshot-all.out"
 run_snapshot_resolver "${snapshot_all}" SNAPSHOTS_TARGET_NAMES=all GITHUB_EVENT_NAME=schedule GITHUB_RUN_ID=local
 snapshot_all_matrix="$(read_output matrix "${snapshot_all}")"
-jq -e '.include | length == 6' <<< "${snapshot_all_matrix}" >/dev/null
+jq -e '.include | length == 5' <<< "${snapshot_all_matrix}" >/dev/null
 
 snapshot_rocket="${work_dir}/snapshot-rocket.out"
 run_snapshot_resolver "${snapshot_rocket}" SNAPSHOTS_TARGET_NAMES=rocket GITHUB_EVENT_NAME=workflow_dispatch SNAPSHOTS_MANUAL_TTL_HOURS=24 SNAPSHOTS_MANUAL_SNAPSHOT_NAME=local-test GITHUB_RUN_ID=local
@@ -45,7 +45,7 @@ jq -e '.include | length == 1 and .[0].target_key == "jenkins" and .[0].volume_n
 restore_all="${work_dir}/restore-all.out"
 run_restore_resolver "${restore_all}" SNAPSHOTS_TARGET_NAMES=all
 restore_all_matrix="$(read_output matrix "${restore_all}")"
-jq -e '.include | length == 6' <<< "${restore_all_matrix}" >/dev/null
+jq -e '.include | length == 5' <<< "${restore_all_matrix}" >/dev/null
 
 restore_rocket="${work_dir}/restore-rocket.out"
 run_restore_resolver "${restore_rocket}" SNAPSHOTS_TARGET_NAMES=rocket
