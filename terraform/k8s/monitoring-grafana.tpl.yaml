@@ -82,6 +82,8 @@ spec:
     remediation:
       retries: 3
   values:
+    image:
+      tag: 11.6.1-security-01
     serviceAccount:
       create: true
       name: monitoring-grafana
