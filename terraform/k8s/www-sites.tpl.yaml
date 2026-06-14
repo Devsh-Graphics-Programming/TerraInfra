@@ -226,10 +226,43 @@ spec:
     spec:
       serviceAccountName: blog
       priorityClassName: prod-app-critical
+      initContainers:
+        - name: prepare-caddy
+          image: ghcr.io/devsh-graphics-programming/www-blog:latest
+          imagePullPolicy: Always
+          command:
+            - /bin/sh
+            - -c
+            - cp /usr/bin/caddy /caddy-bin/caddy && chmod 0755 /caddy-bin/caddy
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 100
+            runAsGroup: 101
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: caddy-bin
+              mountPath: /caddy-bin
       containers:
         - name: blog
           image: ghcr.io/devsh-graphics-programming/www-blog:latest
           imagePullPolicy: Always
+          command:
+            - /caddy-bin/caddy
+            - run
+            - --config=/etc/caddy/Caddyfile
           ports:
             - containerPort: 3000
           resources:
@@ -272,6 +305,8 @@ spec:
             seccompProfile:
               type: RuntimeDefault
           volumeMounts:
+            - name: caddy-bin
+              mountPath: /caddy-bin
             - name: tmpfs-tmp
               mountPath: /tmp
             - name: tmpfs-config
@@ -286,6 +321,9 @@ spec:
           emptyDir:
             medium: Memory
         - name: tmpfs-data
+          emptyDir:
+            medium: Memory
+        - name: caddy-bin
           emptyDir:
             medium: Memory
 ---
