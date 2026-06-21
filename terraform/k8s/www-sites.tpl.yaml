@@ -15,6 +15,24 @@ metadata:
   name: blog
   namespace: website
 ---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: linkedin-feed-sync
+  namespace: website
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: linkedin-feed
+  namespace: website
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -39,6 +57,9 @@ spec:
     spec:
       serviceAccountName: website
       priorityClassName: prod-app-critical
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: website
           image: ghcr.io/devsh-graphics-programming/www-website:latest
@@ -91,6 +112,9 @@ spec:
               mountPath: /config
             - name: tmpfs-data
               mountPath: /data
+            - name: linkedin-feed
+              mountPath: /srv/social
+              readOnly: true
       volumes:
         - name: tmpfs-tmp
           emptyDir:
@@ -101,6 +125,95 @@ spec:
         - name: tmpfs-data
           emptyDir:
             medium: Memory
+        - name: linkedin-feed
+          persistentVolumeClaim:
+            claimName: linkedin-feed
+            readOnly: true
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: linkedin-feed-sync
+  namespace: website
+spec:
+  schedule: "*/15 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 900
+      activeDeadlineSeconds: 300
+      template:
+        metadata:
+          labels:
+            app: linkedin-feed-sync
+        spec:
+          priorityClassName: prod-batch-low
+          serviceAccountName: linkedin-feed-sync
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            fsGroupChangePolicy: OnRootMismatch
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: sync
+              image: ghcr.io/devsh-graphics-programming/www-website-linkedin-sync:latest
+              imagePullPolicy: Always
+              env:
+                - name: LINKEDIN_FEED_OUTPUT
+                  value: /srv/social/linkedin-posts.json
+                - name: LINKEDIN_MEDIA_OUTPUT_DIR
+                  value: /srv/social/linkedin-media
+                - name: LINKEDIN_MEDIA_URL_PREFIX
+                  value: /social/linkedin-media
+                - name: LINKEDIN_POST_LIMIT
+                  value: "3"
+                - name: LINKEDIN_PUBLIC_FALLBACK_URL
+                  value: https://www.linkedin.com/company/devsh-graphics-programming/
+                - name: LINKEDIN_ORGANIZATION_URN
+                  valueFrom:
+                    secretKeyRef:
+                      name: linkedin-feed
+                      key: LINKEDIN_ORGANIZATION_URN
+                      optional: true
+                - name: LINKEDIN_ACCESS_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: linkedin-feed
+                      key: LINKEDIN_ACCESS_TOKEN
+                      optional: true
+              resources:
+                requests:
+                  cpu: 25m
+                  memory: 96Mi
+                limits:
+                  cpu: 250m
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              volumeMounts:
+                - name: linkedin-feed
+                  mountPath: /srv/social
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: linkedin-feed
+              persistentVolumeClaim:
+                claimName: linkedin-feed
+            - name: tmp
+              emptyDir:
+                medium: Memory
 ---
 apiVersion: v1
 kind: Service
