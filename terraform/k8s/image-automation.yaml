@@ -10,6 +10,15 @@ spec:
 apiVersion: image.toolkit.fluxcd.io/v1
 kind: ImageRepository
 metadata:
+  name: www-website-linkedin-sync
+  namespace: flux-system
+spec:
+  image: ghcr.io/devsh-graphics-programming/www-website-linkedin-sync
+  interval: 1m
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageRepository
+metadata:
   name: www-blog
   namespace: flux-system
 spec:

@@ -4,7 +4,7 @@ Current hardening state per service/namespace:
 
 | Service / Namespace          | PSA         | runAsNonRoot | RO rootfs | Storage (via PVC)                     | Egress                                          |
 | ---------------------------- | ----------- | ------------ | --------- | ------------------------------------- | ----------------------------------------------- |
-| Website / Blog (website)     | restricted  | ✓            | ✓         | ephemeral (tmpfs/emptyDir, no PV)     | DNS only                                        |
+| Website / Blog (website)     | restricted  | ✓            | ✓         | LinkedIn feed PVC + ephemeral tmpfs   | DNS for web pods, DNS + HTTPS for feed sync     |
 | Kimai app (apps-tools)       | restricted  | ✓            | ✗         | PVC → local PV `/mnt/data/kimai-var`  | DNS, MariaDB 3306, SMTP mail.devsh.eu:587       |
 | MariaDB (apps-tools)         | restricted  | ✓            | ✗         | PVC → local PV `/mnt/data/mariadb`    | DNS only                                        |
 | Grafana (monitoring-grafana) | restricted  | ✓            | ✓         | PVC → local PV `/mnt/data/grafana`    | DNS, kube-apiserver service IP 10.43.0.1:443 (dashboard sidecar), SMTP mail.devsh.eu:587 |
