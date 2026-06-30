@@ -51,7 +51,7 @@ Rocket.Chat is operated as a self-hosted DevSH service. Chat messages, users, ro
 The application runs from the official Rocket.Chat image:
 
 ```text
-registry.rocket.chat/rocketchat/rocket.chat:8.4.1
+registry.rocket.chat/rocketchat/rocket.chat:8.4.4
 ```
 
 Rocket.Chat source code is not patched for production. Version changes happen by changing the official image tag in the HelmRelease and letting Flux reconcile the deployment.
@@ -68,6 +68,10 @@ The deployment keeps Rocket.Chat push gateway integration disabled:
 
 - `Push_enable=false`
 - `Push_enable_gateway=false`
+
+The deployment keeps server-side link previews disabled:
+
+- `API_Embed=false`
 
 The `rocket-settings-guard` CronJob enforces local policy settings in MongoDB, including setup wizard completion, file protection, account policy, metadata, and deployment fingerprint verification. It must not clear `Cloud_Workspace_*`, collector tokens, cloud URLs, registration data, or license data.
 

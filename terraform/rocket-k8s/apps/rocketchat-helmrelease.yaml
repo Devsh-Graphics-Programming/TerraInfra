@@ -41,7 +41,7 @@ spec:
     minAvailable: 0
     image:
       repository: registry.rocket.chat/rocketchat/rocket.chat
-      tag: 8.4.1
+      tag: 8.4.4
       pullPolicy: Always
     extraSecret: rocket-bootstrap
     existingMongodbSecret: rocket-mongodb-uri
@@ -136,6 +136,8 @@ spec:
       - name: OVERWRITE_SETTING_Accounts_TwoFactorAuthentication_By_Email_Enabled
         value: "true"
       - name: OVERWRITE_SETTING_Accounts_TwoFactorAuthentication_By_Email_Auto_Opt_In
+        value: "false"
+      - name: OVERWRITE_SETTING_API_Embed
         value: "false"
       - name: OVERWRITE_SETTING_SMTP_Protocol
         value: smtp

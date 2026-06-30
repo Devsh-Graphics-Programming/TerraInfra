@@ -41,6 +41,7 @@ spec:
                     Accounts_TwoFactorAuthentication_By_TOTP_Enabled: true,
                     Accounts_TwoFactorAuthentication_By_Email_Enabled: true,
                     Accounts_TwoFactorAuthentication_By_Email_Auto_Opt_In: false,
+                    API_Embed: false,
                     SMTP_Protocol: "smtp",
                     SMTP_Host: "mail.devsh.eu",
                     SMTP_Port: "587",
