@@ -35,6 +35,7 @@ spec:
                     Size: "0",
                     Country: "poland",
                     Website: "https://www.devsh.eu",
+                    Cloud_Url: "https://cloud.rocket.chat",
                     Accounts_RegistrationForm: "Disabled",
                     Accounts_PasswordReset: true,
                     Accounts_TwoFactorAuthentication_Enabled: true,
@@ -58,6 +59,10 @@ spec:
 
                   for (const [id, value] of Object.entries(desired)) {
                     settings.updateOne({ _id: id }, { $set: { value, updatedAt: now } });
+                  }
+
+                  for (const id of ["Cloud_Billing_Url", "Cloud_Workspace_Registration_Client_Uri"]) {
+                    settings.updateOne({ _id: id, value: "http://127.0.0.1:9" }, { $set: { value: "", updatedAt: now } });
                   }
 
                   db.users.updateOne(

@@ -64,6 +64,10 @@ The deployment sends Rocket.Chat metadata and usage statistics to the official c
 - `Country=poland`
 - `Website=https://www.devsh.eu`
 
+Rocket.Chat Cloud registration traffic uses the official Cloud URL:
+
+- `Cloud_Url=https://cloud.rocket.chat`
+
 The deployment keeps Rocket.Chat push gateway integration disabled:
 
 - `Push_enable=false`
@@ -73,7 +77,8 @@ The deployment keeps server-side link previews disabled:
 
 - `API_Embed=false`
 
-The `rocket-settings-guard` CronJob enforces local policy settings in MongoDB, including setup wizard completion, file protection, account policy, metadata, and deployment fingerprint verification. It must not clear `Cloud_Workspace_*`, collector tokens, cloud URLs, registration data, or license data.
+The `rocket-settings-guard` CronJob enforces local policy settings in MongoDB, including setup wizard completion, file protection, account policy, metadata, Cloud URL, and deployment fingerprint verification. It must not clear workspace credentials, collector tokens, real registration data, or license data.
+The guard only removes legacy `http://127.0.0.1:9` Cloud URL leftovers when that exact old offline-mode value is present.
 
 Deployment fingerprint changes are auto-accepted as regular configuration updates with `AUTO_ACCEPT_FINGERPRINT=true`. This prevents admin-only workspace identity prompts after expected Flux, URL, or MongoDB connection changes.
 
