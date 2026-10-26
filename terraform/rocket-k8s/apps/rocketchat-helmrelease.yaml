@@ -41,7 +41,7 @@ spec:
     minAvailable: 0
     image:
       repository: registry.rocket.chat/rocketchat/rocket.chat
-      tag: 8.4.4
+      tag: 8.9.0
       pullPolicy: Always
     extraSecret: rocket-bootstrap
     existingMongodbSecret: rocket-mongodb-uri

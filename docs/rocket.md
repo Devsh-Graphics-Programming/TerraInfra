@@ -51,7 +51,7 @@ Rocket.Chat is operated as a self-hosted DevSH service. Chat messages, users, ro
 The application runs from the official Rocket.Chat image:
 
 ```text
-registry.rocket.chat/rocketchat/rocket.chat:8.4.4
+registry.rocket.chat/rocketchat/rocket.chat:8.9.0
 ```
 
 Rocket.Chat source code is not patched for production. Version changes happen by changing the official image tag in the HelmRelease and letting Flux reconcile the deployment.
