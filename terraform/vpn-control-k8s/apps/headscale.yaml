@@ -28,7 +28,7 @@ spec:
   template:
     metadata:
       annotations:
-        devsh.eu/headscale-config-revision: "2026-05-15-rocket-dns"
+        devsh.eu/headscale-config-revision: "2026-11-14-vaultwarden-dns"
       labels:
         app.kubernetes.io/name: headscale
     spec:
