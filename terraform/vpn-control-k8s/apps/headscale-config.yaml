@@ -67,6 +67,9 @@ data:
         - name: rocketchat.devsh.eu
           type: A
           value: 100.64.0.8
+        - name: vw-matt.alpha.devsh.eu
+          type: A
+          value: 100.64.0.36
 
     unix_socket: /var/run/headscale/headscale.sock
     unix_socket_permission: "0770"
