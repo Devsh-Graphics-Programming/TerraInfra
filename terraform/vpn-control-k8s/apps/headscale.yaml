@@ -28,7 +28,7 @@ spec:
   template:
     metadata:
       annotations:
-        devsh.eu/headscale-config-revision: "2026-11-14-01"
+        devsh.eu/headscale-config-revision: "2026-11-15-01"
       labels:
         app.kubernetes.io/name: headscale
     spec:
