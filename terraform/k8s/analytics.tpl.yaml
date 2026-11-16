@@ -91,7 +91,7 @@ spec:
               if [ "$(goatcounter db query -format=csv "SELECT count(*) FROM sites WHERE cname='$site'" | sed -n '2p')" = 0 ]; then
                 goatcounter db create site -vhost="$site"
               fi
-              goatcounter db query -format=exec "UPDATE sites SET link_domain='https://$site', settings=json_set(settings, '$.public', '', '$.collect', 150, '$.allow_counter', json('false'), '$.data_retention', 0) WHERE cname='$site'"
+              goatcounter db query -format=exec "UPDATE sites SET link_domain='https://$site', settings=json_set(settings, '$.public', '', '$.collect', 222, '$.allow_counter', json('false'), '$.data_retention', 0) WHERE cname='$site'"
           envFrom:
             - secretRef:
                 name: goatcounter-admin
