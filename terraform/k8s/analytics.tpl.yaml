@@ -1,0 +1,162 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: local-path-config
+  namespace: kube-system
+data:
+  config.json: |
+    {
+      "nodePathMap": [],
+      "storageClassConfigs": {
+        "local-path": {"nodePathMap": [{"node": "DEFAULT_PATH_FOR_NON_LISTED_NODES", "paths": ["/var/lib/rancher/k3s/storage"]}]},
+        "analytics-local": {"nodePathMap": [{"node": "${NODE_NAME}", "paths": ["/mnt/data/local-path"]}]}
+      }
+    }
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: analytics-local
+provisioner: rancher.io/local-path
+reclaimPolicy: Retain
+volumeBindingMode: WaitForFirstConsumer
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: goatcounter-data
+  namespace: analytics
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: analytics-local
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: goatcounter
+  namespace: analytics
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: goatcounter
+  template:
+    metadata:
+      labels:
+        app: goatcounter
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: ${NODE_NAME}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      automountServiceAccountToken: false
+      initContainers:
+        - <<: &goatcounter
+            image: arp242/goatcounter:2.7.0
+            imagePullPolicy: Always
+            env:
+              - name: GOATCOUNTER_DB
+                value: sqlite+/data/db.sqlite3
+            resources:
+              requests: {cpu: 25m, memory: 64Mi}
+              limits: {cpu: 500m, memory: 256Mi}
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: [ALL]
+            volumeMounts:
+              - {name: data, mountPath: /data}
+              - {name: tmp, mountPath: /tmp}
+          name: initialize
+          command: [/bin/sh, -ec]
+          args:
+            - |
+              set -o pipefail
+              site="${ENV_PREFIX}www.${BASE_DOMAIN}"
+              goatcounter db migrate all -createdb
+              if [ "$(goatcounter db query -format=csv "SELECT count(*) FROM sites WHERE cname='$site'" | sed -n '2p')" = 0 ]; then
+                goatcounter db create site -vhost="$site"
+              fi
+              goatcounter db query -format=exec "UPDATE sites SET link_domain='https://$site', settings=json_set(settings, '$.public', '', '$.collect', 22, '$.allow_counter', json('false'), '$.data_retention', 365) WHERE cname='$site'"
+          envFrom:
+            - secretRef:
+                name: goatcounter-admin
+      containers:
+        - <<: *goatcounter
+          name: goatcounter
+          args: [serve, "-listen=:8080", "-base-path=/stats", "-tls=http", "-smtp=smtp://127.0.0.1:25", "-ratelimit=count:20/1"]
+          ports:
+            - {name: http, containerPort: 8080}
+          startupProbe:
+            <<: &probe
+              httpGet: {path: /stats/count.js, port: http}
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe: *probe
+          livenessProbe: *probe
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: goatcounter-data
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 32Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: goatcounter
+  namespace: analytics
+spec:
+  selector:
+    app: goatcounter
+  ports:
+    - {port: 80, targetPort: http}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: goatcounter
+  namespace: analytics
+  annotations:
+    nginx.ingress.kubernetes.io/enable-access-log: "false"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: ${ENV_PREFIX}www.${BASE_DOMAIN}
+      http:
+        paths:
+          - path: /stats
+            pathType: Prefix
+            backend:
+              service:
+                name: goatcounter
+                port: {number: 80}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: goatcounter
+  namespace: analytics
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: infra
+      ports: [{protocol: TCP, port: 8080}]
+  egress: []
