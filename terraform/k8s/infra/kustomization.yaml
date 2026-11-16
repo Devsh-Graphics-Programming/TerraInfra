@@ -5,3 +5,11 @@ resources:
   - cert-manager-helmrelease.yaml
   - ingress-repo.yaml
   - ingress-helmrelease.yaml
+patches:
+  - target:
+      kind: HelmRelease
+      name: ingress-nginx
+    patch: |-
+      - op: add
+        path: /spec/values/controller/service
+        value: {externalTrafficPolicy: Local}
