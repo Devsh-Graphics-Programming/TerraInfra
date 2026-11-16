@@ -18,6 +18,8 @@ kind: StorageClass
 metadata:
   name: analytics-local
 provisioner: rancher.io/local-path
+parameters:
+  nodePath: /mnt/data/local-path
 reclaimPolicy: Retain
 volumeBindingMode: WaitForFirstConsumer
 ---
@@ -60,6 +62,7 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       automountServiceAccountToken: false
+      enableServiceLinks: false
       initContainers:
         - <<: &goatcounter
             image: arp242/goatcounter:2.7.0
