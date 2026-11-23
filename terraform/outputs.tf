@@ -70,6 +70,11 @@ output "vpn_control_node_ip" {
   description = "Public IP of the dedicated VPN control-plane node"
 }
 
+output "vpn_exit_node_ip" {
+  value       = scaleway_instance_ip.vpn_exit.address
+  description = "Public IP of the dedicated VPN exit node"
+}
+
 output "vpn_control_data_volume_id" {
   value       = scaleway_block_volume.vpn_control_data.id
   description = "ID of the dedicated VPN control-plane data volume"
